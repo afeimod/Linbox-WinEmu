@@ -826,18 +826,24 @@ class ControlElement(
                     )
 
                     for (i in 0..3) {
-                        val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
 
                         if (binding.isGamepad()) {
+                            val inputValue = if (i == 1 || i == 3) deltaX else deltaY
                             val adjustedValue = com.termux.x11.controller.math.Mathf.clamp(
-                                kotlin.math.abs(kotlin.math.abs(value) - 0.01f) * kotlin.math.sign(value) * STICK_SENSITIVITY,
+                                kotlin.math.abs(kotlin.math.abs(inputValue) - 0.01f) * kotlin.math.sign(inputValue) * STICK_SENSITIVITY,
                                 -1f, 1f
                             )
                             inputControlsView.handleInputEvent(binding, true, adjustedValue)
                             states[i] = true
                         } else {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
+                            // For mouse move bindings, use direction sign; for keyboard, use raw delta
+                            val value = if (binding.isMouseMove()) {
+                                if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
+                            } else {
+                                if (i == 1 || i == 3) deltaX else deltaY
+                            }
                             inputControlsView.handleInputEvent(binding, state, value)
                             states[i] = state
                         }
@@ -856,26 +862,32 @@ class ControlElement(
                     var cursorDy = 0
 
                     for (i in 0..3) {
-                        val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
+                        val inputValue = if (i == 1 || i == 3) deltaX else deltaY
 
                         if (binding.isGamepad()) {
-                            if (interpolator == null) interpolator = CubicBezierInterpolator()
-                            if (kotlin.math.abs(value) > TRACKPAD_ACCELERATION_THRESHOLD) {
-                                inputControlsView.handleInputEvent(binding, true, value * STICK_SENSITIVITY)
+                            if (kotlin.math.abs(inputValue) > TRACKPAD_ACCELERATION_THRESHOLD) {
+                                inputControlsView.handleInputEvent(binding, true, inputValue * STICK_SENSITIVITY)
                             }
+                            if (interpolator == null) interpolator = CubicBezierInterpolator()
                             interpolator?.set(0.075f, 0.95f, 0.45f, 0.95f)
-                            val interpolatedValue = interpolator?.getInterpolation(kotlin.math.min(1.0f, kotlin.math.abs(value / TRACKPAD_MAX_SPEED))) ?: 0f
-                            inputControlsView.handleInputEvent(binding, true, com.termux.x11.controller.math.Mathf.clamp(interpolatedValue * kotlin.math.sign(value), -1f, 1f))
+                            val interpolatedValue = interpolator?.getInterpolation(kotlin.math.min(1.0f, kotlin.math.abs(inputValue / TRACKPAD_MAX_SPEED))) ?: 0f
+                            inputControlsView.handleInputEvent(binding, true, com.termux.x11.controller.math.Mathf.clamp(interpolatedValue * kotlin.math.sign(inputValue), -1f, 1f))
                             states[i] = true
                         } else {
-                            if (kotlin.math.abs(value) > InputControlsView.CURSOR_ACCELERATION_THRESHOLD) {
-                                inputControlsView.handleInputEvent(binding, true, value * InputControlsView.CURSOR_ACCELERATION)
+                            if (kotlin.math.abs(inputValue) > InputControlsView.CURSOR_ACCELERATION_THRESHOLD) {
+                                inputControlsView.handleInputEvent(binding, true, inputValue * InputControlsView.CURSOR_ACCELERATION)
                             }
                             when (binding) {
-                                Binding.MOUSE_MOVE_LEFT, Binding.MOUSE_MOVE_RIGHT -> cursorDx = kotlin.math.round(value).toInt()
-                                Binding.MOUSE_MOVE_UP, Binding.MOUSE_MOVE_DOWN -> cursorDy = kotlin.math.round(value).toInt()
+                                Binding.MOUSE_MOVE_LEFT, Binding.MOUSE_MOVE_RIGHT -> cursorDx = kotlin.math.round(inputValue).toInt()
+                                Binding.MOUSE_MOVE_UP, Binding.MOUSE_MOVE_DOWN -> cursorDy = kotlin.math.round(inputValue).toInt()
                                 else -> {
+                                    // For mouse move bindings, use direction sign; for keyboard, use raw delta
+                                    val value = if (binding.isMouseMove()) {
+                                        if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
+                                    } else {
+                                        inputValue
+                                    }
                                     inputControlsView.handleInputEvent(binding, newStates[i], value)
                                     states[i] = newStates[i]
                                 }
@@ -896,9 +908,14 @@ class ControlElement(
                     )
 
                     for (i in 0..3) {
-                        val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
                         val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
+                        // For mouse move bindings, use direction sign; for keyboard, use raw delta
+                        val value = if (binding.isMouseMove()) {
+                            if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
+                        } else {
+                            if (i == 1 || i == 3) deltaX else deltaY
+                        }
                         inputControlsView.handleInputEvent(binding, state, value)
                         states[i] = state
                     }
