@@ -391,8 +391,8 @@ class InputControlsView(context: Context?) : View(context) {
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (selectedElement != null) {
-                        selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
-                        selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
+                        selectedElement!!.setX(Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt())
+                        selectedElement!!.setY(Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt())
                         invalidate()
                     }
                 }
@@ -443,11 +443,12 @@ class InputControlsView(context: Context?) : View(context) {
                 }
                 MotionEvent.ACTION_MOVE -> {
                     for (i in 0 until event.pointerCount) {
+                        val ptrId = event.getPointerId(i)
                         val x = event.getX(i)
                         val y = event.getY(i)
                         handled = false
                         for (element in profile!!.getElements()) {
-                            if (element.handleTouchMove(i, x, y)) {
+                            if (element.handleTouchMove(ptrId, x, y)) {
                                 handled = true
                             }
                         }
@@ -455,10 +456,11 @@ class InputControlsView(context: Context?) : View(context) {
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                     for (i in 0 until event.pointerCount) {
+                        val ptrId = event.getPointerId(i)
                         val x = event.getX(i)
                         val y = event.getY(i)
                         for (element in profile!!.getElements()) {
-                            if (element.handleTouchUp(pointerId, x, y)) {
+                            if (element.handleTouchUp(ptrId, x, y)) {
                                 handled = true
                             }
                         }
