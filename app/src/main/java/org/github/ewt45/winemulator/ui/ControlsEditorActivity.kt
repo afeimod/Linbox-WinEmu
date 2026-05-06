@@ -178,10 +178,11 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         }
 
         updateLayout.run()
+        val tvScaleView = view.findViewById<TextView>(R.id.TVScale)
         val sbScale = view.findViewById<SeekBar>(R.id.SBScale)
         sbScale.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                tvScale.text = "$progress%"
+                tvScaleView.text = "$progress%"
                 if (fromUser) {
                     element.scale = progress / 100.0f
                     profile?.save()
