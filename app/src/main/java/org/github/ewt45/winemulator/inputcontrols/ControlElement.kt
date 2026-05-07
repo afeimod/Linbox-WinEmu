@@ -90,8 +90,6 @@ class ControlElement(
 
     // 持续按下相关（为 BUTTON 类型添加，实现像 D_PAD 一样的持续按键）
     private var isButtonHeldDown: Boolean = false
-    // BUTTON 类型的当前状态，用于在 handleTouchMove 中持续发送
-    private var buttonStateSent: Boolean = false
 
     constructor(inputControlsView: InputControlsView, type: Type) : this(inputControlsView) {
         this.type = type
@@ -779,12 +777,11 @@ class ControlElement(
                     return true
                 }
                 Type.BUTTON -> {
-                    if (!isToggleSwitch || !isSelected) {
-                        val binding = getBindingAt(0)
-                        inputControlsView.handleInputEvent(binding, true)
-                    }
+                    // 简化的 BUTTON 处理逻辑，与参考项目 winlator-11 一致
+                    // 按下时发送 keyDown 事件
+                    val binding = getBindingAt(0)
+                    inputControlsView.handleInputEvent(binding, true)
                     isButtonHeldDown = true
-                    buttonStateSent = true
                     return true
                 }
                 Type.RANGE_BUTTON -> {
@@ -998,12 +995,11 @@ class ControlElement(
                     }
                 }
                 Type.BUTTON -> {
-                    // 释放按键
+                    // 释放按键 - 与参考项目 winlator-11 一致
                     val binding = getBindingAt(0)
                     if (isButtonHeldDown) {
                         inputControlsView.handleInputEvent(binding, false)
                         isButtonHeldDown = false
-                        buttonStateSent = false
                     }
 
                     if (isToggleSwitch) {
