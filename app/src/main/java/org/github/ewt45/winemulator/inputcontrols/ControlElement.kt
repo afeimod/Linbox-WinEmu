@@ -88,9 +88,6 @@ class ControlElement(
     private var backgroundColor: Int = 0
     private var oldBackgroundColor: Int = -1
 
-    // 持续按下相关（为 BUTTON 类型添加，实现像 D_PAD 一样的持续按键）
-    private var isButtonHeldDown: Boolean = false
-
     constructor(inputControlsView: InputControlsView, type: Type) : this(inputControlsView) {
         this.type = type
         reset()
@@ -781,7 +778,6 @@ class ControlElement(
                     // 按下时发送 keyDown 事件
                     val binding = getBindingAt(0)
                     inputControlsView.handleInputEvent(binding, true)
-                    isButtonHeldDown = true
                     return true
                 }
                 Type.RANGE_BUTTON -> {
@@ -804,11 +800,10 @@ class ControlElement(
     }
 
     fun handleTouchMove(pointerId: Int, px: Float, py: Float): Boolean {
-        // BUTTON 类型：不需要在 handleTouchMove 中做任何事情
+        // BUTTON 类型：需要在 handleTouchMove 中返回 true，阻止事件继续传播到 touchpad
         // 按下状态已经在 handleTouchDown 中设置，释放状态在 handleTouchUp 中处理
-        // 这与参考项目 winlator-11 的逻辑一致
-        if (type == Type.BUTTON) {
-            return false
+        if (pointerId == currentPointerId && type == Type.BUTTON) {
+            return true
         }
 
         if (pointerId == currentPointerId && (type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD)) {
@@ -997,10 +992,7 @@ class ControlElement(
                 Type.BUTTON -> {
                     // 释放按键 - 与参考项目 winlator-11 一致
                     val binding = getBindingAt(0)
-                    if (isButtonHeldDown) {
-                        inputControlsView.handleInputEvent(binding, false)
-                        isButtonHeldDown = false
-                    }
+                    inputControlsView.handleInputEvent(binding, false)
 
                     if (isToggleSwitch) {
                         isSelected = !isSelected

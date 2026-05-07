@@ -420,7 +420,6 @@ class InputControlsView(context: Context?) : View(context) {
         }
         if (!editMode && profile != null) {
             val actionIndex = event.actionIndex
-            val pointerId = event.getPointerId(actionIndex)
             val actionMasked = event.actionMasked
             var handled = false
 
@@ -428,6 +427,7 @@ class InputControlsView(context: Context?) : View(context) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
+                    val pointerId = event.getPointerId(actionIndex)
                     pointerButtonLeftEnabled = true
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchDown(pointerId, x, y)) {
@@ -437,16 +437,13 @@ class InputControlsView(context: Context?) : View(context) {
                             }
                         }
                     }
-                    if (!handled) {
-                        // No element handled this touch, could be a gesture
-                    }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    for (i in 0 until event.pointerCount) {
-                        val ptrId = event.getPointerId(i)
-                        val x = event.getX(i)
-                        val y = event.getY(i)
-                        handled = false
+                    // 只处理第一个指针的移动事件，避免多指操作干扰按键
+                    if (event.pointerCount > 0) {
+                        val ptrId = event.getPointerId(0)
+                        val x = event.getX(0)
+                        val y = event.getY(0)
                         for (element in profile!!.getElements()) {
                             if (element.handleTouchMove(ptrId, x, y)) {
                                 handled = true
@@ -455,14 +452,13 @@ class InputControlsView(context: Context?) : View(context) {
                     }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                    for (i in 0 until event.pointerCount) {
-                        val ptrId = event.getPointerId(i)
-                        val x = event.getX(i)
-                        val y = event.getY(i)
-                        for (element in profile!!.getElements()) {
-                            if (element.handleTouchUp(ptrId, x, y)) {
-                                handled = true
-                            }
+                    // 只处理 actionIndex 对应的指针，而不是所有指针
+                    val ptrId = event.getPointerId(actionIndex)
+                    val x = event.getX(actionIndex)
+                    val y = event.getY(actionIndex)
+                    for (element in profile!!.getElements()) {
+                        if (element.handleTouchUp(ptrId, x, y)) {
+                            handled = true
                         }
                     }
                 }
