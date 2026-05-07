@@ -106,6 +106,8 @@ class ControlElement(
                 )
             }
             Type.RANGE_BUTTON -> {
+                // RANGE_BUTTON 默认 4 个 bindings，与 D_PAD、STICK 保持一致
+                bindings = arrayOf(Binding.NONE, Binding.NONE, Binding.NONE, Binding.NONE)
                 scroller = RangeScroller(inputControlsView, this)
             }
             else -> {}
@@ -122,6 +124,8 @@ class ControlElement(
     fun setType(type: Type) {
         this.type = type
         reset()
+        boundingBoxNeedsUpdate = true
+        inputControlsView.invalidate()
     }
 
     fun getBindingCount(): Int = bindings.size
