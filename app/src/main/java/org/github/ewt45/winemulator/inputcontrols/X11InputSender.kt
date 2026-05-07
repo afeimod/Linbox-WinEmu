@@ -38,34 +38,15 @@ class X11InputSender {
      * Send a key event using Android KeyEvent
      * @param keycode The Android keycode
      * @param isDown True if key is pressed, false if released
-     * @param disableAutoRepeat Whether to disable Android's auto key repeat mechanism
      */
-    fun sendKeyEvent(keycode: Int, isDown: Boolean, disableAutoRepeat: Boolean = false) {
+    fun sendKeyEvent(keycode: Int, isDown: Boolean) {
         val sender = inputEventSender ?: return
         
         handler.post {
-            val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
-            // Calculate flags - set FLAG_LONG_PRESS to disable auto-repeat when needed
-            val flags = if (disableAutoRepeat) {
-                KeyEvent.FLAG_LONG_PRESS
-            } else {
-                0
-            }
-            
-            // Create KeyEvent with proper flags using the full constructor
             val event = KeyEvent(
-                System.currentTimeMillis(),  // downTime
-                System.currentTimeMillis(),  // eventTime
-                action,                       // action
-                keycode,                      // keyCode
-                0,                           // repeat count
-                0,                           // metaState
-                0,                           // deviceId
-                0,                           // scanCode
-                flags,                       // flags - KEYCODE itself doesn't auto-repeat with this flag
-                KeyEvent.FLAG_FROM_SYSTEM     // source
+                if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP,
+                keycode
             )
-            
             sender.sendKeyEvent(event)
         }
     }
@@ -74,12 +55,11 @@ class X11InputSender {
      * Convert evdev keycode to Android keycode and send
      * @param evdevKeycode The evdev keycode (as used in Linux input layer)
      * @param isDown True if key is pressed, false if released
-     * @param disableAutoRepeat Whether to disable Android's auto key repeat mechanism
      */
-    fun sendEvdevKeyEvent(evdevKeycode: Int, isDown: Boolean, disableAutoRepeat: Boolean = false) {
+    fun sendEvdevKeyEvent(evdevKeycode: Int, isDown: Boolean) {
         val androidKeycode = evdevToAndroidKeycode(evdevKeycode)
         if (androidKeycode != 0) {
-            sendKeyEvent(androidKeycode, isDown, disableAutoRepeat)
+            sendKeyEvent(androidKeycode, isDown)
         }
     }
 

@@ -8,9 +8,8 @@ interface InputEventHandler {
      * Handle a key event
      * @param keycode The Android keycode
      * @param isDown True if key is pressed, false if released
-     * @param disableAutoRepeat Whether to disable Android's auto key repeat mechanism
      */
-    fun onKeyEvent(keycode: Int, isDown: Boolean, disableAutoRepeat: Boolean = false)
+    fun onKeyEvent(keycode: Int, isDown: Boolean)
 
     /**
      * Handle pointer movement
