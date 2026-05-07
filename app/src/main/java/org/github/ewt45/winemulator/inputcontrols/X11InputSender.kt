@@ -3,6 +3,7 @@ package org.github.ewt45.winemulator.inputcontrols
 import android.graphics.PointF
 import android.os.Handler
 import android.os.Looper
+import android.view.InputDevice
 import android.view.KeyEvent
 import com.termux.x11.input.InputEventSender
 import com.termux.x11.input.InputStub
