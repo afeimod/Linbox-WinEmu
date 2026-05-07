@@ -44,15 +44,28 @@ class X11InputSender {
         val sender = inputEventSender ?: return
         
         handler.post {
-            val event = KeyEvent(
-                if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP,
-                keycode
-            )
-            // Disable Android's auto key repeat to prevent "one step at a time" behavior
-            // This ensures continuous key press events from gamepad/stick are properly handled
-            if (disableAutoRepeat) {
-                event.flags = event.flags or KeyEvent.FLAG_LONG_PRESS
+            val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+            // Calculate flags - set FLAG_LONG_PRESS to disable auto-repeat when needed
+            val flags = if (disableAutoRepeat) {
+                KeyEvent.FLAG_LONG_PRESS
+            } else {
+                0
             }
+            
+            // Create KeyEvent with proper flags using the full constructor
+            val event = KeyEvent(
+                System.currentTimeMillis(),  // downTime
+                System.currentTimeMillis(),  // eventTime
+                action,                       // action
+                keycode,                      // keyCode
+                0,                           // repeat count
+                0,                           // metaState
+                0,                           // deviceId
+                0,                           // scanCode
+                flags,                       // flags - KEYCODE itself doesn't auto-repeat with this flag
+                KeyEvent.FLAG_FROM_SYSTEM     // source
+            )
+            
             sender.sendKeyEvent(event)
         }
     }
