@@ -77,9 +77,8 @@ fun X11Screen(
     // InputEventHandler 使用 X11InputSender
     val inputEventHandler = remember {
         object : InputEventHandler {
-            override fun onKeyEvent(keycode: Int, isDown: Boolean, disableAutoRepeat: Boolean) {
-                // Pass disableAutoRepeat to ensure continuous key press for gamepad/stick controls
-                x11InputSender.sendEvdevKeyEvent(keycode, isDown, disableAutoRepeat)
+            override fun onKeyEvent(keycode: Int, isDown: Boolean) {
+                x11InputSender.sendEvdevKeyEvent(keycode, isDown)
             }
             override fun onPointerMove(dx: Int, dy: Int) {
                 x11InputSender.sendMouseMotionEvent(dx, dy)
