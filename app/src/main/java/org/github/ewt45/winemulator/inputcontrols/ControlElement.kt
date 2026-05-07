@@ -782,9 +782,9 @@ class ControlElement(
                     if (!isToggleSwitch || !isSelected) {
                         val binding = getBindingAt(0)
                         inputControlsView.handleInputEvent(binding, true)
-                        isButtonHeldDown = true
-                        buttonStateSent = true
                     }
+                    isButtonHeldDown = true
+                    buttonStateSent = true
                     return true
                 }
                 Type.RANGE_BUTTON -> {
@@ -807,6 +807,14 @@ class ControlElement(
     }
 
     fun handleTouchMove(pointerId: Int, px: Float, py: Float): Boolean {
+        // BUTTON 类型：只要 isButtonHeldDown 为 true，就持续发送 keyDown
+        // 这样可以实现像 D_PAD 一样的持续按键效果
+        if (isButtonHeldDown) {
+            val binding = getBindingAt(0)
+            inputControlsView.handleInputEvent(binding, true)
+            return true
+        }
+
         if (pointerId == currentPointerId && (type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD)) {
             var deltaX: Float
             var deltaY: Float
@@ -953,15 +961,6 @@ class ControlElement(
             return true
         } else if (pointerId == currentPointerId && type == Type.RANGE_BUTTON) {
             scroller?.handleTouchMove(px, py)
-            return true
-        }
-
-        // BUTTON 类型：在 handleTouchMove 中持续发送按键状态，和 D_PAD 一样
-        // 这样可以确保游戏能持续接收到按键按下状态
-        if (isButtonHeldDown) {
-            val binding = getBindingAt(0)
-            // 持续发送 keyDown 事件，保持按下状态
-            inputControlsView.handleInputEvent(binding, true)
             return true
         }
 
