@@ -43,10 +43,8 @@ class X11InputSender {
         val sender = inputEventSender ?: return
         
         handler.post {
-            val downTime = System.currentTimeMillis()
-            val eventTime = System.currentTimeMillis()
             val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
-            val event = KeyEvent(downTime, eventTime, action, keycode)
+            val event = KeyEvent(action, keycode)
             sender.sendKeyEvent(event)
         }
     }
