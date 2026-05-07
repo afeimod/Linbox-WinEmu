@@ -90,6 +90,8 @@ class ControlElement(
 
     // 持续按下相关（为 BUTTON 类型添加，实现像 D_PAD 一样的持续按键）
     private var isButtonHeldDown: Boolean = false
+    // BUTTON 类型的当前状态，用于在 handleTouchMove 中持续发送
+    private var buttonStateSent: Boolean = false
 
     constructor(inputControlsView: InputControlsView, type: Type) : this(inputControlsView) {
         this.type = type
@@ -781,6 +783,7 @@ class ControlElement(
                         val binding = getBindingAt(0)
                         inputControlsView.handleInputEvent(binding, true)
                         isButtonHeldDown = true
+                        buttonStateSent = true
                     }
                     return true
                 }
@@ -953,10 +956,12 @@ class ControlElement(
             return true
         }
 
-        // BUTTON 类型：保持按下状态被识别
-        // D_PAD 在 handleTouchMove 中会持续发送事件来保持按下状态
-        // BUTTON 只需要标记为按住状态，不需要重复发送
+        // BUTTON 类型：在 handleTouchMove 中持续发送按键状态，和 D_PAD 一样
+        // 这样可以确保游戏能持续接收到按键按下状态
         if (isButtonHeldDown) {
+            val binding = getBindingAt(0)
+            // 持续发送 keyDown 事件，保持按下状态
+            inputControlsView.handleInputEvent(binding, true)
             return true
         }
 
@@ -1000,6 +1005,7 @@ class ControlElement(
                     if (isButtonHeldDown) {
                         inputControlsView.handleInputEvent(binding, false)
                         isButtonHeldDown = false
+                        buttonStateSent = false
                     }
 
                     if (isToggleSwitch) {
