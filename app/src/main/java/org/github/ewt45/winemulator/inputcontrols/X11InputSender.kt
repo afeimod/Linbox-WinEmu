@@ -44,19 +44,18 @@ class X11InputSender {
         val sender = inputEventSender ?: return
         
         handler.post {
-            // Use the full KeyEvent constructor to properly set all parameters
-            // This ensures correct handling by the Android input system
+            val flags = KeyEvent.FLAG_SOFT_KEYBOARD or KeyEvent.FLAG_KEEP_TOUCH_MODE
             val event = KeyEvent(
-                System.currentTimeMillis(),      // downTime
-                System.currentTimeMillis(),      // eventTime
-                if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP,  // action
-                keycode,                         // keyCode
-                0,                              // repeat count
-                0,                              // metaState
-                0,                              // deviceId
-                0,                              // scanCode
-                KeyEvent.FLAG_SOFT_KEYBOARD | KeyEvent.FLAG_KEEP_TOUCH_MODE,  // flags
-                InputDevice.SOURCE_KEYBOARD      // source - treat as keyboard input
+                System.currentTimeMillis(),
+                System.currentTimeMillis(),
+                if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP,
+                keycode,
+                0,
+                0,
+                0,
+                0,
+                flags,
+                InputDevice.SOURCE_KEYBOARD
             )
             sender.sendKeyEvent(event)
         }
