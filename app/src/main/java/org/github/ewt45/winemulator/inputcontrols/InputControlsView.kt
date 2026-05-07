@@ -425,9 +425,10 @@ class InputControlsView(context: Context?) : View(context) {
 
             when (actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                    val x = event.getX(actionIndex)
-                    val y = event.getY(actionIndex)
-                    val pointerId = event.getPointerId(actionIndex)
+                    // 使用索引 0 获取第一个指针的信息，确保与 ACTION_MOVE 一致
+                    val x = event.getX(0)
+                    val y = event.getY(0)
+                    val pointerId = event.getPointerId(0)
                     pointerButtonLeftEnabled = true
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchDown(pointerId, x, y)) {

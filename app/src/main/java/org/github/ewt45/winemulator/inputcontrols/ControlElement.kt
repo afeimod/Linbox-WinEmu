@@ -72,7 +72,7 @@ class ControlElement(
     internal var iconId: Byte = 0
     internal var range: Range? = null
     internal var orientation: Byte = 0
-    private var currentPointerId: Int = -1
+    internal var currentPointerId: Int = -1
     private val boundingBox = Rect()
     private var states = booleanArrayOf(false, false, false, false)
     private var boundingBoxNeedsUpdate = true
@@ -800,11 +800,9 @@ class ControlElement(
     }
 
     fun handleTouchMove(pointerId: Int, px: Float, py: Float): Boolean {
-        // BUTTON 类型：需要在 handleTouchMove 中返回 true，阻止事件继续传播到 touchpad
+        // BUTTON 类型：不需要特殊处理，与参考项目 winlator-11 一致
         // 按下状态已经在 handleTouchDown 中设置，释放状态在 handleTouchUp 中处理
-        if (pointerId == currentPointerId && type == Type.BUTTON) {
-            return true
-        }
+        // 注意：返回 false 让事件可以传播到其他处理器
 
         if (pointerId == currentPointerId && (type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD)) {
             var deltaX: Float
