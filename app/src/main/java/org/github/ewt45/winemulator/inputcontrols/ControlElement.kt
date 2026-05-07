@@ -807,12 +807,11 @@ class ControlElement(
     }
 
     fun handleTouchMove(pointerId: Int, px: Float, py: Float): Boolean {
-        // BUTTON 类型：只要 isButtonHeldDown 为 true，就持续发送 keyDown
-        // 这样可以实现像 D_PAD 一样的持续按键效果
-        if (isButtonHeldDown) {
-            val binding = getBindingAt(0)
-            inputControlsView.handleInputEvent(binding, true)
-            return true
+        // BUTTON 类型：不需要在 handleTouchMove 中做任何事情
+        // 按下状态已经在 handleTouchDown 中设置，释放状态在 handleTouchUp 中处理
+        // 这与参考项目 winlator-11 的逻辑一致
+        if (type == Type.BUTTON) {
+            return false
         }
 
         if (pointerId == currentPointerId && (type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD)) {
