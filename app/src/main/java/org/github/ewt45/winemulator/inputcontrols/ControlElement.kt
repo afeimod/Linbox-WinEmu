@@ -947,14 +947,16 @@ class ControlElement(
         } else if (pointerId == currentPointerId && type == Type.RANGE_BUTTON) {
             scroller?.handleTouchMove(px, py)
             return true
-        } else if (pointerId == currentPointerId && type == Type.BUTTON) {
-            // BUTTON 类型在按住时持续发送 keyDown（像 D_PAD 一样无延迟）
-            if (isButtonHeldDown) {
-                val binding = getBindingAt(0)
-                inputControlsView.handleInputEvent(binding, true)
-            }
+        }
+
+        // BUTTON 类型：只要 isButtonHeldDown 为 true 就持续发送按键事件，不依赖 pointerId 匹配
+        // 这样可以实现像 D_PAD 一样的持续按键效果
+        if (isButtonHeldDown) {
+            val binding = getBindingAt(0)
+            inputControlsView.handleInputEvent(binding, true)
             return true
         }
+
         return false
     }
 
