@@ -534,7 +534,13 @@ class ControlElement(
         val snappingSize = inputControlsView.snappingSizeValue
         val radius = snappingSize * 0.75f * scale
         val currentRange = getRange()
-        val elementSize = scroller?.getElementSize() ?: 0f
+        
+        // When scroller is null (first creation), fall back to calculating elementSize
+        val elementSize = scroller?.getElementSize() ?: run {
+            val boxWidth = box.width().toFloat()
+            val boxHeight = box.height().toFloat()
+            maxOf(boxWidth, boxHeight) / getBindingCount()
+        }
         val scrollOffset = scroller?.getScrollOffset() ?: 0f
         val rangeIndex = scroller?.getRangeIndex() ?: intArrayOf(0, currentRange.max.toInt())
 
@@ -558,7 +564,8 @@ class ControlElement(
             )
             canvas.clipPath(clipPath)
 
-            var startX = box.left.toFloat() - (scrollOffset % elementSize)
+            val initialOffset = scrollOffset % elementSize
+            var startX = box.left.toFloat() - initialOffset
             val savedColor = paint.color
 
             for (i in rangeIndex[0] until rangeIndex[1]) {
@@ -610,7 +617,8 @@ class ControlElement(
             )
             canvas.clipPath(clipPath)
 
-            var startY = box.top.toFloat() - (scrollOffset % elementSize)
+            val initialOffset = scrollOffset % elementSize
+            var startY = box.top.toFloat() - initialOffset
             val savedColorY = paint.color
 
             for (i in rangeIndex[0] until rangeIndex[1]) {
