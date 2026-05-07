@@ -520,17 +520,19 @@ class InputControlsView(context: Context?) : View(context) {
                 if (isActionDown) createMouseMoveTimer()
             } else {
                 val pointerButton = binding.getPointerButton()
+                // Disable auto-repeat for keyboard keys to ensure continuous movement
+                val disableAutoRepeat = pointerButton == null
                 if (isActionDown) {
                     if (pointerButton != null) {
                         handler.onPointerButton(pointerButton.ordinal, true)
                     } else {
-                        handler.onKeyEvent(binding.toEvdev(), true)
+                        handler.onKeyEvent(binding.toEvdev(), true, disableAutoRepeat)
                     }
                 } else {
                     if (pointerButton != null) {
                         handler.onPointerButton(pointerButton.ordinal, false)
                     } else {
-                        handler.onKeyEvent(binding.toEvdev(), false)
+                        handler.onKeyEvent(binding.toEvdev(), false, false)
                     }
                 }
             }

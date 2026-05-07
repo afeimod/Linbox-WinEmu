@@ -38,8 +38,9 @@ class X11InputSender {
      * Send a key event using Android KeyEvent
      * @param keycode The Android keycode
      * @param isDown True if key is pressed, false if released
+     * @param disableAutoRepeat Whether to disable Android's auto key repeat mechanism
      */
-    fun sendKeyEvent(keycode: Int, isDown: Boolean) {
+    fun sendKeyEvent(keycode: Int, isDown: Boolean, disableAutoRepeat: Boolean = false) {
         val sender = inputEventSender ?: return
         
         handler.post {
@@ -47,6 +48,11 @@ class X11InputSender {
                 if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP,
                 keycode
             )
+            // Disable Android's auto key repeat to prevent "one step at a time" behavior
+            // This ensures continuous key press events from gamepad/stick are properly handled
+            if (disableAutoRepeat) {
+                event.flags = event.flags or KeyEvent.FLAG_LONG_PRESS
+            }
             sender.sendKeyEvent(event)
         }
     }
@@ -55,11 +61,12 @@ class X11InputSender {
      * Convert evdev keycode to Android keycode and send
      * @param evdevKeycode The evdev keycode (as used in Linux input layer)
      * @param isDown True if key is pressed, false if released
+     * @param disableAutoRepeat Whether to disable Android's auto key repeat mechanism
      */
-    fun sendEvdevKeyEvent(evdevKeycode: Int, isDown: Boolean) {
+    fun sendEvdevKeyEvent(evdevKeycode: Int, isDown: Boolean, disableAutoRepeat: Boolean = false) {
         val androidKeycode = evdevToAndroidKeycode(evdevKeycode)
         if (androidKeycode != 0) {
-            sendKeyEvent(androidKeycode, isDown)
+            sendKeyEvent(androidKeycode, isDown, disableAutoRepeat)
         }
     }
 
