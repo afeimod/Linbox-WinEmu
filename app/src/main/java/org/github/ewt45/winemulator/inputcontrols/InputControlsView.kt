@@ -221,15 +221,15 @@ class InputControlsView(
                         }
                     }
                     else -> {
-                        // 处理鼠标按钮事件，使用 getPointerButton 方法
-                        binding.getPointerButton()?.let { button ->
-                            inputEventHandler?.onPointerButton(button, isDown)
+                        // 处理鼠标按钮事件，直接使用 getPointerButton 返回的 Int 值
+                        binding.getPointerButton()?.let { buttonValue ->
+                            inputEventHandler?.onPointerButton(buttonValue, isDown)
                         }
                     }
                 }
             }
             binding.isKeyboard -> {
-                inputEventHandler?.onKeyEvent(binding.keycode, isDown)
+                inputEventHandler?.onKeyEvent(binding.keycode.id, isDown)
             }
         }
     }
