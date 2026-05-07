@@ -3,7 +3,6 @@ package org.github.ewt45.winemulator.inputcontrols
 import android.graphics.PointF
 import android.os.Handler
 import android.os.Looper
-import android.view.InputDevice
 import android.view.KeyEvent
 import com.termux.x11.input.InputEventSender
 import com.termux.x11.input.InputStub
@@ -44,18 +43,11 @@ class X11InputSender {
         val sender = inputEventSender ?: return
         
         handler.post {
-            val flags = KeyEvent.FLAG_SOFT_KEYBOARD or KeyEvent.FLAG_KEEP_TOUCH_MODE
             val event = KeyEvent(
                 System.currentTimeMillis(),
                 System.currentTimeMillis(),
                 if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP,
-                keycode,
-                0,
-                0,
-                0,
-                0,
-                flags,
-                InputDevice.SOURCE_KEYBOARD
+                keycode
             )
             sender.sendKeyEvent(event)
         }

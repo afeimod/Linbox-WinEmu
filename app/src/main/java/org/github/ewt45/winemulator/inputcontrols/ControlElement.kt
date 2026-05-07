@@ -90,12 +90,6 @@ class ControlElement(
 
     // 持续按下相关（为 BUTTON 类型添加，实现像 D_PAD 一样的持续按键）
     private var isButtonHeldDown: Boolean = false
-    // 用于持续发送按键的定时器
-    private var buttonRepeatTimer: Timer? = null
-    private var buttonRepeatHandler: Handler? = null
-    private var buttonRepeatRunnable: Runnable? = null
-    private val BUTTON_REPEAT_DELAY = 150L // 初始延迟
-    private val BUTTON_REPEAT_INTERVAL = 50L // 重复间隔
 
     constructor(inputControlsView: InputControlsView, type: Type) : this(inputControlsView) {
         this.type = type
@@ -787,8 +781,6 @@ class ControlElement(
                         val binding = getBindingAt(0)
                         inputControlsView.handleInputEvent(binding, true)
                         isButtonHeldDown = true
-                        // 启动定时器来持续发送按键事件
-                        startButtonRepeatTimer()
                     }
                     return true
                 }
@@ -961,8 +953,9 @@ class ControlElement(
             return true
         }
 
-        // BUTTON 类型：只要 isButtonHeldDown 为 true 就表示按键被按住
-        // 持续发送由定时器处理，这里只需要返回 true 表示触摸被处理
+        // BUTTON 类型：保持按下状态被识别
+        // D_PAD 在 handleTouchMove 中会持续发送事件来保持按下状态
+        // BUTTON 只需要标记为按住状态，不需要重复发送
         if (isButtonHeldDown) {
             return true
         }
@@ -1005,8 +998,6 @@ class ControlElement(
                     // 释放按键
                     val binding = getBindingAt(0)
                     if (isButtonHeldDown) {
-                        // 停止定时器
-                        stopButtonRepeatTimer()
                         inputControlsView.handleInputEvent(binding, false)
                         isButtonHeldDown = false
                     }
@@ -1035,48 +1026,6 @@ class ControlElement(
             return true
         }
         return false
-    }
-
-    /**
-     * 启动按键重复定时器，持续发送按键按下事件
-     * 这让 BUTTON 类型可以实现像 D_PAD 一样的持续按键效果
-     */
-    private fun startButtonRepeatTimer() {
-        // 先停止已有的定时器
-        stopButtonRepeatTimer()
-        
-        val binding = getBindingAt(0)
-        
-        // 使用 Handler 代替 Timer，更适合 Android UI 线程
-        val handler = Handler(Looper.getMainLooper())
-        buttonRepeatHandler = handler
-        
-        val runnable = object : Runnable {
-            override fun run() {
-                if (isButtonHeldDown) {
-                    inputControlsView.handleInputEvent(binding, true)
-                    // 持续重复发送
-                    handler.postDelayed(this, BUTTON_REPEAT_INTERVAL)
-                }
-            }
-        }
-        buttonRepeatRunnable = runnable
-        
-        // 延迟后开始重复
-        handler.postDelayed(runnable, BUTTON_REPEAT_DELAY)
-    }
-
-    /**
-     * 停止按键重复定时器
-     */
-    private fun stopButtonRepeatTimer() {
-        buttonRepeatRunnable?.let { runnable ->
-            buttonRepeatHandler?.removeCallbacks(runnable)
-        }
-        buttonRepeatRunnable = null
-        buttonRepeatHandler = null
-        buttonRepeatTimer?.cancel()
-        buttonRepeatTimer = null
     }
 }
 
