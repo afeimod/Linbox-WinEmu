@@ -142,6 +142,10 @@ class ControlElement(
     fun getRange(): Range = range ?: Range.FROM_A_TO_Z
     fun setRange(range: Range) {
         this.range = range
+        // Re-initialize the scroller since it doesn't have a reset method
+        scroller = RangeScroller(inputControlsView, this)
+        boundingBoxNeedsUpdate = true
+        inputControlsView.invalidate()
     }
 
     fun getOrientation(): Byte = orientation
