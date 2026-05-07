@@ -1,167 +1,189 @@
 package org.github.ewt45.winemulator.inputcontrols
 
-import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.*
-import android.os.VibrationEffect
-import android.os.Vibrator
+import android.view.InputDevice
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
-import org.github.ewt45.winemulator.inputcontrols.ControlElement.Shape
-import org.github.ewt45.winemulator.inputcontrols.ControlElement.Type
-import kotlin.math.*
+import com.termux.x11.controller.math.Mathf
+import java.io.File
+import java.io.IOException
+import java.io.InputStream
+import java.util.HashMap
+import java.util.Timer
+import java.util.TimerTask
 
 /**
- * View for rendering and interacting with input controls
+ * InputControlsView - Adapted for Linbox compatibility
+ * 
+ * This class implements virtual input controls for the Linbox X11 app.
+ * It uses the InputEventHandler interface to send input events to the X11 session.
  */
-@SuppressLint("ViewConstructor")
-class InputControlsView(
-    context: Context,
-    private var editMode: Boolean = false
-) : View(context) {
+class InputControlsView(context: Context?) : View(context) {
+    companion object {
+        const val DEFAULT_OVERLAY_OPACITY = 0.4f
+        const val MAX_TAP_TRAVEL_DISTANCE: Byte = 10
+        const val MAX_TAP_MILLISECONDS: Short = 200
+        const val CURSOR_ACCELERATION = 1.25f
+        const val CURSOR_ACCELERATION_THRESHOLD: Byte = 6
+    }
 
+    // Public properties for external access
     var inputEventHandler: InputEventHandler? = null
-    var profile: ControlsProfile? = null
-        private set
-    var showTouchscreenControls = true
-    var overlayOpacity = 0.4f
+    var showTouchscreenControlsVal: Boolean = true
+    var overlayOpacityVal: Float = DEFAULT_OVERLAY_OPACITY
+    
+    internal val snappingSizeValue: Int
+        get() = snappingSize
 
-    var touchpadView: TouchpadView? = null
-
-    val snappingSize: Int
-        get() = if (width > 0) maxOf(width, height) / 100 else 10
-
-    val maxWidth: Int
-        get() = if (snappingSize > 0) (width.toFloat() / snappingSize).roundToInt() * snappingSize else width
-
-    val maxHeight: Int
-        get() = if (snappingSize > 0) (height.toFloat() / snappingSize).roundToInt() * snappingSize else height
-
-    private var selectedElement: ControlElement? = null
-    private var moveCursor = false
-    private var offsetX = 0f
-    private var offsetY = 0f
-    private val cursor = Point()
-    private var pendingProfileReload = false  // 标记是否需要在新尺寸测量后重新加载配置
-
+    private var editMode = false
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
+    private val colorFilter = PorterDuffColorFilter(0xffffffff.toInt(), PorterDuff.Mode.SRC_IN)
+    private val cursor = Point()
     private var readyToDraw = false
-
-    private var vibrator: Vibrator? = null
-    private var vibrationEffect: VibrationEffect? = null
-
-    private var rangeScroller: RangeScroller? = null
-    private var currentElementForScroller: ControlElement? = null
-
-
-
-    // Icon cache
+    private var moveCursor = false
+    private var snappingSize = 0
+    private var offsetX = 0f
+    private var offsetY = 0f
+    private var selectedElement: ControlElement? = null
+    private var profile: ControlsProfile? = null
     private val icons = arrayOfNulls<Bitmap>(17)
+    private var mouseMoveTimer: Timer? = null
+    private val mouseMoveOffset = PointF()
+    private val counterMap = HashMap<String, Int>()
 
-    // 用于检测尺寸变化，重新加载元素坐标
-    private var lastMaxWidth = 0
-    private var lastMaxHeight = 0
+    // Track which pointer button is currently enabled for left-click
+    private var pointerButtonLeftEnabled = true
+
+    fun counterMapIncrease(iconId: String) {
+        var v = counterMap[iconId]
+        if (v == null) {
+            v = 0
+        }
+        v++
+        counterMap[iconId] = v
+    }
+
+    fun counterMapDecrease(iconId: String) {
+        var v = counterMap[iconId]
+        if (v != null) {
+            v--
+            counterMap[iconId] = v
+        }
+    }
+
+    fun counterMapZero(iconId: String): Boolean {
+        val v = counterMap[iconId]
+        if (v == null) {
+            return true
+        }
+        return v <= 0
+    }
 
     init {
-        // 默认可点击可聚焦，但会根据 showTouchscreenControls 动态调整
         setClickable(true)
-        setFocusable(true)
+        isFocusable = true
         isFocusableInTouchMode = true
-        setBackgroundColor(Color.TRANSPARENT)
-        layoutParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT)
+        setBackgroundColor(0x00000000)
+        layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+    }
 
-        @Suppress("DEPRECATION")
-        try {
-            vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-            vibrationEffect = VibrationEffect.createOneShot(50, VibrationEffect.DEFAULT_AMPLITUDE)
-        } catch (e: Exception) {
-            vibrator = null
+    fun setEditMode(editMode: Boolean) {
+        this.editMode = editMode
+    }
+
+    fun getSnappingSize(): Int {
+        return snappingSize
+    }
+
+    fun setShowTouchscreenControlsValue(showVal: Boolean) {
+        this.showTouchscreenControlsVal = showVal
+    }
+
+    override fun onDraw(canvas: Canvas) {
+        val width = width
+        val height = height
+
+        if (width == 0 || height == 0) {
+            readyToDraw = false
+            return
         }
-    }
+        snappingSize = maxOf(width, height) / 100
 
-    /**
-     * 设置是否显示虚拟按键，同时调整视图的点击和聚焦状态
-     */
-    @JvmName("setControlsVisible")
-    fun setControlsVisible(show: Boolean) {
-        showTouchscreenControls = show
-        // 当不显示虚拟按键时，禁用所有交互，确保不拦截触摸事件
-        isClickable = false
-        isFocusable = false
-        isFocusableInTouchMode = false
-        // 刷新视图以更新绘制
-        invalidate()
-    }
+        readyToDraw = true
 
-
-
-    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
-        super.onSizeChanged(w, h, oldw, oldh)
-        // 当视图尺寸变化时，重新加载元素以重新计算坐标
-        // 这处理了屏幕旋转和分辨率变化的情况
-        if (w > 0 && h > 0) {
-            // 如果有待加载的配置，先加载配置
-            if (pendingProfileReload && profile != null) {
-                pendingProfileReload = false
-                reloadElements()
-            }
-            // 无论尺寸是否变化，都重新加载元素以确保坐标正确
-            else if (profile != null) {
-                reloadElements()
-            }
+        if (editMode) {
+            drawGrid(canvas)
+            drawCursor(canvas)
         }
-    }
-
-    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
-        super.onConfigurationChanged(newConfig)
-        // 当屏幕方向变化时，重新加载元素以重新计算坐标
-        if (profile != null && width > 0 && height > 0) {
-            reloadElements()
-        }
-    }
-
-    private fun reloadElements() {
         if (profile != null) {
-            // 保存当前选中的元素（如果有）
-            val selected = selectedElement
-            // 重新加载元素（会更新所有元素的坐标）
-            profile!!.loadElements(this)
-            // 恢复选中状态
-            if (selected != null) {
-                val newSelected = profile!!.getElements().find { it == selected }
-                selectElement(newSelected)
+            if (!profile!!.isElementsLoaded()) {
+                profile!!.loadElements(this)
+            }
+            if (showTouchscreenControls) {
+                for (element in profile!!.getElements()) {
+                    element.draw(canvas)
+                }
             }
         }
-        invalidate()
+
+        super.onDraw(canvas)
     }
 
-    fun setEditMode(mode: Boolean) {
-        editMode = mode
-    }
+    private fun drawGrid(canvas: Canvas) {
+        paint.style = Paint.Style.FILL
+        paint.strokeWidth = snappingSize * 0.0625f
+        paint.color = 0xff000000.toInt()
+        canvas.drawColor(Color.BLACK)
 
-    fun setProfile(profile: ControlsProfile?) {
-        this.profile = profile
-        deselectAllElements()
-        // 立即加载元素，但可能视图尚未测量
-        if (width > 0 && height > 0) {
-            pendingProfileReload = false
-            reloadElements()
-        } else {
-            // 视图尚未测量，标记待加载，下次 onSizeChanged 时加载
-            pendingProfileReload = true
+        paint.isAntiAlias = false
+        paint.color = 0xff303030.toInt()
+
+        val width = maxWidth
+        val height = maxHeight
+
+        var i = 0
+        while (i < width) {
+            canvas.drawLine(i.toFloat(), 0f, i.toFloat(), height.toFloat(), paint)
+            canvas.drawLine(0f, i.toFloat(), width.toFloat(), i.toFloat(), paint)
+            i += snappingSize
         }
+
+        val cx = Mathf.roundTo(width * 0.5f, snappingSize.toFloat())
+        val cy = Mathf.roundTo(height * 0.5f, snappingSize.toFloat())
+        paint.color = 0xff424242.toInt()
+
+        i = 0
+        while (i < width) {
+            canvas.drawLine(cx, i.toFloat(), cx, (i + snappingSize).toFloat(), paint)
+            canvas.drawLine(i.toFloat(), cy, (i + snappingSize).toFloat(), cy, paint)
+            i += snappingSize * 2
+        }
+
+        paint.isAntiAlias = true
     }
 
-    fun getSelectedElement(): ControlElement? = selectedElement
+    private fun drawCursor(canvas: Canvas) {
+        paint.style = Paint.Style.FILL
+        paint.strokeWidth = snappingSize * 0.0625f
+        paint.color = 0xffc62828.toInt()
+
+        paint.isAntiAlias = false
+        canvas.drawLine(0f, cursor.y.toFloat(), maxWidth.toFloat(), cursor.y.toFloat(), paint)
+        canvas.drawLine(cursor.x.toFloat(), 0f, cursor.x.toFloat(), maxHeight.toFloat(), paint)
+
+        paint.isAntiAlias = true
+    }
 
     fun addElement(): Boolean {
         if (editMode && profile != null) {
             val element = ControlElement(this)
             element.x = cursor.x
             element.y = cursor.y
-            element.initDefaultBindings()
             profile!!.addElement(element)
             profile!!.save()
             selectElement(element)
@@ -181,343 +203,414 @@ class InputControlsView(
         return false
     }
 
-    fun getRangeScroller(): RangeScroller? = rangeScroller
+    fun getSelectedElement(): ControlElement? {
+        return selectedElement
+    }
 
     private fun deselectAllElements() {
         selectedElement = null
-        profile?.getElements()?.forEach { it.isSelected = false }
+        if (profile != null) {
+            for (element in profile!!.getElements()) {
+                element.isSelected = false
+            }
+        }
     }
 
     private fun selectElement(element: ControlElement?) {
         deselectAllElements()
         if (element != null) {
             selectedElement = element
-            element.isSelected = true
+            selectedElement!!.isSelected = true
         }
         invalidate()
     }
 
-    fun handleInputEvent(binding: Binding, isDown: Boolean, value: Float = 0f) {
-        when {
-            binding.isGamepad -> {
-                // Gamepad events handled separately
-            }
-            binding.isMouse -> {
-                when {
-                    binding.isMouseMove() -> {
-                        // 处理鼠标移动
-                        val dx = when (binding) {
-                            Binding.MOUSE_MOVE_LEFT -> -10
-                            Binding.MOUSE_MOVE_RIGHT -> 10
-                            else -> 0
-                        }
-                        val dy = when (binding) {
-                            Binding.MOUSE_MOVE_UP -> -10
-                            Binding.MOUSE_MOVE_DOWN -> 10
-                            else -> 0
-                        }
-                        if (isDown && (dx != 0 || dy != 0)) {
-                            inputEventHandler?.onPointerMove(dx, dy)
-                        }
-                    }
-                    else -> {
-                        // 处理鼠标按钮事件，直接使用 getPointerButton 返回的 Int 值
-                        binding.getPointerButton()?.let { buttonValue ->
-                            inputEventHandler?.onPointerButton(buttonValue, isDown)
-                        }
-                    }
-                }
-            }
-            binding.isKeyboard -> {
-                inputEventHandler?.onKeyEvent(binding.keycode.id, isDown)
-            }
-        }
+    fun getProfile(): ControlsProfile? {
+        return profile
     }
 
-    fun injectPointerMove(dx: Int, dy: Int) {
-        inputEventHandler?.onPointerMove(dx, dy)
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        val w = width
-        val h = height
-
-        if (w == 0 || h == 0) {
-            readyToDraw = false
-            return
-        }
-
-        readyToDraw = true
-
-        if (editMode) {
-            drawGrid(canvas)
-            drawCursor(canvas)
-        }
-
+    fun setProfile(profile: ControlsProfile?) {
         if (profile != null) {
-            if (!profile!!.isElementsLoaded()) {
-                reloadElements()
+            this.profile = profile
+            deselectAllElements()
+            invalidate()  // 立即刷新视图
+        } else {
+            this.profile = null
+            invalidate()  // 立即刷新视图
+        }
+    }
+
+    var showTouchscreenControls: Boolean
+        get() = showTouchscreenControlsVal
+        set(value) {
+            showTouchscreenControlsVal = value
+            invalidate()  // 立即刷新视图
+        }
+
+    var overlayOpacity: Float
+        get() = overlayOpacityVal
+        set(value) {
+            overlayOpacityVal = value
+            invalidate()  // 立即刷新视图
+        }
+
+    fun getPrimaryColor(): Int {
+        return Color.argb((overlayOpacity * 255).toInt(), 255, 255, 255)
+    }
+
+    fun getSecondaryColor(): Int {
+        return Color.argb((overlayOpacity * 255).toInt(), 2, 119, 189)
+    }
+
+    private fun intersectElement(x: Float, y: Float): ControlElement? {
+        if (profile != null) {
+            for (element in profile!!.getElements()) {
+                if (element.containsPoint(x, y)) return element
             }
-            if (showTouchscreenControls) {
-                profile!!.getElements().forEach { element ->
-                    element.draw(canvas)
-                }
-            }
         }
-
-        super.onDraw(canvas)
+        return null
     }
 
-    private fun drawGrid(canvas: Canvas) {
-        paint.style = Paint.Style.FILL
-        paint.strokeWidth = snappingSize * 0.0625f
-        paint.color = Color.BLACK
-        canvas.drawColor(Color.BLACK)
-
-        paint.isAntiAlias = false
-        paint.color = Color.rgb(48, 48, 48)
-
-        val w = maxWidth
-        val h = maxHeight
-
-        var i = 0
-        while (i <= w) {
-            canvas.drawLine(i.toFloat(), 0f, i.toFloat(), h.toFloat(), paint)
-            i += snappingSize
-        }
-        i = 0
-        while (i <= h) {
-            canvas.drawLine(0f, i.toFloat(), w.toFloat(), i.toFloat(), paint)
-            i += snappingSize
-        }
-
-        val cx = roundTo(w * 0.5f, snappingSize.toFloat())
-        val cy = roundTo(h * 0.5f, snappingSize.toFloat())
-        paint.color = Color.rgb(66, 66, 66)
-
-        i = 0
-        while (i <= w) {
-            canvas.drawLine(cx, i.toFloat(), cx, (i + snappingSize).toFloat(), paint)
-            i += snappingSize * 2
-        }
-        i = 0
-        while (i <= h) {
-            canvas.drawLine(i.toFloat(), cy, (i + snappingSize).toFloat(), cy, paint)
-            i += snappingSize * 2
-        }
-
-        paint.isAntiAlias = true
+    fun getPaint(): Paint {
+        return paint
     }
 
-    private fun drawCursor(canvas: Canvas) {
-        paint.style = Paint.Style.FILL
-        paint.strokeWidth = snappingSize * 0.0625f
-        paint.color = Color.rgb(198, 40, 40)
-
-        paint.isAntiAlias = false
-        canvas.drawLine(0f, cursor.y.toFloat(), maxWidth.toFloat(), cursor.y.toFloat(), paint)
-        canvas.drawLine(cursor.x.toFloat(), 0f, cursor.x.toFloat(), maxHeight.toFloat(), paint)
-        paint.isAntiAlias = true
+    fun getPath(): Path {
+        return path
     }
-
-    fun getPaint(): Paint = paint
-
-    fun getPath(): Path = path
 
     fun getColorFilter(): ColorFilter {
-        return PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
+        return colorFilter
     }
 
-    fun getPrimaryColor(): Int = Color.argb((overlayOpacity * 255).toInt(), 255, 255, 255)
+    val maxWidth: Int
+        get() = Mathf.roundTo(width.toFloat(), snappingSize.toFloat()).toInt()
 
-    fun getSecondaryColor(): Int = Color.argb((overlayOpacity * 255).toInt(), 2, 119, 189)
+    val maxHeight: Int
+        get() = Mathf.roundTo(height.toFloat(), snappingSize.toFloat()).toInt()
 
-    fun getIcon(id: Byte): Bitmap? {
-        if (icons[id.toInt()] == null) {
-            try {
-                context.assets.open("inputcontrols/icons/$id.png").use { inputStream ->
-                    icons[id.toInt()] = BitmapFactory.decodeStream(inputStream)
+    private fun createMouseMoveTimer() {
+        if (profile != null && mouseMoveTimer == null) {
+            val cursorSpeed = profile!!.cursorSpeed
+            mouseMoveTimer = Timer()
+            mouseMoveTimer!!.schedule(object : TimerTask() {
+                override fun run() {
+                    val handler = inputEventHandler
+                    if (handler != null && (mouseMoveOffset.x != 0f || mouseMoveOffset.y != 0f)) {
+                        handler.onPointerMove(
+                            (mouseMoveOffset.x * 10 * cursorSpeed).toInt(),
+                            (mouseMoveOffset.y * 10 * cursorSpeed).toInt()
+                        )
+                    }
                 }
-            } catch (e: Exception) {
-                // Icon not found
+            }, 0, 1000 / 60)
+        }
+    }
+
+    private fun processJoystickInput(controller: ExternalController) {
+        var controllerBinding: ExternalControllerBinding?
+        val axes = intArrayOf(
+            MotionEvent.AXIS_X, MotionEvent.AXIS_Y,
+            MotionEvent.AXIS_Z, MotionEvent.AXIS_RZ,
+            MotionEvent.AXIS_HAT_X, MotionEvent.AXIS_HAT_Y
+        )
+        val values = floatArrayOf(
+            controller.state.thumbLX, controller.state.thumbLY,
+            controller.state.thumbRX, controller.state.thumbRY,
+            controller.state.getDPadX().toFloat(), controller.state.getDPadY().toFloat()
+        )
+
+        for (i in axes.indices) {
+            if (kotlin.math.abs(values[i]) > ControlElement.STICK_DEAD_ZONE) {
+                controllerBinding = controller.getControllerBinding(
+                    ExternalControllerBinding.getKeyCodeForAxis(axes[i], Mathf.sign(values[i]).toInt())
+                )
+                if (controllerBinding != null) {
+                    handleInputEvent(controllerBinding.binding!!, true, values[i])
+                }
+            } else {
+                controllerBinding = controller.getControllerBinding(
+                    ExternalControllerBinding.getKeyCodeForAxis(axes[i], 1)
+                )
+                if (controllerBinding != null) {
+                    handleInputEvent(controllerBinding.binding!!, false, values[i])
+                }
+                controllerBinding = controller.getControllerBinding(
+                    ExternalControllerBinding.getKeyCodeForAxis(axes[i], -1)
+                )
+                if (controllerBinding != null) {
+                    handleInputEvent(controllerBinding.binding!!, false, values[i])
+                }
             }
         }
-        return icons[id.toInt()]
     }
 
-    private fun roundTo(value: Float, rounding: Float): Float {
-        return (value / rounding).roundToInt() * rounding
+    override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        if (!editMode && profile != null) {
+            val controller = profile!!.getController(event.deviceId)
+            if (controller != null && controller.updateStateFromMotionEvent(event)) {
+                var controllerBinding: ExternalControllerBinding?
+                controllerBinding = controller.getControllerBinding(KeyEvent.KEYCODE_BUTTON_L2)
+                if (controllerBinding != null) {
+                    handleInputEvent(controllerBinding.binding!!, controller.state.isPressed(ExternalController.IDX_BUTTON_L2.toInt()))
+                }
+
+                controllerBinding = controller.getControllerBinding(KeyEvent.KEYCODE_BUTTON_R2)
+                if (controllerBinding != null) {
+                    handleInputEvent(controllerBinding.binding!!, controller.state.isPressed(ExternalController.IDX_BUTTON_R2.toInt()))
+                }
+
+                processJoystickInput(controller)
+                return true
+            }
+        }
+        return super.onGenericMotionEvent(event)
+    }
+
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        // Hover events are handled by the input event handler
+        // This is a stub for compatibility
+        return false
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (editMode && readyToDraw) {
-            when (event.action) {
+            when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     val x = event.x
                     val y = event.y
 
                     val element = intersectElement(x, y)
                     moveCursor = true
-
                     if (element != null) {
                         offsetX = x - element.x
                         offsetY = y - element.y
                         moveCursor = false
                     }
-
                     selectElement(element)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (selectedElement != null) {
-                        selectedElement!!.x = roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
-                        selectedElement!!.y = roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
+                        selectedElement!!.setX(Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt())
+                        selectedElement!!.setY(Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt())
                         invalidate()
                     }
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (selectedElement != null && profile != null) {
-                        profile!!.save()
-                    }
+                    if (selectedElement != null && profile != null) profile!!.save()
                     if (moveCursor) {
-                        cursor.x = roundTo(event.x, snappingSize.toFloat()).toInt()
-                        cursor.y = roundTo(event.y, snappingSize.toFloat()).toInt()
+                        cursor.set(
+                            Mathf.roundTo(event.x, snappingSize.toFloat()).toInt(),
+                            Mathf.roundTo(event.y, snappingSize.toFloat()).toInt()
+                        )
                     }
                     invalidate()
                 }
             }
             return true
         }
+        // 在非编辑模式下，处理虚拟按键的触摸事件
+        return handleTouchEvent(event)
+    }
 
-        // 非编辑模式下，只有当 showTouchscreenControls 为 true 时才处理触摸事件
-        if (!editMode && profile != null && showTouchscreenControls) {
+    fun handleTouchEvent(event: MotionEvent): Boolean {
+        if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            // Mouse events are handled directly
+            return true
+        }
+        if (!editMode && profile != null) {
             val actionIndex = event.actionIndex
             val pointerId = event.getPointerId(actionIndex)
             val actionMasked = event.actionMasked
-
             var handled = false
 
             when (actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
-
+                    pointerButtonLeftEnabled = true
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchDown(pointerId, x, y)) {
-                            vibrator?.vibrate(vibrationEffect)
                             handled = true
-                            break
+                            if (element.getBindingAt(0) === Binding.MOUSE_LEFT_BUTTON) {
+                                pointerButtonLeftEnabled = false
+                            }
                         }
                     }
-
                     if (!handled) {
-                        // 让 touchpadView 处理（如果存在），但不一定消费事件
-                        touchpadView?.onTouchEvent(event)
+                        // No element handled this touch, could be a gesture
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
                     for (i in 0 until event.pointerCount) {
+                        val ptrId = event.getPointerId(i)
                         val x = event.getX(i)
                         val y = event.getY(i)
-                        val id = event.getPointerId(i)
-
+                        handled = false
                         for (element in profile!!.getElements()) {
-                            if (element.handleTouchMove(id, x, y)) {
+                            if (element.handleTouchMove(ptrId, x, y)) {
                                 handled = true
-                                break
                             }
                         }
                     }
-
-                    if (!handled) {
-                        touchpadView?.onTouchEvent(event)
-                    }
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                    for (element in profile!!.getElements()) {
-                        if (element.handleTouchUp(pointerId)) {
-                            handled = true
+                    for (i in 0 until event.pointerCount) {
+                        val ptrId = event.getPointerId(i)
+                        val x = event.getX(i)
+                        val y = event.getY(i)
+                        for (element in profile!!.getElements()) {
+                            if (element.handleTouchUp(ptrId, x, y)) {
+                                handled = true
+                            }
                         }
-                    }
-
-                    if (!handled) {
-                        touchpadView?.onTouchEvent(event)
                     }
                 }
             }
             return handled
         }
-        // 当 showTouchscreenControls 为 false 或 profile 为 null 时，不处理触摸事件，让事件传递给下层
         return false
     }
 
-    private fun intersectElement(x: Float, y: Float): ControlElement? {
-        profile?.getElements()?.forEach { element ->
-            if (element.containsPoint(x, y)) return element
+    fun handleInputEvent(binding: Binding, isActionDown: Boolean) {
+        handleInputEvent(binding, isActionDown, 0f)
+    }
+
+    fun handleInputEvent(binding: Binding, isActionDown: Boolean, offset: Float) {
+        val handler = inputEventHandler ?: return
+        
+        if (binding.isGamepad()) {
+            // Gamepad events are handled by the gamepad state management
+            val state = profile?.getGamepadState()
+            val buttonIdx = binding.ordinal - Binding.GAMEPAD_BUTTON_A.ordinal
+            if (buttonIdx <= 11) {
+                state?.setPressed(buttonIdx, isActionDown)
+            } else if (binding === Binding.GAMEPAD_LEFT_THUMB_UP || binding === Binding.GAMEPAD_LEFT_THUMB_DOWN) {
+                if (state != null) state.thumbLY = if (isActionDown) offset else 0f
+            } else if (binding === Binding.GAMEPAD_LEFT_THUMB_LEFT || binding === Binding.GAMEPAD_LEFT_THUMB_RIGHT) {
+                if (state != null) state.thumbLX = if (isActionDown) offset else 0f
+            } else if (binding === Binding.GAMEPAD_RIGHT_THUMB_UP || binding === Binding.GAMEPAD_RIGHT_THUMB_DOWN) {
+                if (state != null) state.thumbRY = if (isActionDown) offset else 0f
+            } else if (binding === Binding.GAMEPAD_RIGHT_THUMB_LEFT || binding === Binding.GAMEPAD_RIGHT_THUMB_RIGHT) {
+                if (state != null) state.thumbRX = if (isActionDown) offset else 0f
+            } else if (binding === Binding.GAMEPAD_DPAD_UP || binding === Binding.GAMEPAD_DPAD_RIGHT ||
+                binding === Binding.GAMEPAD_DPAD_DOWN || binding === Binding.GAMEPAD_DPAD_LEFT) {
+                if (state != null) {
+                    state.dpad[binding.ordinal - Binding.GAMEPAD_DPAD_UP.ordinal] = isActionDown
+                }
+            }
+        } else {
+            if (binding === Binding.MOUSE_MOVE_LEFT || binding === Binding.MOUSE_MOVE_RIGHT) {
+                mouseMoveOffset.x = if (isActionDown) {
+                    if (offset != 0f) offset else {
+                        if (binding === Binding.MOUSE_MOVE_LEFT) -1f else 1f
+                    }
+                } else {
+                    0f
+                }
+                if (isActionDown) createMouseMoveTimer()
+            } else if (binding === Binding.MOUSE_MOVE_DOWN || binding === Binding.MOUSE_MOVE_UP) {
+                mouseMoveOffset.y = if (isActionDown) {
+                    if (offset != 0f) offset else {
+                        if (binding === Binding.MOUSE_MOVE_UP) -1f else 1f
+                    }
+                } else {
+                    0f
+                }
+                if (isActionDown) createMouseMoveTimer()
+            } else {
+                val pointerButton = binding.getPointerButton()
+                val keycode = binding.keycode
+                if (isActionDown) {
+                    if (pointerButton != null) {
+                        handler.onPointerButton(pointerButton.ordinal, true)
+                    } else {
+                        handler.onKeyEvent(keycode.id, true)
+                    }
+                } else {
+                    if (pointerButton != null) {
+                        handler.onPointerButton(pointerButton.ordinal, false)
+                    } else {
+                        handler.onKeyEvent(keycode.id, false)
+                    }
+                }
+            }
         }
-        return null
-    }
-}
-
-/**
- * Touchpad view for mouse simulation
- */
-@SuppressLint("ViewConstructor")
-class TouchpadView(context: Context) : View(context) {
-    var isPointerButtonLeftEnabled = true
-        private set
-
-    private var swapMouseButtons = false
-    private var simTouchScreen = false
-
-    private var lastX = 0f
-    private var lastY = 0f
-
-    var inputEventHandler: InputEventHandler? = null
-
-    companion object {
-        const val CURSOR_ACCELERATION = 2f
-        const val CURSOR_ACCELERATION_THRESHOLD = 4f
     }
 
-    fun setPointerButtonLeftEnabled(enabled: Boolean) {
-        isPointerButtonLeftEnabled = enabled
+    fun sendText(text: String?) {
+        // Text sending is not directly supported in the InputEventHandler interface
+        // This would need to be implemented through key events or clipboard
     }
 
-    fun setSwapMouseButtons() {
-        swapMouseButtons = !swapMouseButtons
+    fun getIcon(id: Byte): Bitmap? {
+        if (icons[id.toInt()] == null) {
+            val context = context
+            try {
+                context.assets.open("inputcontrols/icons/$id.png").use { inputStream ->
+                    icons[id.toInt()] = BitmapFactory.decodeStream(inputStream)
+                }
+            } catch (e: IOException) {
+                // Icon not found
+            }
+        }
+        return icons[id.toInt()]
     }
 
-    fun setSimTouchScreen() {
-        simTouchScreen = !simTouchScreen
+    fun getCustomIcon(iconId: String?): Bitmap? {
+        val buttonIconFile = File(context.filesDir.path + "/home/.buttonIcons", iconId + ".png")
+        if (!buttonIconFile.exists()) {
+            return null
+        }
+        return BitmapFactory.decodeFile(buttonIconFile.path)
     }
 
+    fun clipBitmap(bitmap: Bitmap?, isCircular: Boolean): Bitmap? {
+        if (bitmap == null) return null
+        val clippedBitmap = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(clippedBitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val shader = BitmapShader(bitmap, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        paint.shader = shader
+        if (isCircular) {
+            val centerX = bitmap.width / 2
+            val centerY = bitmap.height / 2
+            val radius = minOf(centerX, centerY)
+            canvas.drawCircle(centerX.toFloat(), centerY.toFloat(), radius.toFloat(), paint)
+        } else {
+            val rect = RectF(0f, 0f, bitmap.width.toFloat(), bitmap.height.toFloat())
+            canvas.drawRect(rect, paint)
+        }
+        return clippedBitmap
+    }
+
+    fun createShapeBitmap(width: Float, height: Float, color: Int, isCircular: Boolean): Bitmap {
+        val bitmap = Bitmap.createBitmap(width.toInt(), height.toInt(), Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        paint.color = color
+
+        if (isCircular) {
+            val radius = (minOf(width, height) / 2).toInt()
+            canvas.drawCircle(width / 2, height / 2, radius.toFloat(), paint)
+        } else {
+            val rect = RectF(0f, 0f, width, height)
+            canvas.drawRect(rect, paint)
+        }
+        return bitmap
+    }
+
+    /**
+     * Inject pointer movement - sends mouse motion event
+     */
+    fun injectPointerMove(dx: Int, dy: Int) {
+        inputEventHandler?.onPointerMove(dx, dy)
+    }
+
+    /**
+     * Compute delta point for trackpad - calculates movement delta from touch position
+     */
     fun computeDeltaPoint(oldX: Float, oldY: Float, newX: Float, newY: Float): FloatArray {
         return floatArrayOf(newX - oldX, newY - oldY)
-    }
-
-    override fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.action) {
-            MotionEvent.ACTION_DOWN -> {
-                lastX = event.x
-                lastY = event.y
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val dx = event.x - lastX
-                val dy = event.y - lastY
-
-                if (abs(dx) > CURSOR_ACCELERATION_THRESHOLD || abs(dy) > CURSOR_ACCELERATION_THRESHOLD) {
-                    inputEventHandler?.onPointerMove(
-                        (dx * CURSOR_ACCELERATION).toInt(),
-                        (dy * CURSOR_ACCELERATION).toInt()
-                    )
-                } else {
-                    inputEventHandler?.onPointerMove(dx.toInt(), dy.toInt())
-                }
-
-                lastX = event.x
-                lastY = event.y
-            }
-        }
-        return true
     }
 }
