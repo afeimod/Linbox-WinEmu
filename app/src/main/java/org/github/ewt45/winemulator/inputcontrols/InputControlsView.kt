@@ -477,63 +477,47 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     fun handleInputEvent(binding: Binding, isActionDown: Boolean, offset: Float) {
-        val handler = inputEventHandler ?: return
-        
+        // If gaming pad binding
         if (binding.isGamepad()) {
-            // Gamepad events are handled by the gamepad state management
-            val state = profile?.getGamepadState()
-            val buttonIdx = binding.ordinal - Binding.GAMEPAD_BUTTON_A.ordinal
-            if (buttonIdx <= 11) {
-                state?.setPressed(buttonIdx, isActionDown)
-            } else if (binding === Binding.GAMEPAD_LEFT_THUMB_UP || binding === Binding.GAMEPAD_LEFT_THUMB_DOWN) {
-                if (state != null) state.thumbLY = if (isActionDown) offset else 0f
-            } else if (binding === Binding.GAMEPAD_LEFT_THUMB_LEFT || binding === Binding.GAMEPAD_LEFT_THUMB_RIGHT) {
-                if (state != null) state.thumbLX = if (isActionDown) offset else 0f
-            } else if (binding === Binding.GAMEPAD_RIGHT_THUMB_UP || binding === Binding.GAMEPAD_RIGHT_THUMB_DOWN) {
-                if (state != null) state.thumbRY = if (isActionDown) offset else 0f
-            } else if (binding === Binding.GAMEPAD_RIGHT_THUMB_LEFT || binding === Binding.GAMEPAD_RIGHT_THUMB_RIGHT) {
-                if (state != null) state.thumbRX = if (isActionDown) offset else 0f
-            } else if (binding === Binding.GAMEPAD_DPAD_UP || binding === Binding.GAMEPAD_DPAD_RIGHT ||
-                binding === Binding.GAMEPAD_DPAD_DOWN || binding === Binding.GAMEPAD_DPAD_LEFT) {
-                if (state != null) {
-                    state.dpad[binding.ordinal - Binding.GAMEPAD_DPAD_UP.ordinal] = isActionDown
-                }
-            }
+            return
+        }
+
+        val handler = inputEventHandler ?: return
+
+        // Mouse move binding - use timer for continuous movement
+        if (binding === Binding.MOUSE_MOVE_LEFT || binding === Binding.MOUSE_MOVE_RIGHT) {
+            mouseMoveOffset.x = if (isActionDown) (if (offset != 0f) offset else (if (binding === Binding.MOUSE_MOVE_LEFT) -1f else 1f)) else 0f
+            if (isActionDown) createMouseMoveTimer()
+        } else if (binding === Binding.MOUSE_MOVE_DOWN || binding === Binding.MOUSE_MOVE_UP) {
+            mouseMoveOffset.y = if (isActionDown) (if (offset != 0f) offset else (if (binding === Binding.MOUSE_MOVE_UP) -1f else 1f)) else 0f
+            if (isActionDown) createMouseMoveTimer()
         } else {
-            if (binding === Binding.MOUSE_MOVE_LEFT || binding === Binding.MOUSE_MOVE_RIGHT) {
-                mouseMoveOffset.x = if (isActionDown) {
-                    if (offset != 0f) offset else {
-                        if (binding === Binding.MOUSE_MOVE_LEFT) -1f else 1f
+            // Other bindings (keys, mouse buttons)
+            if (binding.isMouse()) {
+                if (binding.isMouseMove()) {
+                    // 处理鼠标移动
+                    val dx = when (binding) {
+                        Binding.MOUSE_MOVE_LEFT -> -10
+                        Binding.MOUSE_MOVE_RIGHT -> 10
+                        else -> 0
+                    }
+                    val dy = when (binding) {
+                        Binding.MOUSE_MOVE_UP -> -10
+                        Binding.MOUSE_MOVE_DOWN -> 10
+                        else -> 0
+                    }
+                    if (isActionDown && (dx != 0 || dy != 0)) {
+                        handler.onPointerMove(dx, dy)
                     }
                 } else {
-                    0f
-                }
-                if (isActionDown) createMouseMoveTimer()
-            } else if (binding === Binding.MOUSE_MOVE_DOWN || binding === Binding.MOUSE_MOVE_UP) {
-                mouseMoveOffset.y = if (isActionDown) {
-                    if (offset != 0f) offset else {
-                        if (binding === Binding.MOUSE_MOVE_UP) -1f else 1f
+                    // 处理鼠标按钮事件 - 使用 getPointerButton 方法的 code() 获取正确的 X11 按钮值
+                    binding.getPointerButton()?.let { button ->
+                        handler.onPointerButton(button.code().toInt(), isActionDown)
                     }
-                } else {
-                    0f
                 }
-                if (isActionDown) createMouseMoveTimer()
             } else {
-                val pointerButton = binding.getPointerButton()
-                val keycode = binding.keycode
-                if (isActionDown) {
-                    if (pointerButton != null) {
-                        handler.onPointerButton(pointerButton.ordinal, true)
-                    } else {
-                        handler.onKeyEvent(keycode.ordinal, true)
-                    }
-                } else {
-                    if (pointerButton != null) {
-                        handler.onPointerButton(pointerButton.ordinal, false)
-                    } else {
-                        handler.onKeyEvent(keycode.ordinal, false)
-                    }
-                }
+                // 键盘按键 - 使用 keycode.id 而不是 ordinal
+                handler.onKeyEvent(binding.keycode.id, isActionDown)
             }
         }
     }
