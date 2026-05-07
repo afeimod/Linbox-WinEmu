@@ -520,18 +520,17 @@ class InputControlsView(context: Context?) : View(context) {
                 if (isActionDown) createMouseMoveTimer()
             } else {
                 val pointerButton = binding.getPointerButton()
-                val keycode = binding.keycode
                 if (isActionDown) {
                     if (pointerButton != null) {
                         handler.onPointerButton(pointerButton.ordinal, true)
                     } else {
-                        handler.onKeyEvent(keycode.id, true)
+                        handler.onKeyEvent(binding.toEvdev(), true)
                     }
                 } else {
                     if (pointerButton != null) {
                         handler.onPointerButton(pointerButton.ordinal, false)
                     } else {
-                        handler.onKeyEvent(keycode.id, false)
+                        handler.onKeyEvent(binding.toEvdev(), false)
                     }
                 }
             }
