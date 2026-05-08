@@ -398,9 +398,14 @@ class ControlElement(
         val cx = box.centerX().toFloat()
         val cy = box.centerY().toFloat()
         val snappingSize = inputControlsView.snappingSizeValue
+        val isPressed = isFlagSet(FLAG_PRESSED)
+
+        // 保存原始paint状态
+        val originalStyle = paint.style
+        val originalColor = paint.color
 
         // 如果是按下状态，填充背景
-        if (isFlagSet(FLAG_PRESSED)) {
+        if (isPressed) {
             paint.style = Paint.Style.FILL
         }
 
@@ -429,6 +434,10 @@ class ControlElement(
             }
         }
 
+        // 恢复paint状态
+        paint.style = originalStyle
+        paint.color = originalColor
+
         if (!customIconId.isNullOrEmpty()) {
             drawCustomIcon(canvas, cx, cy, box.width().toFloat(), box.height().toFloat())
         } else if (backgroundColor > 0) {
@@ -443,7 +452,7 @@ class ControlElement(
             )
             paint.textAlign = Paint.Align.CENTER
             paint.style = Paint.Style.FILL
-            paint.color = if (isFlagSet(FLAG_PRESSED)) getDarkColor() else primaryColor
+            paint.color = if (isPressed) getDarkColor() else primaryColor
             canvas.drawText(displayText, x.toFloat(), y - (paint.descent() + paint.ascent()) * 0.5f, paint)
         }
     }

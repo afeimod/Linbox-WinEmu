@@ -596,30 +596,51 @@ class InputControlsView(context: Context?) : View(context) {
      * Start key repeat for continuous input
      */
     private fun startKeyRepeat(binding: Binding) {
+        // 检查是否已经有重复任务在运行
         if (keyRepeatTimers.containsKey(binding)) {
             return
         }
 
+        // 保存binding引用用于Runnable
+        val bindingRef = binding
+
+        // 创建重复处理器
         val repeatHandler = object : Runnable {
             override fun run() {
                 val handler = inputEventHandler ?: return
-                handler.onKeyEvent(binding.toEvdev(), true)
+                // 再次检查是否已被停止
+                if (!keyRepeatTimers.containsKey(bindingRef)) {
+                    return
+                }
+                handler.onKeyEvent(bindingRef.toEvdev(), true)
             }
         }
 
         keyRepeatHandlers[binding] = repeatHandler
+
+        // 创建定时器（daemon线程）
         val timer = Timer(true)
         keyRepeatTimers[binding] = timer
 
-        mainHandler.postDelayed({
-            val handler = inputEventHandler ?: return@postDelayed
-            handler.onKeyEvent(binding.toEvdev(), true)
-            timer.schedule(object : TimerTask() {
-                override fun run() {
-                    mainHandler.post(repeatHandler)
+        // 延迟后开始重复发送按键事件
+        val delayedHandler = object : Runnable {
+            override fun run() {
+                // 检查是否已被停止
+                if (!keyRepeatTimers.containsKey(bindingRef)) {
+                    return
                 }
-            }, KEY_REPEAT_INTERVAL, KEY_REPEAT_INTERVAL)
-        }, KEY_REPEAT_DELAY)
+                val handler = inputEventHandler ?: return
+                handler.onKeyEvent(bindingRef.toEvdev(), true)
+                // 开始定时重复
+                timer.schedule(object : TimerTask() {
+                    override fun run() {
+                        mainHandler.post(repeatHandler)
+                    }
+                }, KEY_REPEAT_INTERVAL, KEY_REPEAT_INTERVAL)
+            }
+        }
+
+        mainHandler.postDelayed(delayedHandler, KEY_REPEAT_DELAY)
     }
 
     /**
