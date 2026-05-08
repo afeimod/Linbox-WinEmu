@@ -429,7 +429,9 @@ class InputControlsView(context: Context?) : View(context) {
             return true
         }
         // In non-edit mode, handle touch events for virtual controls
-        return handleTouchEvent(event)
+        // Always return true to properly track touch sequence for virtual buttons
+        handleTouchEvent(event)
+        return true
     }
 
     /**
