@@ -425,7 +425,6 @@ class InputControlsView(context: Context?) : View(context) {
 
             when (actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                    // 与参考项目 winlator-11 一致：使用 actionIndex 获取触发事件的指针信息
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
                     val pointerId = event.getPointerId(actionIndex)
@@ -440,20 +439,17 @@ class InputControlsView(context: Context?) : View(context) {
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    // 遍历所有指针并处理移动事件
-                    // 使用指针ID而不是索引，确保与 ACTION_DOWN 中设置的 currentPointerId 匹配
+                    // 与参考项目 winlator-11 一致：遍历所有指针并处理移动事件
                     var handled = false
                     for (i in 0 until event.pointerCount) {
-                        val pointerId = event.getPointerId(i)
                         val x = event.getX(i)
                         val y = event.getY(i)
                         for (element in profile!!.getElements()) {
-                            if (element.handleTouchMove(pointerId, x, y)) {
+                            if (element.handleTouchMove(i, x, y)) {
                                 handled = true
                             }
                         }
                     }
-                    return handled
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                     // 只处理 actionIndex 对应的指针，而不是所有指针
