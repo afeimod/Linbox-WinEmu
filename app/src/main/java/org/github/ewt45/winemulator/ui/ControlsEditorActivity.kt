@@ -174,7 +174,6 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         // 根据类型显示/隐藏相应的 UI 元素
         view.findViewById<View>(R.id.LLShape)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         view.findViewById<View>(R.id.CBToggleSwitch)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
-        view.findViewById<View>(R.id.CBMouseMoveMode)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         view.findViewById<View>(R.id.LLCustomTextIcon)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         view.findViewById<View>(R.id.LLRangeOptions)?.visibility = if (type == ControlElement.Type.RANGE_BUTTON) View.VISIBLE else View.GONE
         view.findViewById<View>(R.id.LLDPadBindings)?.visibility = if (type == ControlElement.Type.D_PAD ||
@@ -226,17 +225,6 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
                     profile?.save()
                     scheduleRefresh()
                 }
-            }
-        }
-
-        // 加载鼠标移动模式复选框 (新增)
-        val cbMouseMoveMode = view.findViewById<CheckBox>(R.id.CBMouseMoveMode)
-        if (cbMouseMoveMode != null) {
-            cbMouseMoveMode.isChecked = element.isMouseMoveMode()
-            cbMouseMoveMode.visibility = if (element.type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
-            cbMouseMoveMode.setOnCheckedChangeListener { _, isChecked ->
-                element.setMouseMoveMode(isChecked)
-                profile?.save()
             }
         }
 
