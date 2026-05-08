@@ -430,11 +430,6 @@ class InputControlsView(context: Context?) : View(context) {
         }
         // In non-edit mode, handle touch events for virtual controls
         handleTouchEvent(event)
-        
-        // 始终将事件转发给父视图（LorieView）以实现原生 X11 鼠标控制
-        // 即使返回 true（虚拟按键已处理），也要继续传递事件
-        (parent as? android.view.ViewGroup)?.dispatchTouchEvent(event)
-        
         return true
     }
 
