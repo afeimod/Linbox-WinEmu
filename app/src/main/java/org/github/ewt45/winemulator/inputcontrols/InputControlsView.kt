@@ -24,10 +24,9 @@ import java.util.TimerTask
  * This class implements virtual input controls for the Linbox X11 app.
  * It uses the InputEventHandler interface to send input events to the X11 session.
  *
- * 修复内容:
- * 1. 添加虚拟按键拖动触摸板支持 (通过 isMouseMoveMode 属性)
- * 2. 改进触摸板和虚拟按键的交互逻辑 (多触控支持)
- * 3. 添加 WASD 等键盘按键的持续输入支持 (KEY_REPEAT)
+ * Fixed issues:
+ * 1. Multi-touch support: Virtual buttons and touchpad can be used simultaneously
+ * 2. Key repeat support for WASD and other keyboard keys
  */
 class InputControlsView(context: Context?) : View(context) {
     companion object {
@@ -36,18 +35,16 @@ class InputControlsView(context: Context?) : View(context) {
         const val MAX_TAP_MILLISECONDS: Short = 200
         const val CURSOR_ACCELERATION = 1.25f
         const val CURSOR_ACCELERATION_THRESHOLD: Byte = 6
-
-        // 持续按键重复间隔
-        const val KEY_REPEAT_DELAY = 250L  // 首次重复延迟
-        const val KEY_REPEAT_INTERVAL = 50L  // 重复间隔
+        // Key repeat intervals
+        const val KEY_REPEAT_DELAY = 250L
+        const val KEY_REPEAT_INTERVAL = 50L
     }
 
     // Public properties for external access
     var inputEventHandler: InputEventHandler? = null
     var showTouchscreenControlsVal: Boolean = true
     var overlayOpacityVal: Float = DEFAULT_OVERLAY_OPACITY
-
-    // 触摸板视图引用，用于虚拟按键拖动触摸板功能
+    // Touchpad view reference
     var touchpadView: TouchpadViewCompat? = null
 
     internal val snappingSizeValue: Int
@@ -70,11 +67,7 @@ class InputControlsView(context: Context?) : View(context) {
     private var mouseMoveTimer: Timer? = null
     private val mouseMoveOffset = PointF()
     private val counterMap = HashMap<String, Int>()
-
-    // Track which pointer button is currently enabled for left-click
-    private var pointerButtonLeftEnabled = true
-
-    // 持续按键定时器
+    // Key repeat timers
     private val keyRepeatTimers = HashMap<Binding, Timer>()
     private val keyRepeatHandlers = HashMap<Binding, Runnable>()
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -129,15 +122,12 @@ class InputControlsView(context: Context?) : View(context) {
     override fun onDraw(canvas: Canvas) {
         val width = width
         val height = height
-
         if (width == 0 || height == 0) {
             readyToDraw = false
             return
         }
         snappingSize = maxOf(width, height) / 100
-
         readyToDraw = true
-
         if (editMode) {
             drawGrid(canvas)
             drawCursor(canvas)
@@ -152,7 +142,6 @@ class InputControlsView(context: Context?) : View(context) {
                 }
             }
         }
-
         super.onDraw(canvas)
     }
 
@@ -161,31 +150,25 @@ class InputControlsView(context: Context?) : View(context) {
         paint.strokeWidth = snappingSize * 0.0625f
         paint.color = 0xff000000.toInt()
         canvas.drawColor(Color.BLACK)
-
         paint.isAntiAlias = false
         paint.color = 0xff303030.toInt()
-
         val width = maxWidth
         val height = maxHeight
-
         var i = 0
         while (i < width) {
             canvas.drawLine(i.toFloat(), 0f, i.toFloat(), height.toFloat(), paint)
             canvas.drawLine(0f, i.toFloat(), width.toFloat(), i.toFloat(), paint)
             i += snappingSize
         }
-
         val cx = Mathf.roundTo(width * 0.5f, snappingSize.toFloat())
         val cy = Mathf.roundTo(height * 0.5f, snappingSize.toFloat())
         paint.color = 0xff424242.toInt()
-
         i = 0
         while (i < width) {
             canvas.drawLine(cx, i.toFloat(), cx, (i + snappingSize).toFloat(), paint)
             canvas.drawLine(i.toFloat(), cy, (i + snappingSize).toFloat(), cy, paint)
             i += snappingSize * 2
         }
-
         paint.isAntiAlias = true
     }
 
@@ -193,11 +176,9 @@ class InputControlsView(context: Context?) : View(context) {
         paint.style = Paint.Style.FILL
         paint.strokeWidth = snappingSize * 0.0625f
         paint.color = 0xffc62828.toInt()
-
         paint.isAntiAlias = false
         canvas.drawLine(0f, cursor.y.toFloat(), maxWidth.toFloat(), cursor.y.toFloat(), paint)
         canvas.drawLine(cursor.x.toFloat(), 0f, cursor.x.toFloat(), maxHeight.toFloat(), paint)
-
         paint.isAntiAlias = true
     }
 
@@ -255,10 +236,10 @@ class InputControlsView(context: Context?) : View(context) {
         if (profile != null) {
             this.profile = profile
             deselectAllElements()
-            invalidate()  // 立即刷新视图
+            invalidate()
         } else {
             this.profile = null
-            invalidate()  // 立即刷新视图
+            invalidate()
         }
     }
 
@@ -266,14 +247,14 @@ class InputControlsView(context: Context?) : View(context) {
         get() = showTouchscreenControlsVal
         set(value) {
             showTouchscreenControlsVal = value
-            invalidate()  // 立即刷新视图
+            invalidate()
         }
 
     var overlayOpacity: Float
         get() = overlayOpacityVal
         set(value) {
             overlayOpacityVal = value
-            invalidate()  // 立即刷新视图
+            invalidate()
         }
 
     fun getPrimaryColor(): Int {
@@ -315,7 +296,6 @@ class InputControlsView(context: Context?) : View(context) {
 
     val maxWidth: Int
         get() = Mathf.roundTo(width.toFloat(), snappingSize.toFloat()).toInt()
-
     val maxHeight: Int
         get() = Mathf.roundTo(height.toFloat(), snappingSize.toFloat()).toInt()
 
@@ -349,7 +329,6 @@ class InputControlsView(context: Context?) : View(context) {
             controller.state.thumbRX, controller.state.thumbRY,
             controller.state.getDPadX().toFloat(), controller.state.getDPadY().toFloat()
         )
-
         for (i in axes.indices) {
             if (kotlin.math.abs(values[i]) > ControlElement.STICK_DEAD_ZONE) {
                 controllerBinding = controller.getControllerBinding(
@@ -384,12 +363,10 @@ class InputControlsView(context: Context?) : View(context) {
                 if (controllerBinding != null) {
                     handleInputEvent(controllerBinding.binding!!, controller.state.isPressed(ExternalController.IDX_BUTTON_L2.toInt()))
                 }
-
                 controllerBinding = controller.getControllerBinding(KeyEvent.KEYCODE_BUTTON_R2)
                 if (controllerBinding != null) {
                     handleInputEvent(controllerBinding.binding!!, controller.state.isPressed(ExternalController.IDX_BUTTON_R2.toInt()))
                 }
-
                 processJoystickInput(controller)
                 return true
             }
@@ -398,8 +375,6 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
-        // Hover events are handled by the input event handler
-        // This is a stub for compatibility
         return false
     }
 
@@ -409,7 +384,6 @@ class InputControlsView(context: Context?) : View(context) {
                 MotionEvent.ACTION_DOWN -> {
                     val x = event.x
                     val y = event.y
-
                     val element = intersectElement(x, y)
                     moveCursor = true
                     moveElement = false
@@ -424,12 +398,9 @@ class InputControlsView(context: Context?) : View(context) {
                     if (selectedElement != null) {
                         val dx = kotlin.math.abs(event.x - event.x)
                         val dy = kotlin.math.abs(event.y - event.y)
-
-                        // 检测是否超过阈值开始移动元素
                         if (dx >= MAX_TAP_TRAVEL_DISTANCE || dy >= MAX_TAP_TRAVEL_DISTANCE) {
                             moveElement = true
                         }
-
                         if (moveElement) {
                             selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
                             selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
@@ -450,94 +421,103 @@ class InputControlsView(context: Context?) : View(context) {
             }
             return true
         }
-        // 在非编辑模式下，处理虚拟按键的触摸事件
+        // In non-edit mode, handle touch events for virtual controls
         return handleTouchEvent(event)
     }
 
     /**
-     * 处理虚拟按键触摸事件 (修复问题1: 支持多触控)
-     * 允许虚拟按键和触摸板同时独立响应不同的触控手势
+     * Handle touch events for virtual controls
+     * Allows virtual buttons and touchpad to be used simultaneously
+     *
+     * Fixed:
+     * 1. Each pointer is tracked independently
+     * 2. Each pointer determines if it should be handled by an element or touchpad
+     * 3. Correct event delegation based on pointer ID
      */
     fun handleTouchEvent(event: MotionEvent): Boolean {
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
-            // Mouse events are handled directly
             return true
         }
+
         if (!editMode && profile != null) {
             val actionIndex = event.actionIndex
             val actionMasked = event.actionMasked
-            var handled = false
+            val actionPointerId = event.getPointerId(actionIndex)
 
             when (actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
-                    val pointerId = event.getPointerId(actionIndex)
-                    pointerButtonLeftEnabled = true
+                    var handled = false
+                    touchpadView?.setPointerButtonLeftEnabled(true)
 
                     for (element in profile!!.getElements()) {
-                        if (element.handleTouchDown(pointerId, x, y)) {
+                        if (element.handleTouchDown(actionPointerId, x, y)) {
                             handled = true
                             val binding = element.getBindingAt(0)
                             if (binding == Binding.MOUSE_LEFT_BUTTON) {
-                                pointerButtonLeftEnabled = false
+                                touchpadView?.setPointerButtonLeftEnabled(false)
                             }
                         }
                     }
 
-                    // 如果没有虚拟按键处理，将事件传递给触摸板
-                    if (!handled && touchpadView != null) {
+                    // Only pass to touchpad if no element handled this pointer
+                    if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
+                    return true
                 }
+
                 MotionEvent.ACTION_MOVE -> {
-                    // 遍历所有指针并处理移动事件
+                    // For ACTION_MOVE, we need to check each pointer
+                    // Each pointer might be handled by different elements or the touchpad
+                    var allPointersHandled = true
+
                     for (i in 0 until event.pointerCount) {
+                        val pointerId = event.getPointerId(i)
                         val x = event.getX(i)
                         val y = event.getY(i)
-                        val pointerId = event.getPointerId(i)
+                        var pointerHandled = false
 
-                        var elementHandled = false
                         for (element in profile!!.getElements()) {
                             if (element.handleTouchMove(pointerId, x, y)) {
-                                elementHandled = true
+                                pointerHandled = true
                             }
                         }
 
-                        // 如果元素没有处理且支持鼠标移动模式，将事件传递给触摸板
-                        if (!elementHandled && touchpadView != null) {
+                        // If this pointer wasn't handled by any element, pass to touchpad
+                        if (!pointerHandled) {
+                            allPointersHandled = false
                             touchpadView?.onTouchEvent(event)
                         }
                     }
-                    handled = true
+                    return true
                 }
+
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                    val ptrId = event.getPointerId(actionIndex)
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
+                    var handled = false
 
-                    var elementHandled = false
                     for (element in profile!!.getElements()) {
-                        if (element.handleTouchUp(ptrId, x, y)) {
-                            elementHandled = true
+                        if (element.handleTouchUp(actionPointerId, x, y)) {
+                            handled = true
                         }
                     }
 
-                    // 如果没有虚拟按键处理，将事件传递给触摸板
-                    if (!elementHandled && touchpadView != null) {
+                    // Only pass to touchpad if no element handled this pointer
+                    if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
-                    handled = true
+                    return true
                 }
             }
-            return handled
         }
         return false
     }
 
     /**
-     * 处理虚拟按键拖动触摸板的功能
-     * 当虚拟按键设置了鼠标移动模式时，按住按键可以拖动触摸板
+     * Handle virtual button dragging touchpad functionality
      */
     fun handleButtonMouseMove(pointerId: Int, x: Float, y: Float, action: Int) {
         touchpadView?.mouseMove(x, y, action)
@@ -551,7 +531,6 @@ class InputControlsView(context: Context?) : View(context) {
         val handler = inputEventHandler ?: return
 
         if (binding.isGamepad()) {
-            // Gamepad events are handled by the gamepad state management
             val state = profile?.getGamepadState()
             val buttonIdx = binding.ordinal - Binding.GAMEPAD_BUTTON_A.ordinal
             if (buttonIdx <= 11) {
@@ -597,9 +576,7 @@ class InputControlsView(context: Context?) : View(context) {
                     } else {
                         handler.onKeyEvent(binding.toEvdev(), true)
                     }
-
-                    // 修复问题3: 对于键盘按键，添加持续输入支持
-                    // 这确保了 WASD 等移动键可以持续发送按键事件
+                    // Key repeat for keyboard keys
                     if (pointerButton == null) {
                         startKeyRepeat(binding)
                     }
@@ -609,8 +586,6 @@ class InputControlsView(context: Context?) : View(context) {
                     } else {
                         handler.onKeyEvent(binding.toEvdev(), false)
                     }
-
-                    // 停止持续输入
                     stopKeyRepeat(binding)
                 }
             }
@@ -618,35 +593,27 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     /**
-     * 开始按键重复
-     * 用于支持 WASD 等键盘按键的持续输入
+     * Start key repeat for continuous input
      */
     private fun startKeyRepeat(binding: Binding) {
-        // 如果已经有定时器在运行，不重复启动
         if (keyRepeatTimers.containsKey(binding)) {
             return
         }
 
-        // 创建重复处理器
         val repeatHandler = object : Runnable {
             override fun run() {
                 val handler = inputEventHandler ?: return
                 handler.onKeyEvent(binding.toEvdev(), true)
             }
         }
-        keyRepeatHandlers[binding] = repeatHandler
 
-        // 创建定时器
+        keyRepeatHandlers[binding] = repeatHandler
         val timer = Timer(true)
         keyRepeatTimers[binding] = timer
 
-        // 延迟后开始重复
         mainHandler.postDelayed({
-            // 先发送一次按键按下（如果还没有发送的话）
             val handler = inputEventHandler ?: return@postDelayed
             handler.onKeyEvent(binding.toEvdev(), true)
-
-            // 然后开始定时重复
             timer.schedule(object : TimerTask() {
                 override fun run() {
                     mainHandler.post(repeatHandler)
@@ -656,7 +623,7 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     /**
-     * 停止按键重复
+     * Stop key repeat
      */
     private fun stopKeyRepeat(binding: Binding) {
         val timer = keyRepeatTimers.remove(binding)
@@ -665,7 +632,7 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     /**
-     * 停止所有按键重复
+     * Stop all key repeats
      */
     fun stopAllKeyRepeats() {
         val timers = HashMap(keyRepeatTimers)
@@ -675,8 +642,7 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     fun sendText(text: String?) {
-        // Text sending is not directly supported in the InputEventHandler interface
-        // This would need to be implemented through key events or clipboard
+        // Text sending is not directly supported
     }
 
     fun getIcon(id: Byte): Bitmap? {
@@ -725,7 +691,6 @@ class InputControlsView(context: Context?) : View(context) {
         val canvas = Canvas(bitmap)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         paint.color = color
-
         if (isCircular) {
             val radius = (minOf(width, height) / 2).toInt()
             canvas.drawCircle(width / 2, height / 2, radius.toFloat(), paint)
@@ -736,41 +701,36 @@ class InputControlsView(context: Context?) : View(context) {
         return bitmap
     }
 
-    /**
-     * Inject pointer movement - sends mouse motion event
-     */
     fun injectPointerMove(dx: Int, dy: Int) {
         inputEventHandler?.onPointerMove(dx, dy)
     }
 
-    /**
-     * Compute delta point for trackpad - calculates movement delta from touch position
-     */
     fun computeDeltaPoint(oldX: Float, oldY: Float, newX: Float, newY: Float): FloatArray {
         return floatArrayOf(newX - oldX, newY - oldY)
     }
 }
 
 /**
- * 触摸板视图兼容类
- * 用于支持虚拟按键拖动触摸板功能
+ * Touchpad view compatibility class
  */
 class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
     private var pointerButtonLeftEnabled = true
     private var moveCursorToTouchpoint = false
+    private var lastX = 0f
+    private var lastY = 0f
 
     fun onTouchEvent(event: MotionEvent): Boolean {
-        // 处理触摸板事件
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                 pointerButtonLeftEnabled = true
+                lastX = event.x
+                lastY = event.y
             }
             MotionEvent.ACTION_MOVE -> {
-                // 处理移动事件
                 handleMouseMove(event)
             }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
-                // 处理抬起事件
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                // Handle release
             }
         }
         return true
@@ -780,10 +740,11 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
         if (event.pointerCount > 0) {
             val x = event.x
             val y = event.y
-            val dx = event.x - event.x
-            val dy = event.y - event.y
+            val dx = x - lastX
+            val dy = y - lastY
+            lastX = x
+            lastY = y
 
-            // 计算移动增量
             if (kotlin.math.abs(dx) > InputControlsView.CURSOR_ACCELERATION_THRESHOLD) {
                 val cursorDx = kotlin.math.round(dx * InputControlsView.CURSOR_ACCELERATION).toInt()
                 inputControlsView.injectPointerMove(cursorDx, 0)
@@ -798,18 +759,17 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
     fun mouseMove(x: Float, y: Float, action: Int) {
         when (action) {
             MotionEvent.ACTION_DOWN -> {
-                // 开始移动
+                lastX = x
+                lastY = y
             }
             MotionEvent.ACTION_MOVE -> {
-                // 处理移动
                 if (moveCursorToTouchpoint) {
-                    // 移动光标到触摸点
                     val handler = inputControlsView.inputEventHandler
                     handler?.onPointerMove(x.toInt(), y.toInt())
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                // 结束移动
+                // End move
             }
         }
     }

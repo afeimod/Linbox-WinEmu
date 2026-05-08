@@ -131,4 +131,8 @@ class RangeScroller(
         }
         isActionDown = false
     }
+
+    fun isScrolling(): Boolean {
+        return scrolling
+    }
 }
