@@ -38,15 +38,16 @@ import java.util.Arrays
 
 /**
  * ControlsEditorActivity - 虚拟按键编辑器
- * 
+ *
  * 修复内容:
  * 1. 修复范围按钮(RANGE_BUTTON)切换时界面不刷新的问题
  * 2. 改进 UI 更新的响应性
+ * 3. 修复 API 调用格式问题 (函数调用改为属性访问)
  */
 class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
     private lateinit var inputControlsView: InputControlsView
     private var profile: ControlsProfile? = null
-    
+
     // 用于延迟刷新以确保 UI 更新的稳定性
     private val handler = Handler(Looper.getMainLooper())
     private val refreshRunnable = Runnable {
@@ -61,7 +62,7 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         super.onCreate(savedInstanceState)
         hideSystemUI()
         setContentView(R.layout.controls_editor_activity)
-        
+
         // 处理屏幕方向变化
         val orientation = resources.configuration.orientation
         if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
@@ -116,7 +117,7 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
             }
         }
     }
-    
+
     override fun onPause() {
         super.onPause()
         // 停止所有按键重复
@@ -169,20 +170,20 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
      */
     private fun updateLayoutVisibility(view: View, element: ControlElement) {
         val type = element.type
-        
+
         // 根据类型显示/隐藏相应的 UI 元素
         view.findViewById<View>(R.id.LLShape)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         view.findViewById<View>(R.id.CBToggleSwitch)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         view.findViewById<View>(R.id.CBMouseMoveMode)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         view.findViewById<View>(R.id.LLCustomTextIcon)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         view.findViewById<View>(R.id.LLRangeOptions)?.visibility = if (type == ControlElement.Type.RANGE_BUTTON) View.VISIBLE else View.GONE
-        view.findViewById<View>(R.id.LLDPadBindings)?.visibility = if (type == ControlElement.Type.D_PAD || 
-                                                                          type == ControlElement.Type.STICK || 
+        view.findViewById<View>(R.id.LLDPadBindings)?.visibility = if (type == ControlElement.Type.D_PAD ||
+                                                                          type == ControlElement.Type.STICK ||
                                                                           type == ControlElement.Type.TRACKPAD) View.VISIBLE else View.GONE
-        
+
         // 加载绑定配置
         loadBindingSpinners(element, view.findViewById(R.id.LLBindings))
-        
+
         // 对于 RANGE_BUTTON，立即刷新 scroller
         if (type == ControlElement.Type.RANGE_BUTTON) {
             // 确保 scroller 已初始化
@@ -203,12 +204,12 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
             // 刷新视图
             scheduleRefresh()
         })
-        
+
         // 加载形状选择器
         loadShapeSpinner(element, view.findViewById<Spinner>(R.id.SShape).apply {
             visibility = if (element.type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         })
-        
+
         // 加载范围选择器
         loadRangeSpinner(element, view.findViewById<Spinner>(R.id.SRange).apply {
             visibility = if (element.type == ControlElement.Type.RANGE_BUTTON) View.VISIBLE else View.GONE
@@ -435,7 +436,7 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         val sBinding = bindingView.findViewById<Spinner>(R.id.SBinding)
 
         // 设置 SBindingType 的适配器（keyboard、mouse、gamepad选项）
-        sBindingType.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, 
+        sBindingType.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item,
             resources.getStringArray(R.array.binding_type_entries))
 
         val update = Runnable {
@@ -461,9 +462,9 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         val selectedBinding = element.getBindingAt(index)
         sBindingType.setSelection(
             when {
-                selectedBinding.isKeyboard() -> 0
-                selectedBinding.isMouse() -> 1
-                selectedBinding.isGamepad() -> 2
+                selectedBinding.isKeyboard -> 0
+                selectedBinding.isMouse -> 1
+                selectedBinding.isGamepad -> 2
                 else -> 0
             }, false
         )
@@ -525,7 +526,7 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
             imageView.setBackgroundResource(R.drawable.icon_background)
             imageView.tag = id
             imageView.isSelected = id == selectedId
-            
+
             // 选中时的缩放动画效果
             imageView.setOnClickListener {
                 for (i in 0 until parent.childCount) {
