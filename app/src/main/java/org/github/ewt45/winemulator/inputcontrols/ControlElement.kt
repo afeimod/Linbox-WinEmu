@@ -73,6 +73,9 @@ class ControlElement(
     internal var range: Range? = null
     internal var orientation: Byte = 0
     internal var currentPointerId: Int = -1
+    // 按钮按下状态标志，与参考项目 winlator-11 一致
+    // 用于在 BUTTON 类型中独立管理按下状态，避免依赖 currentPointerId
+    private var isButtonPressed: Boolean = false
     private val boundingBox = Rect()
     private var states = booleanArrayOf(false, false, false, false)
     private var boundingBoxNeedsUpdate = true
@@ -775,11 +778,16 @@ class ControlElement(
                 }
                 Type.BUTTON -> {
                     // 与参考项目 winlator-11 一致
-                    // currentPointerId 已经在函数开头设置为 pointerId
-                    // 这里只需要发送 keyDown 事件
-                    val binding = getBindingAt(0)
-                    inputControlsView.handleInputEvent(binding, true)
-                    return true
+                    // 使用 isButtonPressed 标志来管理按钮状态，而不是依赖 currentPointerId
+                    // 这样可以避免因为指针移动或指针ID变化导致的按钮状态丢失
+                    if (!isButtonPressed) {
+                        val binding = getBindingAt(0)
+                        inputControlsView.handleInputEvent(binding, true)
+                        isButtonPressed = true
+                        currentPointerId = pointerId
+                        return true
+                    }
+                    return false
                 }
                 Type.RANGE_BUTTON -> {
                     if (scroller == null) {
@@ -804,7 +812,12 @@ class ControlElement(
         // 与参考项目 winlator-11 一致：
         // - D_PAD, STICK, TRACKPAD 需要在移动时处理输入
         // - BUTTON 类型不需要在移动时处理（按下和释放已在 handleTouchDown/Up 中处理）
-        // - 返回 false 让未被处理的事件可以传播到其他处理器（如触摸板）
+        // - 如果按钮被按下，返回 true 阻止事件传播到其他视图
+
+        if (type == Type.BUTTON) {
+            // 如果按钮被按下，返回 true 阻止事件传播
+            return isButtonPressed
+        }
 
         if (pointerId == currentPointerId && (type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD)) {
             var deltaX: Float
@@ -990,13 +1003,18 @@ class ControlElement(
                     }
                 }
                 Type.BUTTON -> {
-                    // 释放按键 - 与参考项目 winlator-11 一致
-                    val binding = getBindingAt(0)
-                    inputControlsView.handleInputEvent(binding, false)
+                    // 与参考项目 winlator-11 一致
+                    // 只有当按钮被按下时才发送 keyUp 事件
+                    if (isButtonPressed) {
+                        val binding = getBindingAt(0)
+                        inputControlsView.handleInputEvent(binding, false)
+                        isButtonPressed = false
+                        currentPointerId = -1
 
-                    if (isToggleSwitch) {
-                        isSelected = !isSelected
-                        inputControlsView.invalidate()
+                        if (isToggleSwitch) {
+                            isSelected = !isSelected
+                            inputControlsView.invalidate()
+                        }
                     }
                 }
                 Type.RANGE_BUTTON, Type.D_PAD, Type.STICK, Type.TRACKPAD -> {
