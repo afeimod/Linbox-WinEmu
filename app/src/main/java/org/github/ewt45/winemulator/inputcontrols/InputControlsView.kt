@@ -469,8 +469,10 @@ class InputControlsView(context: Context?) : View(context) {
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    // 追踪是否有任何 pointer 被元素处理
-                    var anyPointerHandled = false
+                    // 追踪每个 pointer 是否被元素处理
+                    // 收集所有未被处理的指针
+                    val unhandledPointers = mutableListOf<MotionEvent.PointerCoords>()
+                    val unhandledPointerProperties = mutableListOf<MotionEvent.PointerProperties>()
 
                     for (i in 0 until event.pointerCount) {
                         val pointerId = event.getPointerId(i)
@@ -481,18 +483,33 @@ class InputControlsView(context: Context?) : View(context) {
                         for (element in profile!!.getElements()) {
                             if (element.handleTouchMove(pointerId, x, y)) {
                                 pointerHandled = true
+                                break // 这个 pointer 已被元素处理，跳过
                             }
                         }
 
-                        if (pointerHandled) {
-                            anyPointerHandled = true
+                        // 如果这个 pointer 没有被任何元素处理，记录下来
+                        if (!pointerHandled) {
+                            val properties = MotionEvent.PointerProperties()
+                            event.getPointerProperties(i, properties)
+                            unhandledPointerProperties.add(properties)
+
+                            val coords = MotionEvent.PointerCoords()
+                            event.getPointerCoords(i, coords)
+                            unhandledPointers.add(coords)
                         }
                     }
 
-                    // 如果没有任何 pointer 被元素处理，将事件传给触摸板
-                    // 触摸板会从 event 中提取坐标
-                    if (!anyPointerHandled) {
-                        touchpadView?.onTouchEvent(event)
+                    // 如果有未被处理的指针，构造一个新的 MotionEvent 包含这些指针，传递给触摸板
+                    if (unhandledPointers.isNotEmpty()) {
+                        val newEvent = MotionEvent.obtain(
+                            event.downTime, event.eventTime, event.action,
+                            unhandledPointers.size, unhandledPointerProperties.toTypedArray(),
+                            unhandledPointers.toTypedArray(), event.metaState, event.buttonState,
+                            event.xPrecision, event.yPrecision, event.deviceId, event.edgeFlags,
+                            event.source, event.flags
+                        )
+                        touchpadView?.onTouchEvent(newEvent)
+                        newEvent.recycle()
                     }
                     return true
                 }
