@@ -469,9 +469,8 @@ class InputControlsView(context: Context?) : View(context) {
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    // For ACTION_MOVE, we need to check each pointer
-                    // Each pointer might be handled by different elements or the touchpad
-                    var allPointersHandled = true
+                    // 追踪是否有任何 pointer 被元素处理
+                    var anyPointerHandled = false
 
                     for (i in 0 until event.pointerCount) {
                         val pointerId = event.getPointerId(i)
@@ -485,11 +484,15 @@ class InputControlsView(context: Context?) : View(context) {
                             }
                         }
 
-                        // If this pointer wasn't handled by any element, pass to touchpad
-                        if (!pointerHandled) {
-                            allPointersHandled = false
-                            touchpadView?.onTouchEvent(event)
+                        if (pointerHandled) {
+                            anyPointerHandled = true
                         }
+                    }
+
+                    // 如果没有任何 pointer 被元素处理，将事件传给触摸板
+                    // 触摸板会从 event 中提取坐标
+                    if (!anyPointerHandled) {
+                        touchpadView?.onTouchEvent(event)
                     }
                     return true
                 }
@@ -505,7 +508,7 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // Only pass to touchpad if no element handled this pointer
+                    // 只有当没有元素处理时才传给触摸板
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
@@ -576,8 +579,8 @@ class InputControlsView(context: Context?) : View(context) {
                     } else {
                         handler.onKeyEvent(binding.toEvdev(), true)
                     }
-                    // Key repeat for keyboard keys
-                    if (pointerButton == null) {
+                    // Key repeat for keyboard keys - 只对键盘按键启用
+                    if (pointerButton == null && binding != Binding.NONE) {
                         startKeyRepeat(binding)
                     }
                 } else {
@@ -586,6 +589,7 @@ class InputControlsView(context: Context?) : View(context) {
                     } else {
                         handler.onKeyEvent(binding.toEvdev(), false)
                     }
+                    // 停止 key repeat
                     stopKeyRepeat(binding)
                 }
             }
@@ -609,9 +613,7 @@ class InputControlsView(context: Context?) : View(context) {
             override fun run() {
                 val handler = inputEventHandler ?: return
                 // 再次检查是否已被停止
-                if (!keyRepeatTimers.containsKey(bindingRef)) {
-                    return
-                }
+                val timer = keyRepeatTimers[bindingRef] ?: return
                 handler.onKeyEvent(bindingRef.toEvdev(), true)
             }
         }
@@ -625,18 +627,24 @@ class InputControlsView(context: Context?) : View(context) {
         // 延迟后开始重复发送按键事件
         val delayedHandler = object : Runnable {
             override fun run() {
-                // 检查是否已被停止
-                if (!keyRepeatTimers.containsKey(bindingRef)) {
+                // 获取当前的 timer 引用，检查是否仍然是有效的
+                val currentTimer = keyRepeatTimers[bindingRef]
+                if (currentTimer == null || currentTimer != timer) {
+                    // 已经被停止，忽略
                     return
                 }
                 val handler = inputEventHandler ?: return
                 handler.onKeyEvent(bindingRef.toEvdev(), true)
                 // 开始定时重复
-                timer.schedule(object : TimerTask() {
-                    override fun run() {
-                        mainHandler.post(repeatHandler)
-                    }
-                }, KEY_REPEAT_INTERVAL, KEY_REPEAT_INTERVAL)
+                try {
+                    currentTimer.schedule(object : TimerTask() {
+                        override fun run() {
+                            mainHandler.post(repeatHandler)
+                        }
+                    }, KEY_REPEAT_INTERVAL, KEY_REPEAT_INTERVAL)
+                } catch (e: IllegalStateException) {
+                    // Timer 已经被取消，忽略
+                }
             }
         }
 
