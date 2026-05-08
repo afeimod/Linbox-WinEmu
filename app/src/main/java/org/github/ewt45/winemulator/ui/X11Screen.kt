@@ -166,6 +166,7 @@ fun X11Screen(
                         Log.d("X11Screen", "X11InputSender initialized with LorieView")
                         
                         // 添加触摸监听器用于 X11 鼠标控制
+                        // 返回 true 拦截事件，false 则让事件继续传递
                         it.setOnTouchListener { v, event ->
                             handleX11TouchEvent(
                                 event, 
@@ -178,7 +179,7 @@ fun X11Screen(
                                 { first -> isFirstTouch = first },
                                 { down -> leftButtonDown = down }
                             )
-                            // 返回 false 让 LorieView 也能处理事件
+                            // 返回 false 让 InputControlsView 也能处理事件
                             false
                         }
                     } ?: run {
