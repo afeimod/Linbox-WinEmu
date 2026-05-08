@@ -462,9 +462,9 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         val selectedBinding = element.getBindingAt(index)
         sBindingType.setSelection(
             when {
-                selectedBinding.isKeyboard -> 0
-                selectedBinding.isMouse -> 1
-                selectedBinding.isGamepad -> 2
+                selectedBinding.isKeyboard() -> 0
+                selectedBinding.isMouse() -> 1
+                selectedBinding.isGamepad() -> 2
                 else -> 0
             }, false
         )
