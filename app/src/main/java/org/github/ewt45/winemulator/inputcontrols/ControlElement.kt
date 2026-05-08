@@ -775,15 +775,11 @@ class ControlElement(
                 }
                 Type.BUTTON -> {
                     // 与参考项目 winlator-11 一致
-                    // 检查按钮是否被按下（currentPointerId == -1 表示未被按下）
-                    if (currentPointerId == -1) {
-                        val binding = getBindingAt(0)
-                        inputControlsView.handleInputEvent(binding, true)
-                        // 重要：必须设置 currentPointerId 以跟踪这个指针
-                        currentPointerId = pointerId
-                        return true
-                    }
-                    return false
+                    // currentPointerId 已经在函数开头设置为 pointerId
+                    // 这里只需要发送 keyDown 事件
+                    val binding = getBindingAt(0)
+                    inputControlsView.handleInputEvent(binding, true)
+                    return true
                 }
                 Type.RANGE_BUTTON -> {
                     if (scroller == null) {

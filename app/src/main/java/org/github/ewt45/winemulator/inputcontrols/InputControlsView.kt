@@ -440,14 +440,15 @@ class InputControlsView(context: Context?) : View(context) {
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    // 与参考项目 winlator-11 一致：遍历所有指针并处理移动事件
-                    // 使用指针索引 (i) 而不是指针ID，因为 handleTouchMove 中检查的是 pointerId 参数
+                    // 遍历所有指针并处理移动事件
+                    // 使用指针ID而不是索引，确保与 ACTION_DOWN 中设置的 currentPointerId 匹配
                     var handled = false
                     for (i in 0 until event.pointerCount) {
+                        val pointerId = event.getPointerId(i)
                         val x = event.getX(i)
                         val y = event.getY(i)
                         for (element in profile!!.getElements()) {
-                            if (element.handleTouchMove(i, x, y)) {
+                            if (element.handleTouchMove(pointerId, x, y)) {
                                 handled = true
                             }
                         }
