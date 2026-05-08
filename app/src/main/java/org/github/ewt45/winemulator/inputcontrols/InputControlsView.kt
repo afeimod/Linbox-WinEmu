@@ -520,8 +520,12 @@ class InputControlsView(context: Context?) : View(context) {
                     // Only pass to touchpad if no element handled this pointer
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
+                        // Don't return true here - let LorieView handle native X11 mouse control
+                        // Return false to allow event to pass through to LorieView
                     }
-                    return true
+                    // Always return false for touch events to allow LorieView to handle them
+                    // This ensures native X11 mouse control works alongside virtual controls
+                    return false
                 }
 
                 MotionEvent.ACTION_MOVE -> {
@@ -566,7 +570,8 @@ class InputControlsView(context: Context?) : View(context) {
                         touchpadView?.onTouchEvent(newEvent)
                         newEvent.recycle()
                     }
-                    return true
+                    // Always return false for touch events to allow LorieView to handle them
+                    return false
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
@@ -584,13 +589,15 @@ class InputControlsView(context: Context?) : View(context) {
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
-                    return true
+                    // Always return false for touch events to allow LorieView to handle them
+                    return false
                 }
             }
         } else {
-            // No profile configured, pass all touch to touchpad for cursor control
+            // No profile configured, return false to allow events to pass through to LorieView
+            // LorieView will handle the touch for native X11 mouse control
             touchpadView?.onTouchEvent(event)
-            return true
+            return false
         }
         return false
     }
