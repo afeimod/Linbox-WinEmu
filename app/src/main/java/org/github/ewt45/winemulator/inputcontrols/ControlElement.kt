@@ -1,24 +1,14 @@
 package org.github.ewt45.winemulator.inputcontrols
 
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.Path
-import android.graphics.PointF
-import android.graphics.Rect
-import android.os.Handler
-import android.os.Looper
-import androidx.core.graphics.ColorUtils
-import com.termux.x11.controller.math.Mathf
-import org.json.JSONArray
-import org.json.JSONException
-import org.json.JSONObject
-import java.util.Timer
-import java.util.TimerTask
-import java.util.Arrays
+import android.graphics.*
+import org.github.ewt45.winemulator.inputcontrols.ControlElement.Range
+import org.github.ewt45.winemulator.inputcontrols.ControlElement.Shape
+import org.github.ewt45.winemulator.inputcontrols.ControlElement.Type
+import kotlin.math.*
 
-/** The {@link Class} that implements individual control elements for {@link InputControlsView}. */
+/**
+ * Represents a single control element (button, d-pad, stick, etc.)
+ */
 class ControlElement(
     private val inputControlsView: InputControlsView
 ) {
@@ -33,7 +23,11 @@ class ControlElement(
     }
 
     enum class Type {
-        BUTTON, D_PAD, RANGE_BUTTON, STICK, TRACKPAD, COMBINE_BUTTON, CHEAT_CODE_TEXT;
+        BUTTON,
+        D_PAD,
+        RANGE_BUTTON,
+        STICK,
+        TRACKPAD;
 
         companion object {
             fun names(): Array<String> = entries.map { it.name.replace("_", "-") }.toTypedArray()
@@ -41,7 +35,10 @@ class ControlElement(
     }
 
     enum class Shape {
-        CIRCLE, RECT, ROUND_RECT, SQUARE;
+        CIRCLE,
+        RECT,
+        ROUND_RECT,
+        SQUARE;
 
         companion object {
             fun names(): Array<String> = entries.map { it.name.replace("_", " ") }.toTypedArray()
@@ -50,53 +47,107 @@ class ControlElement(
 
     enum class Range(val max: Byte) {
         FROM_A_TO_Z(26),
-        FROM_0_TO_9(10),
-        FROM_F1_TO_F12(12),
-        FROM_NP0_TO_NP9(10);
+        DIGITS(10),
+        FUNCTION_KEYS(12),
+        NUMPAD_DIGITS(10);
 
         companion object {
             fun names(): Array<String> = entries.map { it.name.replace("_", " ") }.toTypedArray()
+            
+            // 处理配置文件中的旧名称映射
+            fun fromString(name: String): Range? {
+                return when (name) {
+                    "FROM_A_TO_Z", "A-Z" -> FROM_A_TO_Z
+                    "FROM_0_TO_9", "0-9", "DIGITS" -> DIGITS
+                    "FROM_F1_TO_F12", "F1-F12", "FUNCTION_KEYS" -> FUNCTION_KEYS
+                    "FROM_NP0_TO_NP9", "NP0-NP9", "NUMPAD_DIGITS" -> NUMPAD_DIGITS
+                    else -> null
+                }
+            }
         }
     }
 
-    // Properties - using internal visibility for access from InputControlsView
-    internal var type: Type = Type.BUTTON
-    internal var shape: Shape = Shape.CIRCLE
-    internal var bindings: Array<Binding> = arrayOf(Binding.NONE, Binding.NONE, Binding.NONE, Binding.NONE)
-    internal var scale: Float = 1.0f
-    internal var x: Int = 0
-    internal var y: Int = 0
-    internal var isSelected: Boolean = false
-    internal var isToggleSwitch: Boolean = false
-    internal var text: String = ""
-    internal var iconId: Byte = 0
-    internal var range: Range? = null
-    internal var orientation: Byte = 0
-    internal var currentPointerId: Int = -1
-    private val boundingBox = Rect()
-    private var states = booleanArrayOf(false, false, false, false)
-    private var boundingBoxNeedsUpdate = true
+    var type: Type = Type.BUTTON
+        set(value) {
+            if (field != value) {
+                field = value
+                reset()
+            }
+        }
+    var shape: Shape = Shape.CIRCLE
+        set(value) {
+            if (field != value) {
+                field = value
+                boundingBoxNeedsUpdate = true
+            }
+        }
+    private var bindings: Array<Binding> = arrayOf(Binding.NONE, Binding.NONE, Binding.NONE, Binding.NONE)
+    var scale: Float = 1.0f
+        set(value) {
+            if (field != value) {
+                field = value
+                boundingBoxNeedsUpdate = true
+            }
+        }
+    var x: Int = 0
+        set(value) {
+            if (field != value) {
+                field = value
+                boundingBoxNeedsUpdate = true
+            }
+        }
+    var y: Int = 0
+        set(value) {
+            if (field != value) {
+                field = value
+                boundingBoxNeedsUpdate = true
+            }
+        }
+    var isSelected: Boolean = false
+    var isToggleSwitch: Boolean = false
+    var text: String = ""
+        set(value) {
+            field = value
+        }
+    var iconId: Byte = 0
+        set(value) {
+            field = value
+        }
+    var range: Range? = null
+        set(value) {
+            field = value
+        }
+    var orientation: Byte = 0 // 0 = horizontal, 1 = vertical
+        set(value) {
+            if (field != value) {
+                field = value
+                boundingBoxNeedsUpdate = true
+            }
+        }
+
+    private var currentPointerId: Int = -1
+    private val boundingBox: Rect = Rect()
+    private var boundingBoxNeedsUpdate: Boolean = true
+    private val states: BooleanArray = booleanArrayOf(false, false, false, false)
     private var currentPosition: PointF? = null
+    private var touchTime: Long? = null
+
+    // For range button scroller
     private var scroller: RangeScroller? = null
     private var interpolator: CubicBezierInterpolator? = null
-    private var touchTime: Long? = null
-    private var cheatCodeText: String = "None"
-    private var cheatCodePressed = false
-    private var customIconId: String? = null
-    private var clipIcon: Bitmap? = null
-    private var oldCustomIconId: String? = null
-    private var backgroundColor: Int = 0
-    private var oldBackgroundColor: Int = -1
-
-    constructor(inputControlsView: InputControlsView, type: Type) : this(inputControlsView) {
-        this.type = type
-        reset()
-    }
 
     private fun reset() {
-        setBinding(Binding.NONE)
+        text = ""
+        iconId = 0
+        range = null
         scroller = null
+        boundingBoxNeedsUpdate = true
+    }
 
+    /**
+     * Called when creating a new element to initialize default bindings
+     */
+    fun initDefaultBindings() {
         when (type) {
             Type.D_PAD, Type.STICK -> {
                 bindings = arrayOf(Binding.KEY_W, Binding.KEY_D, Binding.KEY_S, Binding.KEY_A)
@@ -110,71 +161,36 @@ class ControlElement(
                 )
             }
             Type.RANGE_BUTTON -> {
-                // RANGE_BUTTON 默认 4 个 bindings，与 D_PAD、STICK 保持一致
-                bindings = arrayOf(Binding.NONE, Binding.NONE, Binding.NONE, Binding.NONE)
+                // Range buttons have their own scroller
                 scroller = RangeScroller(inputControlsView, this)
             }
             else -> {}
         }
-
-        text = ""
-        iconId = 0
-        range = null
-        boundingBoxNeedsUpdate = true
-    }
-
-    // Getters and setters
-    fun getType(): Type = type
-    fun setType(type: Type) {
-        this.type = type
-        reset()
-        boundingBoxNeedsUpdate = true
-        inputControlsView.invalidate()
     }
 
     fun getBindingCount(): Int = bindings.size
 
-    fun setBindingCount(bindingCount: Int) {
-        bindings = Array(bindingCount) { Binding.NONE }
-        setBinding(Binding.NONE)
-        states = BooleanArray(bindingCount)
+    fun setBindingCount(count: Int) {
+        bindings = Array(count) { Binding.NONE }
+        states.fill(false)
         boundingBoxNeedsUpdate = true
-    }
-
-    fun getShape(): Shape = shape
-    fun setShape(shape: Shape) {
-        this.shape = shape
-        boundingBoxNeedsUpdate = true
-    }
-
-    fun getRange(): Range = range ?: Range.FROM_A_TO_Z
-    fun setRange(range: Range) {
-        this.range = range
-        // Re-initialize the scroller since it doesn't have a reset method
-        scroller = RangeScroller(inputControlsView, this)
-        boundingBoxNeedsUpdate = true
-        inputControlsView.invalidate()
-    }
-
-    fun getOrientation(): Byte = orientation
-    fun setOrientation(orientation: Byte) {
-        this.orientation = orientation
-        boundingBoxNeedsUpdate = true
-    }
-
-    fun isToggleSwitch(): Boolean = isToggleSwitch
-    fun setToggleSwitch(toggleSwitch: Boolean) {
-        this.isToggleSwitch = toggleSwitch
     }
 
     fun getBindingAt(index: Int): Binding = if (index < bindings.size) bindings[index] else Binding.NONE
 
+    @Suppress("UNCHECKED_CAST")
     fun setBindingAt(index: Int, binding: Binding) {
         if (index >= bindings.size) {
             val oldLength = bindings.size
-            bindings = Arrays.copyOf(bindings, index + 1)
-            Arrays.fill(bindings, oldLength, bindings.size, Binding.NONE)
-            states = BooleanArray(bindings.size)
+            val newBindings = arrayOfNulls<Binding>(index + 1) as Array<Binding>
+            for (i in bindings.indices) {
+                newBindings[i] = bindings[i]
+            }
+            for (i in oldLength until newBindings.size) {
+                newBindings[i] = Binding.NONE
+            }
+            bindings = newBindings
+            states.fill(false)
             boundingBoxNeedsUpdate = true
         }
         bindings[index] = binding
@@ -184,74 +200,18 @@ class ControlElement(
         bindings.fill(binding)
     }
 
-    fun getScale(): Float = scale
-    fun setScale(scale: Float) {
-        this.scale = scale
-        boundingBoxNeedsUpdate = true
-    }
-
-    fun getX(): Int = x
-    fun setX(x: Int) {
-        this.x = x
-        boundingBoxNeedsUpdate = true
-    }
-
-    fun getY(): Int = y
-    fun setY(y: Int) {
-        this.y = y
-        boundingBoxNeedsUpdate = true
-    }
-
-    fun isSelected(): Boolean = isSelected
-    fun setSelected(selected: Boolean) {
-        this.isSelected = selected
-    }
-
-    fun getText(): String = text
-    fun setText(text: String) {
-        this.text = text ?: ""
-    }
-
-    fun getIconId(): Byte = iconId
-    fun setIconId(iconId: Int) {
-        this.iconId = iconId.toByte()
-    }
-
-    fun getCheatCodeText(): String = cheatCodeText
-    fun setCheatCodeText(cct: String) {
-        this.cheatCodeText = cct
-    }
-
-    fun setCustomIconId(icId: String?) {
-        this.customIconId = icId
-        if (oldCustomIconId == null) {
-            oldCustomIconId = icId
-        }
-    }
-
-    fun getCustomIconId(): String? = customIconId
-
-    fun setBackgroundColor(color: Int) {
-        this.backgroundColor = color
-        if (oldBackgroundColor <= 0) {
-            oldBackgroundColor = color
-        }
-    }
-
-    fun getBackgroundColor(): Int = backgroundColor
-
     fun getBoundingBox(): Rect {
         if (boundingBoxNeedsUpdate) computeBoundingBox()
         return boundingBox
     }
 
     private fun computeBoundingBox() {
-        val snappingSize = inputControlsView.snappingSizeValue
+        val snappingSize = inputControlsView.snappingSize
         var halfWidth = 0
         var halfHeight = 0
 
         when (type) {
-            Type.CHEAT_CODE_TEXT, Type.COMBINE_BUTTON, Type.BUTTON -> {
+            Type.BUTTON -> {
                 when (shape) {
                     Shape.RECT, Shape.ROUND_RECT -> {
                         halfWidth = snappingSize * 4
@@ -293,40 +253,15 @@ class ControlElement(
         boundingBoxNeedsUpdate = false
     }
 
-    private fun getDisplayText(): String {
-        if (text.isNotEmpty()) {
-            return text
-        } else {
-            val binding = getBindingAt(0)
-            var displayText = binding.toString().replace("NUMPAD ", "NP").replace("BUTTON ", "")
-            if (displayText.length > 7) {
-                val parts = displayText.split(" ")
-                val sb = StringBuilder()
-                for (part in parts) {
-                    if (part.isNotEmpty()) sb.append(part[0])
-                }
-                return (if (binding.isMouse()) "M" else "") + sb
-            } else return displayText
-        }
+    fun containsPoint(px: Float, py: Float): Boolean {
+        return getBoundingBox().contains((px + 0.5f).toInt(), (py + 0.5f).toInt())
     }
 
-    private fun getTextSizeForWidth(paint: Paint, text: String, desiredWidth: Float): Float {
-        val testTextSize = 48f
-        paint.textSize = testTextSize
-        return testTextSize * desiredWidth / paint.measureText(text)
-    }
-
-    private fun getRangeTextForIndex(range: Range, index: Int): String {
-        return when (range) {
-            Range.FROM_A_TO_Z -> ('A'.code + index).toChar().toString()
-            Range.FROM_0_TO_9 -> ((index + 1) % 10).toString()
-            Range.FROM_F1_TO_F12 -> "F${index + 1}"
-            Range.FROM_NP0_TO_NP9 -> "NP${(index + 1) % 10}"
-        }
-    }
-
+    /**
+     * Main draw method - renders the control element
+     */
     fun draw(canvas: Canvas) {
-        val snappingSize = inputControlsView.snappingSizeValue
+        val snappingSize = inputControlsView.snappingSize
         val paint = inputControlsView.getPaint()
         val primaryColor = inputControlsView.getPrimaryColor()
 
@@ -337,28 +272,17 @@ class ControlElement(
         val box = getBoundingBox()
 
         when (type) {
-            Type.CHEAT_CODE_TEXT, Type.COMBINE_BUTTON, Type.BUTTON -> {
-                drawButton(canvas, paint, box, primaryColor, strokeWidth)
-            }
-            Type.D_PAD -> {
-                drawDPad(canvas, paint, box)
-            }
-            Type.RANGE_BUTTON -> {
-                drawRangeButton(canvas, paint, box, strokeWidth)
-            }
-            Type.STICK -> {
-                drawStick(canvas, paint, box, primaryColor, strokeWidth)
-            }
-            Type.TRACKPAD -> {
-                drawTrackpad(canvas, paint, box, strokeWidth)
-            }
+            Type.BUTTON -> drawButton(canvas, paint, box, primaryColor, strokeWidth)
+            Type.D_PAD -> drawDPad(canvas, paint, box)
+            Type.RANGE_BUTTON -> drawRangeButton(canvas, paint, box, strokeWidth)
+            Type.STICK -> drawStick(canvas, paint, box, primaryColor, strokeWidth)
+            Type.TRACKPAD -> drawTrackpad(canvas, paint, box, strokeWidth)
         }
     }
 
     private fun drawButton(canvas: Canvas, paint: Paint, box: Rect, primaryColor: Int, strokeWidth: Float) {
         val cx = box.centerX().toFloat()
         val cy = box.centerY().toFloat()
-        val snappingSize = inputControlsView.snappingSizeValue
 
         when (shape) {
             Shape.CIRCLE -> {
@@ -376,6 +300,7 @@ class ControlElement(
                 )
             }
             Shape.SQUARE -> {
+                val snappingSize = inputControlsView.snappingSize
                 val radius = snappingSize * 0.75f * scale
                 canvas.drawRoundRect(
                     box.left.toFloat(), box.top.toFloat(),
@@ -385,22 +310,24 @@ class ControlElement(
             }
         }
 
-        if (!customIconId.isNullOrEmpty()) {
-            drawCustomIcon(canvas, cx, cy, box.width().toFloat(), box.height().toFloat())
-        } else if (backgroundColor > 0) {
-            drawColorSolidIcon(canvas, cx, cy, box.width().toFloat(), box.height().toFloat())
-        } else if (iconId > 0) {
+        // Draw icon if iconId > 0
+        if (iconId > 0) {
             drawIcon(canvas, cx, cy, box.width().toFloat(), box.height().toFloat())
         } else {
+            // Draw text
             val displayText = getDisplayText()
             paint.textSize = minOf(
                 getTextSizeForWidth(paint, displayText, box.width() - strokeWidth * 2),
-                snappingSize * 2 * scale
+                inputControlsView.snappingSize * 2 * scale
             )
             paint.textAlign = Paint.Align.CENTER
             paint.style = Paint.Style.FILL
             paint.color = primaryColor
-            canvas.drawText(displayText, x.toFloat(), y - (paint.descent() + paint.ascent()) * 0.5f, paint)
+            canvas.drawText(
+                displayText, x.toFloat(),
+                y - (paint.descent() + paint.ascent()) * 0.5f,
+                paint
+            )
         }
     }
 
@@ -409,76 +336,8 @@ class ControlElement(
         val icon = inputControlsView.getIcon(iconId) ?: return
 
         paint.colorFilter = inputControlsView.getColorFilter()
-        val margin = (inputControlsView.snappingSizeValue * (if (shape == Shape.CIRCLE || shape == Shape.SQUARE) 2.0f else 1.0f) * scale).toInt()
+        val margin = (inputControlsView.snappingSize * (if (shape == Shape.CIRCLE || shape == Shape.SQUARE) 2.0f else 1.0f) * scale).toInt()
         val halfSize = ((minOf(width, height) - margin) * 0.5f).toInt()
-
-        val srcRect = Rect(0, 0, icon.width, icon.height)
-        val dstRect = Rect(
-            (cx - halfSize).toInt(),
-            (cy - halfSize).toInt(),
-            (cx + halfSize).toInt(),
-            (cy + halfSize).toInt()
-        )
-
-        canvas.drawBitmap(icon, srcRect, dstRect, paint)
-        paint.colorFilter = null
-    }
-
-    private fun drawCustomIcon(canvas: Canvas, cx: Float, cy: Float, width: Float, height: Float) {
-        val paint = inputControlsView.getPaint()
-        val iconId = customIconId ?: return
-
-        var icon: Bitmap? = if (clipIcon != null && oldCustomIconId == iconId) {
-            clipIcon
-        } else {
-            val iconOrigin = inputControlsView.getCustomIcon(iconId) ?: return
-            val isCycle = shape == Shape.CIRCLE
-            val clipped = inputControlsView.clipBitmap(iconOrigin, isCycle) ?: return
-            clipIcon = clipped
-            oldCustomIconId = iconId
-            inputControlsView.counterMapIncrease(iconId)
-            clipped
-        }
-
-        if (icon == null) return
-
-        val margin = (inputControlsView.snappingSizeValue * (if (shape == Shape.CIRCLE || shape == Shape.SQUARE) 2.0f else 1.0f) * scale).toInt()
-        val halfSize = ((minOf(width, height) - margin) * 0.7f).toInt()
-
-        val srcRect = Rect(0, 0, icon.width, icon.height)
-        val dstRect = Rect(
-            (cx - halfSize).toInt(),
-            (cy - halfSize).toInt(),
-            (cx + halfSize).toInt(),
-            (cy + halfSize).toInt()
-        )
-
-        canvas.drawBitmap(icon, srcRect, dstRect, paint)
-        paint.colorFilter = null
-    }
-
-    private fun toARGB(rgb: Int): Int {
-        return Color.argb(255, Color.red(rgb), Color.green(rgb), Color.blue(rgb))
-    }
-
-    private fun drawColorSolidIcon(canvas: Canvas, cx: Float, cy: Float, width: Float, height: Float) {
-        val paint = inputControlsView.getPaint()
-        val color = backgroundColor
-
-        var icon: Bitmap? = if (clipIcon != null && oldBackgroundColor == color) {
-            clipIcon
-        } else {
-            val isCycle = shape == Shape.CIRCLE
-            val created = inputControlsView.createShapeBitmap(width, height, toARGB(color), isCycle) ?: return
-            clipIcon = created
-            oldBackgroundColor = color
-            created
-        }
-
-        if (icon == null) return
-
-        val margin = (inputControlsView.snappingSizeValue * (if (shape == Shape.CIRCLE || shape == Shape.SQUARE) 2.0f else 1.0f) * scale).toInt()
-        val halfSize = ((minOf(width, height) - margin) * 0.7f).toInt()
 
         val srcRect = Rect(0, 0, icon.width, icon.height)
         val dstRect = Rect(
@@ -495,7 +354,7 @@ class ControlElement(
     private fun drawDPad(canvas: Canvas, paint: Paint, box: Rect) {
         val cx = box.centerX().toFloat()
         val cy = box.centerY().toFloat()
-        val snappingSize = inputControlsView.snappingSizeValue
+        val snappingSize = inputControlsView.snappingSize
         val offsetX = snappingSize * 2 * scale
         val offsetY = snappingSize * 3 * scale
         val start = snappingSize * scale
@@ -536,25 +395,27 @@ class ControlElement(
         path.close()
 
         canvas.drawPath(path, paint)
+
+        // Draw center indicator (diamond shape)
+        val indicatorSize = snappingSize * 0.75f * scale
+        path.reset()
+        path.moveTo(cx, cy - indicatorSize)
+        path.lineTo(cx + indicatorSize, cy)
+        path.lineTo(cx, cy + indicatorSize)
+        path.lineTo(cx - indicatorSize, cy)
+        path.close()
+        canvas.drawPath(path, paint)
     }
 
     private fun drawRangeButton(canvas: Canvas, paint: Paint, box: Rect, strokeWidth: Float) {
-        val snappingSize = inputControlsView.snappingSizeValue
+        val snappingSize = inputControlsView.snappingSize
         val radius = snappingSize * 0.75f * scale
-        val currentRange = getRange()
-        
-        // When scroller is null (first creation), fall back to calculating elementSize
-        val elementSize = scroller?.getElementSize() ?: run {
-            val boxWidth = box.width().toFloat()
-            val boxHeight = box.height().toFloat()
-            maxOf(boxWidth, boxHeight) / getBindingCount()
-        }
-        val scrollOffset = scroller?.getScrollOffset() ?: 0f
-        val rangeIndex = scroller?.getRangeIndex() ?: intArrayOf(0, currentRange.max.toInt())
 
         if (orientation == 0.toByte()) {
+            // Horizontal
             val lineTop = box.top + strokeWidth * 0.5f
             val lineBottom = box.bottom - strokeWidth * 0.5f
+            var startX = box.left.toFloat()
 
             canvas.drawRoundRect(
                 box.left.toFloat(), box.top.toFloat(),
@@ -572,16 +433,23 @@ class ControlElement(
             )
             canvas.clipPath(clipPath)
 
-            val initialOffset = scrollOffset % elementSize
-            var startX = box.left.toFloat() - initialOffset
-            val savedColor = paint.color
+            // 使用 scroller 的 elementSize，确保与触摸逻辑一致
+            // 参考 winlator：elementSize = max(width, height) / bindingCount
+            val elementSize = scroller?.getElementSize() ?: run {
+                val boxWidth = box.width().toFloat()
+                val boxHeight = box.height().toFloat()
+                maxOf(boxWidth, boxHeight) / getBindingCount()
+            }
+            val currentRange = range ?: Range.FROM_A_TO_Z
+            val scrollOffset = scroller?.getScrollOffset() ?: 0f
+            val rangeIndex = scroller?.getRangeIndex() ?: intArrayOf(0, currentRange.max.toInt())
+
+            startX -= scrollOffset % elementSize
 
             for (i in rangeIndex[0] until rangeIndex[1]) {
                 val index = i % currentRange.max.toInt()
-                val oldColor = paint.color
-
                 paint.style = Paint.Style.STROKE
-                paint.color = oldColor
+                paint.color = paint.color
 
                 if (startX > box.left && startX < box.right) {
                     canvas.drawLine(startX, lineTop, startX, lineBottom, paint)
@@ -596,18 +464,22 @@ class ControlElement(
                         snappingSize * 2 * scale
                     )
                     paint.textAlign = Paint.Align.CENTER
-                    canvas.drawText(text, startX + elementSize * 0.5f, y - (paint.descent() + paint.ascent()) * 0.5f, paint)
+                    canvas.drawText(
+                        text,
+                        startX + elementSize * 0.5f,
+                        y - (paint.descent() + paint.ascent()) * 0.5f,
+                        paint
+                    )
                 }
-
                 startX += elementSize
             }
 
-            paint.style = Paint.Style.STROKE
-            paint.color = savedColor
             canvas.restore()
         } else {
+            // Vertical
             val lineLeft = box.left + strokeWidth * 0.5f
             val lineRight = box.right - strokeWidth * 0.5f
+            var startY = box.top.toFloat()
 
             canvas.drawRoundRect(
                 box.left.toFloat(), box.top.toFloat(),
@@ -625,15 +497,22 @@ class ControlElement(
             )
             canvas.clipPath(clipPath)
 
-            val initialOffset = scrollOffset % elementSize
-            var startY = box.top.toFloat() - initialOffset
-            val savedColorY = paint.color
+            // 使用 scroller 的 elementSize，确保与触摸逻辑一致
+            // 参考 winlator：elementSize = max(width, height) / bindingCount
+            val elementSize = scroller?.getElementSize() ?: run {
+                val boxWidth = box.width().toFloat()
+                val boxHeight = box.height().toFloat()
+                maxOf(boxWidth, boxHeight) / getBindingCount()
+            }
+            val currentRange = range ?: Range.FROM_A_TO_Z
+            val scrollOffset = scroller?.getScrollOffset() ?: 0f
+            val rangeIndex = scroller?.getRangeIndex() ?: intArrayOf(0, currentRange.max.toInt())
+
+            startY -= scrollOffset % elementSize
 
             for (i in rangeIndex[0] until rangeIndex[1]) {
-                val oldColor = paint.color
-
                 paint.style = Paint.Style.STROKE
-                paint.color = oldColor
+                paint.color = paint.color
 
                 if (startY > box.top && startY < box.bottom) {
                     canvas.drawLine(lineLeft, startY, lineRight, startY, paint)
@@ -648,14 +527,16 @@ class ControlElement(
                         snappingSize * 2 * scale
                     )
                     paint.textAlign = Paint.Align.CENTER
-                    canvas.drawText(text, x.toFloat(), startY + elementSize * 0.5f - (paint.descent() + paint.ascent()) * 0.5f, paint)
+                    canvas.drawText(
+                        text,
+                        x.toFloat(),
+                        startY + elementSize * 0.5f - (paint.descent() + paint.ascent()) * 0.5f,
+                        paint
+                    )
                 }
-
                 startY += elementSize
             }
 
-            paint.style = Paint.Style.STROKE
-            paint.color = savedColorY
             canvas.restore()
         }
     }
@@ -663,17 +544,19 @@ class ControlElement(
     private fun drawStick(canvas: Canvas, paint: Paint, box: Rect, primaryColor: Int, strokeWidth: Float) {
         val cx = box.centerX().toFloat()
         val cy = box.centerY().toFloat()
-        val snappingSize = inputControlsView.snappingSizeValue
+        val snappingSize = inputControlsView.snappingSize
         val oldColor = paint.color
 
+        // Draw outer circle
         canvas.drawCircle(cx, cy, box.height() * 0.5f, paint)
 
+        // Draw thumbstick position
         val thumbX = currentPosition?.x ?: cx
         val thumbY = currentPosition?.y ?: cy
         val thumbRadius = snappingSize * 3.5f * scale
 
         paint.style = Paint.Style.FILL
-        paint.color = ColorUtils.setAlphaComponent(primaryColor, 50)
+        paint.color = Color.argb(50, 255, 255, 255)
         canvas.drawCircle(thumbX, thumbY, thumbRadius, paint)
 
         paint.style = Paint.Style.STROKE
@@ -703,51 +586,42 @@ class ControlElement(
         paint.strokeWidth = strokeWidth
     }
 
-    fun toJSONObject(): JSONObject? {
-        return try {
-            val elementJSONObject = JSONObject()
-            elementJSONObject.put("type", type.name)
-            elementJSONObject.put("shape", shape.name)
-
-            val bindingsJSONArray = JSONArray()
-            for (binding in bindings) bindingsJSONArray.put(binding.name)
-            elementJSONObject.put("bindings", bindingsJSONArray)
-
-            elementJSONObject.put("scale", scale.toDouble())
-            elementJSONObject.put("x", x.toDouble() / inputControlsView.maxWidth)
-            elementJSONObject.put("y", y.toDouble() / inputControlsView.maxHeight)
-            elementJSONObject.put("toggleSwitch", isToggleSwitch)
-            elementJSONObject.put("text", text)
-            elementJSONObject.put("iconId", iconId.toInt())
-
-            if (cheatCodeText.isNotEmpty()) {
-                elementJSONObject.put("cheatCodeText", cheatCodeText)
-            }
-            if (!customIconId.isNullOrEmpty()) {
-                elementJSONObject.put("customIconId", customIconId)
-            }
-            if (backgroundColor > 0) {
-                elementJSONObject.put("backgroundColor", backgroundColor)
-            }
-
-            if (type == Type.RANGE_BUTTON && range != null) {
-                elementJSONObject.put("range", range!!.name)
-                if (orientation != 0.toByte()) elementJSONObject.put("orientation", orientation.toInt())
-            }
-
-            elementJSONObject
-        } catch (e: JSONException) {
-            null
+    private fun getDisplayText(): String {
+        if (text.isNotEmpty()) {
+            return text
         }
-    }
 
-    fun containsPoint(px: Float, py: Float): Boolean {
-        return getBoundingBox().contains((px + 0.5f).toInt(), (py + 0.5f).toInt())
-    }
-
-    private fun isKeepButtonPressedAfterMinTime(): Boolean {
         val binding = getBindingAt(0)
-        return !isToggleSwitch && (binding == Binding.GAMEPAD_BUTTON_L3 || binding == Binding.GAMEPAD_BUTTON_R3)
+        var displayText = binding.toString()
+            .replace("NUMPAD ", "NP")
+            .replace("BUTTON ", "")
+
+        if (displayText.length > 7) {
+            val parts = displayText.split(" ")
+            val sb = StringBuilder()
+            for (part in parts) {
+                if (part.isNotEmpty()) {
+                    sb.append(part[0])
+                }
+            }
+            displayText = (if (binding.isMouse) "M" else "") + sb
+        }
+        return displayText
+    }
+
+    private fun getTextSizeForWidth(paint: Paint, text: String, desiredWidth: Float): Float {
+        val testTextSize = 48f
+        paint.textSize = testTextSize
+        return testTextSize * desiredWidth / paint.measureText(text)
+    }
+
+    private fun getRangeTextForIndex(range: Range, index: Int): String {
+        return when (range) {
+            Range.FROM_A_TO_Z -> ('A'.code + index).toChar().toString()
+            Range.DIGITS -> ((index + 1) % 10).toString()
+            Range.FUNCTION_KEYS -> "F${index + 1}"
+            Range.NUMPAD_DIGITS -> "NP${(index + 1) % 10}"
+        }
     }
 
     fun handleTouchDown(pointerId: Int, px: Float, py: Float): Boolean {
@@ -755,43 +629,29 @@ class ControlElement(
             currentPointerId = pointerId
 
             when (type) {
-                Type.CHEAT_CODE_TEXT -> {
-                    if (!cheatCodePressed) {
-                        inputControlsView.sendText(getCheatCodeText())
-                        cheatCodePressed = true
-                    }
-                    return true
-                }
-                Type.COMBINE_BUTTON -> {
-                    if (isKeepButtonPressedAfterMinTime()) touchTime = System.currentTimeMillis()
-                    if (!isToggleSwitch || !isSelected) {
-                        for (i in states.indices) {
-                            if (getBindingAt(i) != Binding.NONE) {
-                                inputControlsView.handleInputEvent(getBindingAt(i), true)
-                            }
-                        }
-                    }
-                    return true
-                }
                 Type.BUTTON -> {
-                    // 与参考项目 winlator-11 一致
-                    // currentPointerId 已经在函数开头设置为 pointerId
-                    val binding = getBindingAt(0)
-                    inputControlsView.handleInputEvent(binding, true)
+                    if (isKeepButtonPressedAfterMinTime()) {
+                        touchTime = System.currentTimeMillis()
+                    }
+                    if (!isToggleSwitch || !isSelected) {
+                        inputControlsView.handleInputEvent(getBindingAt(0), true)
+                        inputControlsView.handleInputEvent(getBindingAt(1), true)
+                    }
                     return true
                 }
                 Type.RANGE_BUTTON -> {
                     if (scroller == null) {
                         scroller = RangeScroller(inputControlsView, this)
                     }
-                    scroller?.handleTouchDown(px, py)
+                    scroller?.handleTouchDown(this, px, py)
                     return true
                 }
-                else -> {
-                    if (type == Type.TRACKPAD) {
-                        if (currentPosition == null) currentPosition = PointF()
-                        currentPosition?.set(px, py)
-                    }
+                Type.TRACKPAD -> {
+                    if (currentPosition == null) currentPosition = PointF()
+                    currentPosition?.set(px, py)
+                    return handleTouchMove(pointerId, px, py)
+                }
+                Type.D_PAD, Type.STICK -> {
                     return handleTouchMove(pointerId, px, py)
                 }
             }
@@ -800,9 +660,6 @@ class ControlElement(
     }
 
     fun handleTouchMove(pointerId: Int, px: Float, py: Float): Boolean {
-        // 与参考项目 winlator-11 一致
-        // BUTTON 类型不需要在移动时处理
-
         if (pointerId == currentPointerId && (type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD)) {
             var deltaX: Float
             var deltaY: Float
@@ -811,8 +668,10 @@ class ControlElement(
 
             when (type) {
                 Type.TRACKPAD -> {
+                    val touchpadView = inputControlsView.touchpadView
                     if (currentPosition == null) currentPosition = PointF()
-                    val deltaPoint = inputControlsView.computeDeltaPoint(currentPosition!!.x, currentPosition!!.y, px, py)
+                    val deltaPoint = touchpadView?.computeDeltaPoint(currentPosition!!.x, currentPosition!!.y, px, py)
+                        ?: floatArrayOf(0f, 0f)
                     deltaX = deltaPoint[0]
                     deltaY = deltaPoint[1]
                     currentPosition?.set(px, py)
@@ -825,13 +684,13 @@ class ControlElement(
 
                     val distance = kotlin.math.sqrt((radius - localX) * (radius - localX) + (radius - localY) * (radius - localY))
                     if (distance > radius) {
-                        val angle = kotlin.math.atan2(offsetY, offsetX)
-                        offsetX = (kotlin.math.cos(angle) * radius).toFloat()
-                        offsetY = (kotlin.math.sin(angle) * radius).toFloat()
+                        val angle = atan2(offsetY, offsetX)
+                        offsetX = (cos(angle) * radius).toFloat()
+                        offsetY = (sin(angle) * radius).toFloat()
                     }
 
-                    deltaX = com.termux.x11.controller.math.Mathf.clamp(offsetX / radius, -1f, 1f)
-                    deltaY = com.termux.x11.controller.math.Mathf.clamp(offsetY / radius, -1f, 1f)
+                    deltaX = clamp(offsetX / radius, -1f, 1f)
+                    deltaY = clamp(offsetY / radius, -1f, 1f)
                 }
             }
 
@@ -849,29 +708,22 @@ class ControlElement(
                     )
 
                     for (i in 0..3) {
+                        val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
 
-                        if (binding.isGamepad()) {
-                            val inputValue = if (i == 1 || i == 3) deltaX else deltaY
-                            val adjustedValue = com.termux.x11.controller.math.Mathf.clamp(
-                                kotlin.math.abs(kotlin.math.abs(inputValue) - 0.01f) * kotlin.math.sign(inputValue) * STICK_SENSITIVITY,
+                        if (binding.isGamepad) {
+                            val adjustedValue = clamp(
+                                maxOf(0f, abs(value) - 0.01f) * sign(value) * STICK_SENSITIVITY,
                                 -1f, 1f
                             )
                             inputControlsView.handleInputEvent(binding, true, adjustedValue)
                             states[i] = true
                         } else {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            // For mouse move bindings, use direction sign; for keyboard, use raw delta
-                            val value = if (binding.isMouseMove()) {
-                                if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
-                            } else {
-                                if (i == 1 || i == 3) deltaX else deltaY
-                            }
                             inputControlsView.handleInputEvent(binding, state, value)
                             states[i] = state
                         }
                     }
-
                     inputControlsView.invalidate()
                 }
                 Type.TRACKPAD -> {
@@ -885,34 +737,23 @@ class ControlElement(
                     var cursorDy = 0
 
                     for (i in 0..3) {
+                        val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
-                        val inputValue = if (i == 1 || i == 3) deltaX else deltaY
 
-                        if (binding.isGamepad()) {
-                            if (kotlin.math.abs(inputValue) > TRACKPAD_ACCELERATION_THRESHOLD) {
-                                inputControlsView.handleInputEvent(binding, true, inputValue * STICK_SENSITIVITY)
+                        if (binding.isGamepad) {
+                            if (abs(value) > TRACKPAD_ACCELERATION_THRESHOLD) {
+                                inputControlsView.handleInputEvent(binding, true, value * STICK_SENSITIVITY)
                             }
-                            if (interpolator == null) interpolator = CubicBezierInterpolator()
-                            interpolator?.set(0.075f, 0.95f, 0.45f, 0.95f)
-                            val interpolatedValue = interpolator?.getInterpolation(kotlin.math.min(1.0f, kotlin.math.abs(inputValue / TRACKPAD_MAX_SPEED))) ?: 0f
-                            inputControlsView.handleInputEvent(binding, true, com.termux.x11.controller.math.Mathf.clamp(interpolatedValue * kotlin.math.sign(inputValue), -1f, 1f))
                             states[i] = true
                         } else {
-                            if (kotlin.math.abs(inputValue) > InputControlsView.CURSOR_ACCELERATION_THRESHOLD) {
-                                inputControlsView.handleInputEvent(binding, true, inputValue * InputControlsView.CURSOR_ACCELERATION)
-                            }
-                            when (binding) {
-                                Binding.MOUSE_MOVE_LEFT, Binding.MOUSE_MOVE_RIGHT -> cursorDx = kotlin.math.round(inputValue).toInt()
-                                Binding.MOUSE_MOVE_UP, Binding.MOUSE_MOVE_DOWN -> cursorDy = kotlin.math.round(inputValue).toInt()
-                                else -> {
-                                    // For mouse move bindings, use direction sign; for keyboard, use raw delta
-                                    val value = if (binding.isMouseMove()) {
-                                        if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
-                                    } else {
-                                        inputValue
+                            if (abs(value) > 4) {
+                                when (binding) {
+                                    Binding.MOUSE_MOVE_LEFT, Binding.MOUSE_MOVE_RIGHT -> cursorDx = round(value).toInt()
+                                    Binding.MOUSE_MOVE_UP, Binding.MOUSE_MOVE_DOWN -> cursorDy = round(value).toInt()
+                                    else -> {
+                                        inputControlsView.handleInputEvent(binding, newStates[i], value)
+                                        states[i] = newStates[i]
                                     }
-                                    inputControlsView.handleInputEvent(binding, newStates[i], value)
-                                    states[i] = newStates[i]
                                 }
                             }
                         }
@@ -931,65 +772,39 @@ class ControlElement(
                     )
 
                     for (i in 0..3) {
+                        val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
                         val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                        // For mouse move bindings, use direction sign; for keyboard, use raw delta
-                        val value = if (binding.isMouseMove()) {
-                            if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
-                        } else {
-                            if (i == 1 || i == 3) deltaX else deltaY
-                        }
                         inputControlsView.handleInputEvent(binding, state, value)
                         states[i] = state
                     }
                 }
                 else -> {}
             }
-
             return true
         } else if (pointerId == currentPointerId && type == Type.RANGE_BUTTON) {
-            scroller?.handleTouchMove(px, py)
+            scroller?.handleTouchMove(this, px, py)
             return true
         }
-
         return false
     }
 
-    fun handleTouchUp(pointerId: Int, px: Float, py: Float): Boolean {
+    fun handleTouchUp(pointerId: Int): Boolean {
         if (pointerId == currentPointerId) {
             when (type) {
-                Type.CHEAT_CODE_TEXT -> {
-                    cheatCodePressed = false
-                }
-                Type.COMBINE_BUTTON -> {
+                Type.BUTTON -> {
                     if (isKeepButtonPressedAfterMinTime() && touchTime != null) {
                         isSelected = (System.currentTimeMillis() - touchTime!!) > BUTTON_MIN_TIME_TO_KEEP_PRESSED
                         if (!isSelected) {
-                            for (i in states.indices.reversed()) {
-                                if (getBindingAt(i) != Binding.NONE) {
-                                    inputControlsView.handleInputEvent(getBindingAt(i), false)
-                                }
-                            }
+                            inputControlsView.handleInputEvent(getBindingAt(0), false)
+                            inputControlsView.handleInputEvent(getBindingAt(1), false)
                         }
                         touchTime = null
                         inputControlsView.invalidate()
                     } else if (!isToggleSwitch || isSelected) {
-                        for (i in states.indices.reversed()) {
-                            if (getBindingAt(i) != Binding.NONE) {
-                                inputControlsView.handleInputEvent(getBindingAt(i), false)
-                            }
-                        }
+                        inputControlsView.handleInputEvent(getBindingAt(0), false)
+                        inputControlsView.handleInputEvent(getBindingAt(1), false)
                     }
-
-                    if (isToggleSwitch) {
-                        isSelected = !isSelected
-                        inputControlsView.invalidate()
-                    }
-                }
-                Type.BUTTON -> {
-                    // 与参考项目 winlator-11 一致
-                    val binding = getBindingAt(0)
-                    inputControlsView.handleInputEvent(binding, false)
 
                     if (isToggleSwitch) {
                         isSelected = !isSelected
@@ -1016,9 +831,43 @@ class ControlElement(
         }
         return false
     }
+
+    private fun isKeepButtonPressedAfterMinTime(): Boolean {
+        val binding = getBindingAt(0)
+        return !isToggleSwitch && (binding == Binding.GAMEPAD_BUTTON_THUMBL || binding == Binding.GAMEPAD_BUTTON_THUMBR)
+    }
+
+    private fun clamp(value: Float, min: Float, max: Float): Float {
+        return maxOf(min, minOf(max, value))
+    }
+
+    fun toJSONObject(): org.json.JSONObject {
+        val json = org.json.JSONObject()
+        json.put("type", type.name)
+        json.put("shape", shape.name)
+        json.put("scale", scale.toDouble())
+        json.put("x", x.toDouble() / inputControlsView.maxWidth)
+        json.put("y", y.toDouble() / inputControlsView.maxHeight)
+        json.put("toggleSwitch", isToggleSwitch)
+        json.put("text", text)
+        json.put("iconId", iconId.toInt())
+
+        val bindingsArray = org.json.JSONArray()
+        for (binding in bindings) bindingsArray.put(binding.name)
+        json.put("bindings", bindingsArray)
+
+        if (type == Type.RANGE_BUTTON && range != null) {
+            json.put("range", range!!.name)
+            if (orientation != 0.toByte()) json.put("orientation", orientation.toInt())
+        }
+
+        return json
+    }
 }
 
-/** CubicBezierInterpolator for smooth animations */
+/**
+ * Simple cubic bezier interpolator for smooth animations
+ */
 class CubicBezierInterpolator {
     private var mX1 = 0f
     private var mY1 = 0f
