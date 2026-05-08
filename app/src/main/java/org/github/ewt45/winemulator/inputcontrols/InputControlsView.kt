@@ -939,7 +939,7 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
                 if (pointerId == activePointerId || actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_CANCEL) {
                     // Send left button up event
                     if (leftButtonPressed) {
-                        inputControlsView.inputEventHandler?.onPointerButton(0, false)
+                        inputEventHandler?.onPointerButton(0, false)
                         leftButtonPressed = false
                     }
                     activePointerId = -1
@@ -970,7 +970,7 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
 
         // Only send if there's actual movement
         if (intDx != 0 || intDy != 0) {
-            inputControlsView.injectPointerMove(intDx, intDy)
+            inputEventHandler?.onPointerMove(intDx, intDy)
         }
     }
 
@@ -999,9 +999,9 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
 
                 // Send left button down
                 if (leftButtonPressed) {
-                    inputControlsView.inputEventHandler?.onPointerButton(0, false)
+                    inputEventHandler?.onPointerButton(0, false)
                 }
-                inputControlsView.inputEventHandler?.onPointerButton(0, true)
+                inputEventHandler?.onPointerButton(0, true)
                 leftButtonPressed = true
             }
             MotionEvent.ACTION_MOVE -> {
@@ -1016,7 +1016,7 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 // Send left button up
                 if (leftButtonPressed) {
-                    inputControlsView.inputEventHandler?.onPointerButton(0, false)
+                    inputEventHandler?.onPointerButton(0, false)
                     leftButtonPressed = false
                 }
                 isDragging = false
