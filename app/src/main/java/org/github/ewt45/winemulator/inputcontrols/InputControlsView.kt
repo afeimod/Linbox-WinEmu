@@ -518,15 +518,12 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // Only pass to touchpad if no element handled this pointer
+                    // Track the touch state for virtual buttons
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
-                        // Don't return true here - let LorieView handle native X11 mouse control
-                        // Return false to allow event to pass through to LorieView
                     }
-                    // Always return false for touch events to allow LorieView to handle them
-                    // This ensures native X11 mouse control works alongside virtual controls
-                    return false
+                    // Return true to track state, but touchpadView won't send button events
+                    return true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
@@ -559,7 +556,7 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // If there are unhandled pointers, construct a new MotionEvent and pass to touchpad
+                    // Pass unhandled pointers to touchpad for cursor movement
                     if (unhandledPointers.isNotEmpty()) {
                         val newEvent = MotionEvent.obtain(
                             event.downTime, event.eventTime, event.action,
@@ -571,8 +568,8 @@ class InputControlsView(context: Context?) : View(context) {
                         touchpadView?.onTouchEvent(newEvent)
                         newEvent.recycle()
                     }
-                    // Always return false for touch events to allow LorieView to handle them
-                    return false
+                    // Return true to track state for virtual buttons
+                    return true
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
@@ -586,21 +583,21 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // Only pass to touchpad if no element handled this pointer
+                    // Pass to touchpad if no element handled
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
-                    // Always return false for touch events to allow LorieView to handle them
-                    return false
+                    // Return true to track state for virtual buttons
+                    return true
                 }
             }
         } else {
-            // No profile configured, return false to allow events to pass through to LorieView
-            // LorieView will handle the touch for native X11 mouse control
+            // No profile configured, pass events to touchpad for cursor movement
             touchpadView?.onTouchEvent(event)
-            return false
+            // Return true to track state for virtual buttons
+            return true
         }
-        return false
+        return true
     }
 
     /**
@@ -937,26 +934,21 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
     private var rightButtonPressed = false
 
     fun onTouchEvent(event: MotionEvent): Boolean {
-        val actionIndex = event.actionIndex
+        // Only send cursor movement events, NOT button events
+        // Button events will be handled by LorieView natively
         val actionMasked = event.actionMasked
-        val pointerId = event.getPointerId(actionIndex)
-        val x = event.x
-        val y = event.y
 
         when (actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                val actionIndex = event.actionIndex
+                val pointerId = event.getPointerId(actionIndex)
                 if (activePointerId == -1) {
                     activePointerId = pointerId
-                    lastX = x
-                    lastY = y
-                    initialX = x
-                    initialY = y
+                    lastX = event.getX(actionIndex)
+                    lastY = event.getY(actionIndex)
+                    initialX = lastX
+                    initialY = lastY
                     isDragging = false
-                    pointerButtonLeftEnabled = true
-
-                    // Send left button down event
-                    inputEventHandler?.onPointerButton(0, true)
-                    leftButtonPressed = true
                 }
                 return true
             }
@@ -984,7 +976,7 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
                             }
                         }
 
-                        // Send cursor movement
+                        // Send cursor movement only (no button events)
                         if (kotlin.math.abs(dx) > 0.5f || kotlin.math.abs(dy) > 0.5f) {
                             sendCursorMove(dx, dy)
                         }
@@ -995,12 +987,9 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                val actionIndex = event.actionIndex
+                val pointerId = event.getPointerId(actionIndex)
                 if (pointerId == activePointerId || actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_CANCEL) {
-                    // Send left button up event
-                    if (leftButtonPressed) {
-                        inputEventHandler?.onPointerButton(0, false)
-                        leftButtonPressed = false
-                    }
                     activePointerId = -1
                     isDragging = false
                 }
