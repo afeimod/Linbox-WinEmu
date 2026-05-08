@@ -450,36 +450,52 @@ class InputControlsView(context: Context?) : View(context) {
             return true
         }
 
-        // Always handle touch events for touchpad control, even without profile
-        // The touchpad will work as long as inputEventHandler is set
-        if (!editMode) {
-            val actionIndex = event.actionIndex
-            val actionMasked = event.actionMasked
-            val actionPointerId = event.getPointerId(actionIndex)
-
-            when (actionMasked) {
-                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                    // Pass to touchpad for cursor movement
-                    touchpadView?.onTouchEvent(event)
-                    return true
+        if (editMode) {
+            // Edit mode handling
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val x = event.x
+                    val y = event.y
+                    val element = intersectElement(x, y)
+                    moveCursor = true
+                    moveElement = false
+                    if (element != null) {
+                        offsetX = x - element.x
+                        offsetY = y - element.y
+                        moveCursor = false
+                    }
+                    selectElement(element)
                 }
-
                 MotionEvent.ACTION_MOVE -> {
-                    // Pass to touchpad for cursor movement
-                    touchpadView?.onTouchEvent(event)
-                    return true
+                    if (selectedElement != null) {
+                        val dx = kotlin.math.abs(event.x - event.x)
+                        val dy = kotlin.math.abs(event.y - event.y)
+                        if (dx >= MAX_TAP_TRAVEL_DISTANCE || dy >= MAX_TAP_TRAVEL_DISTANCE) {
+                            moveElement = true
+                        }
+                        if (moveElement) {
+                            selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
+                            selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
+                            invalidate()
+                        }
+                    }
                 }
-
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                    // Pass to touchpad for button release
-                    touchpadView?.onTouchEvent(event)
-                    return true
+                MotionEvent.ACTION_UP -> {
+                    if (selectedElement != null && profile != null && moveElement) profile!!.save()
+                    if (moveCursor) {
+                        cursor.set(
+                            Mathf.roundTo(event.x, snappingSize.toFloat()).toInt(),
+                            Mathf.roundTo(event.y, snappingSize.toFloat()).toInt()
+                        )
+                    }
+                    invalidate()
                 }
             }
+            return true
         }
-        
-        // Only check profile elements if profile exists
-        if (!editMode && profile != null) {
+
+        // Non-edit mode: handle virtual controls and touchpad
+        if (profile != null) {
             val actionIndex = event.actionIndex
             val actionMasked = event.actionMasked
             val actionPointerId = event.getPointerId(actionIndex)
@@ -571,6 +587,10 @@ class InputControlsView(context: Context?) : View(context) {
                     return true
                 }
             }
+        } else {
+            // No profile configured, pass all touch to touchpad for cursor control
+            touchpadView?.onTouchEvent(event)
+            return true
         }
         return false
     }
