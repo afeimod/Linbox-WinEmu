@@ -741,7 +741,8 @@ class InputControlsView(context: Context?) : View(context) {
                 val pointerButton = binding.getPointerButton()
                 if (isActionDown) {
                     if (pointerButton != null) {
-                        handler.onPointerButton(pointerButton.ordinal, true)
+                        // X11 按钮号从 1 开始，ordinal 是 0-based，所以要 +1
+                        handler.onPointerButton(pointerButton.ordinal + 1, true)
                     } else {
                         handler.onKeyEvent(binding.toEvdev(), true)
                     }
@@ -751,7 +752,8 @@ class InputControlsView(context: Context?) : View(context) {
                     }
                 } else {
                     if (pointerButton != null) {
-                        handler.onPointerButton(pointerButton.ordinal, false)
+                        // X11 按钮号从 1 开始，ordinal 是 0-based，所以要 +1
+                        handler.onPointerButton(pointerButton.ordinal + 1, false)
                     } else {
                         handler.onKeyEvent(binding.toEvdev(), false)
                     }
