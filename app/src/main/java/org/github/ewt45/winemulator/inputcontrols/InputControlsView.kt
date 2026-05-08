@@ -425,10 +425,10 @@ class InputControlsView(context: Context?) : View(context) {
 
             when (actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                    // 使用索引 0 获取第一个指针的信息，确保与 ACTION_MOVE 一致
-                    val x = event.getX(0)
-                    val y = event.getY(0)
-                    val pointerId = event.getPointerId(0)
+                    // 与参考项目 winlator-11 一致：使用 actionIndex 获取触发事件的指针信息
+                    val x = event.getX(actionIndex)
+                    val y = event.getY(actionIndex)
+                    val pointerId = event.getPointerId(actionIndex)
                     pointerButtonLeftEnabled = true
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchDown(pointerId, x, y)) {
@@ -440,17 +440,19 @@ class InputControlsView(context: Context?) : View(context) {
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    // 只处理第一个指针的移动事件，避免多指操作干扰按键
-                    if (event.pointerCount > 0) {
-                        val ptrId = event.getPointerId(0)
-                        val x = event.getX(0)
-                        val y = event.getY(0)
+                    // 与参考项目 winlator-11 一致：遍历所有指针并处理移动事件
+                    // 使用指针索引 (i) 而不是指针ID，因为 handleTouchMove 中检查的是 pointerId 参数
+                    var handled = false
+                    for (i in 0 until event.pointerCount) {
+                        val x = event.getX(i)
+                        val y = event.getY(i)
                         for (element in profile!!.getElements()) {
-                            if (element.handleTouchMove(ptrId, x, y)) {
+                            if (element.handleTouchMove(i, x, y)) {
                                 handled = true
                             }
                         }
                     }
+                    return handled
                 }
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                     // 只处理 actionIndex 对应的指针，而不是所有指针

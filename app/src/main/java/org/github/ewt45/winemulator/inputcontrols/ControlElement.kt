@@ -774,11 +774,16 @@ class ControlElement(
                     return true
                 }
                 Type.BUTTON -> {
-                    // 简化的 BUTTON 处理逻辑，与参考项目 winlator-11 一致
-                    // 按下时发送 keyDown 事件
-                    val binding = getBindingAt(0)
-                    inputControlsView.handleInputEvent(binding, true)
-                    return true
+                    // 与参考项目 winlator-11 一致
+                    // 检查按钮是否被按下（currentPointerId == -1 表示未被按下）
+                    if (currentPointerId == -1) {
+                        val binding = getBindingAt(0)
+                        inputControlsView.handleInputEvent(binding, true)
+                        // 重要：必须设置 currentPointerId 以跟踪这个指针
+                        currentPointerId = pointerId
+                        return true
+                    }
+                    return false
                 }
                 Type.RANGE_BUTTON -> {
                     if (scroller == null) {
@@ -800,9 +805,10 @@ class ControlElement(
     }
 
     fun handleTouchMove(pointerId: Int, px: Float, py: Float): Boolean {
-        // BUTTON 类型：不需要特殊处理，与参考项目 winlator-11 一致
-        // 按下状态已经在 handleTouchDown 中设置，释放状态在 handleTouchUp 中处理
-        // 注意：返回 false 让事件可以传播到其他处理器
+        // 与参考项目 winlator-11 一致：
+        // - D_PAD, STICK, TRACKPAD 需要在移动时处理输入
+        // - BUTTON 类型不需要在移动时处理（按下和释放已在 handleTouchDown/Up 中处理）
+        // - 返回 false 让未被处理的事件可以传播到其他处理器（如触摸板）
 
         if (pointerId == currentPointerId && (type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD)) {
             var deltaX: Float
