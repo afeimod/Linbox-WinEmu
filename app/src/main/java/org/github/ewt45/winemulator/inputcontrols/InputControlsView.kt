@@ -433,9 +433,13 @@ class InputControlsView(context: Context?) : View(context) {
      * 1. Each pointer is tracked independently
      * 2. Each pointer determines if it should be handled by an element or touchpad
      * 3. Correct event delegation based on pointer ID
+     * 4. Properly handle mouse/touchpad input without early returns
      */
     fun handleTouchEvent(event: MotionEvent): Boolean {
+        // Handle mouse input - pass through to touchpad for cursor movement
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            // Process mouse events for cursor movement
+            handleMouseInput(event)
             return true
         }
 
@@ -469,8 +473,7 @@ class InputControlsView(context: Context?) : View(context) {
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    // 追踪每个 pointer 是否被元素处理
-                    // 收集所有未被处理的指针
+                    // Track each pointer to see if it's handled by an element
                     val unhandledPointers = mutableListOf<MotionEvent.PointerCoords>()
                     val unhandledPointerProperties = mutableListOf<MotionEvent.PointerProperties>()
 
@@ -483,11 +486,11 @@ class InputControlsView(context: Context?) : View(context) {
                         for (element in profile!!.getElements()) {
                             if (element.handleTouchMove(pointerId, x, y)) {
                                 pointerHandled = true
-                                break // 这个 pointer 已被元素处理，跳过
+                                break
                             }
                         }
 
-                        // 如果这个 pointer 没有被任何元素处理，记录下来
+                        // If this pointer is not handled by any element, record it
                         if (!pointerHandled) {
                             val properties = MotionEvent.PointerProperties()
                             event.getPointerProperties(i, properties)
@@ -499,7 +502,7 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // 如果有未被处理的指针，构造一个新的 MotionEvent 包含这些指针，传递给触摸板
+                    // If there are unhandled pointers, construct a new MotionEvent and pass to touchpad
                     if (unhandledPointers.isNotEmpty()) {
                         val newEvent = MotionEvent.obtain(
                             event.downTime, event.eventTime, event.action,
@@ -525,7 +528,7 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // 只有当没有元素处理时才传给触摸板
+                    // Only pass to touchpad if no element handled this pointer
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
@@ -534,6 +537,96 @@ class InputControlsView(context: Context?) : View(context) {
             }
         }
         return false
+    }
+
+    /**
+     * Handle mouse input events from external mouse
+     * Provides smooth cursor movement with acceleration
+     */
+    private fun handleMouseInput(event: MotionEvent) {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_HOVER_MOVE, MotionEvent.ACTION_MOVE -> {
+                // For mouse move events
+                if (event.pointerCount > 0) {
+                    // Use axis values for relative mice
+                    val relDx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X)
+                    val relDy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y)
+
+                    if (relDx != 0f || relDy != 0f) {
+                        // Relative mouse - directly use the values
+                        sendPointerMovement(relDx, relDy)
+                    } else {
+                        // For non-relative input, use position directly with acceleration
+                        val dx = event.x
+                        val dy = event.y
+                        val cursorSpeed = profile?.cursorSpeed ?: 1.0f
+                        val accelDx = dx * CURSOR_ACCELERATION * cursorSpeed
+                        val accelDy = dy * CURSOR_ACCELERATION * cursorSpeed
+                        val intDx = kotlin.math.round(accelDx).toInt()
+                        val intDy = kotlin.math.round(accelDy).toInt()
+
+                        if (intDx != 0 || intDy != 0) {
+                            inputEventHandler?.onPointerMove(intDx, intDy)
+                        }
+                    }
+                }
+            }
+
+            MotionEvent.ACTION_BUTTON_PRESS, MotionEvent.ACTION_DOWN -> {
+                val button = event.buttonState
+                if (button and MotionEvent.BUTTON_PRIMARY != 0) {
+                    inputEventHandler?.onPointerButton(0, true)
+                }
+                if (button and MotionEvent.BUTTON_SECONDARY != 0) {
+                    inputEventHandler?.onPointerButton(2, true)
+                }
+                if (button and MotionEvent.BUTTON_TERTIARY != 0) {
+                    inputEventHandler?.onPointerButton(1, true)
+                }
+            }
+
+            MotionEvent.ACTION_BUTTON_RELEASE, MotionEvent.ACTION_UP -> {
+                val button = event.actionButton
+                when (button) {
+                    MotionEvent.BUTTON_PRIMARY -> inputEventHandler?.onPointerButton(0, false)
+                    MotionEvent.BUTTON_SECONDARY -> inputEventHandler?.onPointerButton(2, false)
+                    MotionEvent.BUTTON_TERTIARY -> inputEventHandler?.onPointerButton(1, false)
+                }
+            }
+
+            MotionEvent.ACTION_SCROLL -> {
+                val scrollY = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
+                val scrollX = event.getAxisValue(MotionEvent.AXIS_HSCROLL)
+
+                if (kotlin.math.abs(scrollY) > 0.1f) {
+                    val button = if (scrollY > 0) 4 else 5
+                    inputEventHandler?.onPointerButton(button, true)
+                    inputEventHandler?.onPointerButton(button, false)
+                }
+
+                if (kotlin.math.abs(scrollX) > 0.1f) {
+                    val button = if (scrollX > 0) 6 else 7
+                    inputEventHandler?.onPointerButton(button, true)
+                    inputEventHandler?.onPointerButton(button, false)
+                }
+            }
+        }
+    }
+
+    /**
+     * Send pointer movement with acceleration
+     */
+    private fun sendPointerMovement(dx: Float, dy: Float) {
+        val cursorSpeed = profile?.cursorSpeed ?: 1.0f
+        val accelDx = dx * CURSOR_ACCELERATION * cursorSpeed
+        val accelDy = dy * CURSOR_ACCELERATION * cursorSpeed
+
+        val intDx = kotlin.math.round(accelDx).toInt()
+        val intDy = kotlin.math.round(accelDy).toInt()
+
+        if (intDx != 0 || intDy != 0) {
+            inputEventHandler?.onPointerMove(intDx, intDy)
+        }
     }
 
     /**
@@ -758,28 +851,117 @@ class InputControlsView(context: Context?) : View(context) {
 
 /**
  * Touchpad view compatibility class
+ * Handles touchpad/mouse input events and converts them to cursor movements
  */
 class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
     private var pointerButtonLeftEnabled = true
     private var moveCursorToTouchpoint = false
     private var lastX = 0f
     private var lastY = 0f
+    private var initialX = 0f
+    private var initialY = 0f
+    private var isDragging = false
+    private var activePointerId = -1
+
+    // Track button state
+    private var leftButtonPressed = false
+    private var rightButtonPressed = false
 
     fun onTouchEvent(event: MotionEvent): Boolean {
-        when (event.actionMasked) {
+        val actionIndex = event.actionIndex
+        val actionMasked = event.actionMasked
+        val pointerId = event.getPointerId(actionIndex)
+        val x = event.x
+        val y = event.y
+
+        when (actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                pointerButtonLeftEnabled = true
-                lastX = event.x
-                lastY = event.y
+                if (activePointerId == -1) {
+                    activePointerId = pointerId
+                    lastX = x
+                    lastY = y
+                    initialX = x
+                    initialY = y
+                    isDragging = false
+                    pointerButtonLeftEnabled = true
+
+                    // Send left button down event
+                    inputControlsView.inputEventHandler?.onPointerButton(0, true)
+                    leftButtonPressed = true
+                }
+                return true
             }
+
             MotionEvent.ACTION_MOVE -> {
-                handleMouseMove(event)
+                // Handle all pointer movements
+                for (i in 0 until event.pointerCount) {
+                    val pid = event.getPointerId(i)
+                    if (pid == activePointerId) {
+                        val px = event.getX(i)
+                        val py = event.getY(i)
+
+                        // Calculate delta from last position
+                        val dx = px - lastX
+                        val dy = py - lastY
+                        lastX = px
+                        lastY = py
+
+                        // Track if we've moved enough to be considered dragging
+                        if (!isDragging) {
+                            val totalDx = kotlin.math.abs(px - initialX)
+                            val totalDy = kotlin.math.abs(py - initialY)
+                            if (totalDx > 3 || totalDy > 3) {
+                                isDragging = true
+                            }
+                        }
+
+                        // Send cursor movement
+                        if (kotlin.math.abs(dx) > 0.5f || kotlin.math.abs(dy) > 0.5f) {
+                            sendCursorMove(dx, dy)
+                        }
+                        break
+                    }
+                }
+                return true
             }
+
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                // Handle release
+                if (pointerId == activePointerId || actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_CANCEL) {
+                    // Send left button up event
+                    if (leftButtonPressed) {
+                        inputControlsView.inputEventHandler?.onPointerButton(0, false)
+                        leftButtonPressed = false
+                    }
+                    activePointerId = -1
+                    isDragging = false
+                }
+                return true
             }
         }
         return true
+    }
+
+    /**
+     * Send cursor movement with acceleration
+     */
+    private fun sendCursorMove(dx: Float, dy: Float) {
+        // Apply acceleration based on movement speed
+        var cursorDx = dx
+        var cursorDy = dy
+
+        // Apply acceleration factor
+        val acceleration = InputControlsView.CURSOR_ACCELERATION
+        cursorDx *= acceleration
+        cursorDy *= acceleration
+
+        // Round to integer for precise movement
+        val intDx = kotlin.math.round(cursorDx).toInt()
+        val intDy = kotlin.math.round(cursorDy).toInt()
+
+        // Only send if there's actual movement
+        if (intDx != 0 || intDy != 0) {
+            inputControlsView.injectPointerMove(intDx, intDy)
+        }
     }
 
     private fun handleMouseMove(event: MotionEvent) {
@@ -791,14 +973,8 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
             lastX = x
             lastY = y
 
-            if (kotlin.math.abs(dx) > InputControlsView.CURSOR_ACCELERATION_THRESHOLD) {
-                val cursorDx = kotlin.math.round(dx * InputControlsView.CURSOR_ACCELERATION).toInt()
-                inputControlsView.injectPointerMove(cursorDx, 0)
-            }
-            if (kotlin.math.abs(dy) > InputControlsView.CURSOR_ACCELERATION_THRESHOLD) {
-                val cursorDy = kotlin.math.round(dy * InputControlsView.CURSOR_ACCELERATION).toInt()
-                inputControlsView.injectPointerMove(0, cursorDy)
-            }
+            // Use improved sendCursorMove for better precision
+            sendCursorMove(dx, dy)
         }
     }
 
@@ -807,15 +983,33 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
             MotionEvent.ACTION_DOWN -> {
                 lastX = x
                 lastY = y
+                initialX = x
+                initialY = y
+                isDragging = false
+
+                // Send left button down
+                if (leftButtonPressed) {
+                    inputControlsView.inputEventHandler?.onPointerButton(0, false)
+                }
+                inputControlsView.inputEventHandler?.onPointerButton(0, true)
+                leftButtonPressed = true
             }
             MotionEvent.ACTION_MOVE -> {
                 if (moveCursorToTouchpoint) {
-                    val handler = inputControlsView.inputEventHandler
-                    handler?.onPointerMove(x.toInt(), y.toInt())
+                    val dx = x - lastX
+                    val dy = y - lastY
+                    lastX = x
+                    lastY = y
+                    sendCursorMove(dx, dy)
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                // End move
+                // Send left button up
+                if (leftButtonPressed) {
+                    inputControlsView.inputEventHandler?.onPointerButton(0, false)
+                    leftButtonPressed = false
+                }
+                isDragging = false
             }
         }
     }
@@ -831,4 +1025,8 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
     }
 
     fun isMoveCursorToTouchpoint(): Boolean = moveCursorToTouchpoint
+
+    fun isLeftButtonPressed(): Boolean = leftButtonPressed
+
+    fun isDragging(): Boolean = isDragging
 }
