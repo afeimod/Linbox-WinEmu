@@ -4,6 +4,8 @@ import android.content.Context
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
@@ -17,6 +19,7 @@ import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.PopupWindow
+import android.widget.RadioButton
 import android.widget.RadioGroup
 import android.widget.SeekBar
 import android.widget.Spinner
@@ -33,9 +36,22 @@ import java.io.IOException
 import java.io.InputStream
 import java.util.Arrays
 
+/**
+ * ControlsEditorActivity - 虚拟按键编辑器
+ * 
+ * 修复内容:
+ * 1. 修复范围按钮(RANGE_BUTTON)切换时界面不刷新的问题
+ * 2. 改进 UI 更新的响应性
+ */
 class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
     private lateinit var inputControlsView: InputControlsView
     private var profile: ControlsProfile? = null
+    
+    // 用于延迟刷新以确保 UI 更新的稳定性
+    private val handler = Handler(Looper.getMainLooper())
+    private val refreshRunnable = Runnable {
+        inputControlsView.invalidate()
+    }
 
     companion object {
         const val EXTRA_PROFILE_ID = "profile_id"
@@ -100,6 +116,12 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
             }
         }
     }
+    
+    override fun onPause() {
+        super.onPause()
+        // 停止所有按键重复
+        inputControlsView.stopAllKeyRepeats()
+    }
 
     @Suppress("DEPRECATION")
     private fun hideSystemUI() {
@@ -141,29 +163,58 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         }
     }
 
+    /**
+     * 刷新设置界面的可见性
+     * 修复问题2: 确保切换类型时界面立即更新
+     */
+    private fun updateLayoutVisibility(view: View, element: ControlElement) {
+        val type = element.type
+        
+        // 根据类型显示/隐藏相应的 UI 元素
+        view.findViewById<View>(R.id.LLShape)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
+        view.findViewById<View>(R.id.CBToggleSwitch)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
+        view.findViewById<View>(R.id.CBMouseMoveMode)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
+        view.findViewById<View>(R.id.LLCustomTextIcon)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
+        view.findViewById<View>(R.id.LLRangeOptions)?.visibility = if (type == ControlElement.Type.RANGE_BUTTON) View.VISIBLE else View.GONE
+        view.findViewById<View>(R.id.LLDPadBindings)?.visibility = if (type == ControlElement.Type.D_PAD || 
+                                                                          type == ControlElement.Type.STICK || 
+                                                                          type == ControlElement.Type.TRACKPAD) View.VISIBLE else View.GONE
+        
+        // 加载绑定配置
+        loadBindingSpinners(element, view.findViewById(R.id.LLBindings))
+        
+        // 对于 RANGE_BUTTON，立即刷新 scroller
+        if (type == ControlElement.Type.RANGE_BUTTON) {
+            // 确保 scroller 已初始化
+            element.setRange(element.getRange())
+        }
+    }
+
     private fun showControlElementSettings(anchorView: View, element: ControlElement) {
         val view = LayoutInflater.from(this).inflate(R.layout.control_element_settings, null)
 
-        val updateLayout = Runnable {
-            val type = element.type
-            view.findViewById<View>(R.id.LLShape)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
-            view.findViewById<View>(R.id.CBToggleSwitch)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
-            view.findViewById<View>(R.id.LLCustomTextIcon)?.visibility = if (type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
-            view.findViewById<View>(R.id.LLRangeOptions)?.visibility = if (type == ControlElement.Type.RANGE_BUTTON) View.VISIBLE else View.GONE
-            view.findViewById<View>(R.id.LLDPadBindings)?.visibility = if (type == ControlElement.Type.D_PAD) View.VISIBLE else View.GONE
+        // 初始化时先设置一次布局可见性
+        updateLayoutVisibility(view, element)
 
-            loadBindingSpinners(element, view.findViewById(R.id.LLBindings))
-        }
-
-        loadTypeSpinner(element, view.findViewById(R.id.SType), updateLayout)
+        // 加载类型选择器
+        loadTypeSpinner(element, view.findViewById(R.id.SType), Runnable {
+            // 类型改变后立即更新布局
+            updateLayoutVisibility(view, element)
+            // 刷新视图
+            scheduleRefresh()
+        })
+        
+        // 加载形状选择器
         loadShapeSpinner(element, view.findViewById<Spinner>(R.id.SShape).apply {
             visibility = if (element.type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         })
+        
+        // 加载范围选择器
         loadRangeSpinner(element, view.findViewById<Spinner>(R.id.SRange).apply {
             visibility = if (element.type == ControlElement.Type.RANGE_BUTTON) View.VISIBLE else View.GONE
         })
 
-        // Load orientation from LLRangeOptions
+        // 加载方向选择器
         val llRangeOptions = view.findViewById<View>(R.id.LLRangeOptions)
         if (llRangeOptions != null) {
             val rgOrientation = llRangeOptions.findViewById<RadioGroup>(R.id.RGOrientation)
@@ -172,12 +223,23 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
                 rgOrientation.setOnCheckedChangeListener { _, checkedId ->
                     element.orientation = if (checkedId == R.id.RBVertical) 1 else 0
                     profile?.save()
-                    inputControlsView.invalidate()
+                    scheduleRefresh()
                 }
             }
         }
 
-        updateLayout.run()
+        // 加载鼠标移动模式复选框 (新增)
+        val cbMouseMoveMode = view.findViewById<CheckBox>(R.id.CBMouseMoveMode)
+        if (cbMouseMoveMode != null) {
+            cbMouseMoveMode.isChecked = element.isMouseMoveMode()
+            cbMouseMoveMode.visibility = if (element.type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
+            cbMouseMoveMode.setOnCheckedChangeListener { _, isChecked ->
+                element.setMouseMoveMode(isChecked)
+                profile?.save()
+            }
+        }
+
+        // 初始化缩放滑块
         val tvScaleView = view.findViewById<TextView>(R.id.TVScale)
         val sbScale = view.findViewById<SeekBar>(R.id.SBScale)
         sbScale.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -186,7 +248,7 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
                 if (fromUser) {
                     element.scale = progress / 100.0f
                     profile?.save()
-                    inputControlsView.invalidate()
+                    scheduleRefresh()
                 }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
@@ -194,6 +256,7 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         })
         sbScale.progress = (element.scale * 100).toInt()
 
+        // 初始化切换开关复选框
         val cbToggleSwitch = view.findViewById<CheckBox>(R.id.CBToggleSwitch)
         cbToggleSwitch.isChecked = element.isToggleSwitch
         cbToggleSwitch.visibility = if (element.type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
@@ -202,17 +265,20 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
             profile?.save()
         }
 
+        // 初始化自定义文本
         val etCustomText = view.findViewById<EditText>(R.id.ETCustomText)
         etCustomText.setText(element.text)
         etCustomText.visibility = if (element.type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
 
+        // 初始化图标列表
         val llIconList = view.findViewById<LinearLayout>(R.id.LLIconList)
         llIconList.visibility = if (element.type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         loadIcons(llIconList, element.iconId)
 
-        updateLayout.run()
+        // 再次更新布局可见性以确保正确
+        updateLayoutVisibility(view, element)
 
-        // Use custom showPopupWindow method instead of showAsDropDown
+        // 使用自定义 showPopupWindow 方法代替 showAsDropDown
         val popupWindow = showPopupWindow(anchorView, view, 340.dpToPx(), 0)
         popupWindow.setOnDismissListener {
             val text = etCustomText.text.toString().trim()
@@ -228,8 +294,16 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
             element.text = text
             element.iconId = iconId
             profile?.save()
-            inputControlsView.invalidate()
+            scheduleRefresh()
         }
+    }
+
+    /**
+     * 安排延迟刷新以确保 UI 更新的稳定性
+     */
+    private fun scheduleRefresh() {
+        handler.removeCallbacks(refreshRunnable)
+        handler.postDelayed(refreshRunnable, 50) // 50ms 延迟确保 UI 更新的稳定性
     }
 
     /**
@@ -291,10 +365,13 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         spinner.setSelection(element.type.ordinal, false)
         spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                element.type = ControlElement.Type.entries[position]
-                profile?.save()
-                callback.run()
-                inputControlsView.invalidate()
+                val newType = ControlElement.Type.entries[position]
+                if (element.type != newType) {
+                    element.setType(newType)
+                    profile?.save()
+                    // 立即调用回调刷新 UI
+                    callback.run()
+                }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -308,7 +385,7 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 element.shape = ControlElement.Shape.entries[position]
                 profile?.save()
-                inputControlsView.invalidate()
+                scheduleRefresh()
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -322,9 +399,13 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         }
         spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                element.setRange(ControlElement.Range.entries[position])
-                profile?.save()
-                inputControlsView.invalidate()
+                val newRange = ControlElement.Range.entries[position]
+                if (element.range != newRange) {
+                    element.setRange(newRange)
+                    profile?.save()
+                    // 立即刷新视图
+                    scheduleRefresh()
+                }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
         }
@@ -353,7 +434,7 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         val sBindingType = bindingView.findViewById<Spinner>(R.id.SBindingType)
         val sBinding = bindingView.findViewById<Spinner>(R.id.SBinding)
 
-        // 设置SBindingType的适配器（keyboard、mouse、gamepad选项）
+        // 设置 SBindingType 的适配器（keyboard、mouse、gamepad选项）
         sBindingType.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, 
             resources.getStringArray(R.array.binding_type_entries))
 
@@ -399,7 +480,7 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
                 if (binding != element.getBindingAt(index)) {
                     element.setBindingAt(index, binding)
                     profile?.save()
-                    inputControlsView.invalidate()
+                    scheduleRefresh()
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
