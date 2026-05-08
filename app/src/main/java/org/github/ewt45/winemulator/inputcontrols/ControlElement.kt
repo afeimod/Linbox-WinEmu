@@ -1029,7 +1029,8 @@ class ControlElement(
         } else if (pointerId == currentPointerId && type == Type.RANGE_BUTTON) {
             scroller?.handleTouchMove(x, y)
             // 检查 scroller 的滚动状态（通过比较 scrollOffset 的变化）
-            val isCurrentlyScrolling = scroller != null && kotlin.math.abs(scroller.getScrollOffset()) > 0.1f
+            val currentScroller = scroller
+            val isCurrentlyScrolling = currentScroller != null && kotlin.math.abs(currentScroller.getScrollOffset()) > 0.1f
             if (isCurrentlyScrolling) {
                 setFlag(FLAG_PRESSED, false)
                 inputControlsView.invalidate()
