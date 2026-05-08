@@ -171,12 +171,11 @@ fun X11Screen(
                             handleX11TouchEvent(
                                 event, 
                                 x11InputSender, 
-                                lastTouchX, 
-                                lastTouchY, 
-                                isFirstTouch, 
-                                leftButtonDown,
+                                { Pair(lastTouchX, lastTouchY) },
                                 { x, y -> lastTouchX = x; lastTouchY = y },
+                                { isFirstTouch },
                                 { first -> isFirstTouch = first },
+                                { leftButtonDown },
                                 { down -> leftButtonDown = down }
                             )
                             // 返回 true 拦截事件，让 LorieView 处理原生 X11 鼠标控制
@@ -249,12 +248,11 @@ fun X11Screen(
 private fun handleX11TouchEvent(
     event: MotionEvent,
     inputSender: X11InputSender,
-    lastTouchX: Float,
-    lastTouchY: Float,
-    isFirstTouch: Boolean,
-    leftButtonDown: Boolean,
+    getLastTouch: () -> Pair<Float, Float>,
     updateLastTouch: (Float, Float) -> Unit,
+    getIsFirstTouch: () -> Boolean,
     updateFirstTouch: (Boolean) -> Unit,
+    getLeftButtonDown: () -> Boolean,
     updateLeftButton: (Boolean) -> Unit
 ) {
     // 检查输入是否已初始化
@@ -262,6 +260,11 @@ private fun handleX11TouchEvent(
         Log.w("X11Touch", "InputSender not initialized, skipping touch event")
         return
     }
+
+    val lastTouchX = getLastTouch().first
+    val lastTouchY = getLastTouch().second
+    val isFirstTouch = getIsFirstTouch()
+    val leftButtonDown = getLeftButtonDown()
 
     when (event.actionMasked) {
         MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
