@@ -2,7 +2,9 @@ package org.github.ewt45.winemulator.ui
 
 import android.content.Context
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.widget.FrameLayout
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -29,6 +31,7 @@ import kotlinx.coroutines.delay
  *
  * This screen includes:
  * - X11 rendering content from LorieView
+ * - Touch event forwarding for mouse/touchpad control
  * - Virtual controls overlay
  * - Expandable floating menu with independent popup windows for:
  *   - General settings (container language, shared folders, rootfs management)
@@ -37,6 +40,8 @@ import kotlinx.coroutines.delay
  *
  * Input events from virtual controls are routed through the X11InputSender
  * to the X11 session via the LorieView JNI bridge.
+ * 
+ * Touch events on the screen are also converted to mouse events for X11 control.
  */
 @Composable
 fun X11Screen(
@@ -55,6 +60,12 @@ fun X11Screen(
     // 状态变量
     var currentProfileId by remember { mutableStateOf(prefs.getInt(InputControlsFragment.SELECTED_PROFILE_ID, 0)) }
     var showTouchscreenControls by remember { mutableStateOf(prefs.getBoolean("show_touchscreen_controls", false)) }
+
+    // 触摸事件跟踪变量
+    var lastTouchX by remember { mutableFloatStateOf(0f) }
+    var lastTouchY by remember { mutableFloatStateOf(0f) }
+    var isFirstTouch by remember { mutableStateOf(true) }
+    var leftButtonDown by remember { mutableStateOf(false) }
 
     // 轮询监听 SharedPreferences 变化（后备同步机制）
     LaunchedEffect(Unit) {
@@ -153,6 +164,23 @@ fun X11Screen(
                         x11InputSender.renderData = renderData
                         onLorieViewReady?.invoke(it)
                         Log.d("X11Screen", "X11InputSender initialized with LorieView")
+                        
+                        // 添加触摸监听器用于 X11 鼠标控制
+                        it.setOnTouchListener { v, event ->
+                            handleX11TouchEvent(
+                                event, 
+                                x11InputSender, 
+                                lastTouchX, 
+                                lastTouchY, 
+                                isFirstTouch, 
+                                leftButtonDown,
+                                { x, y -> lastTouchX = x; lastTouchY = y },
+                                { first -> isFirstTouch = first },
+                                { down -> leftButtonDown = down }
+                            )
+                            // 返回 false 让 LorieView 也能处理事件
+                            false
+                        }
                     } ?: run {
                         Log.e("X11Screen", "Could not find LorieView in X11 content")
                     }
@@ -195,6 +223,105 @@ fun X11Screen(
     DisposableEffect(Unit) {
         onDispose {
             x11InputSender.release()
+        }
+    }
+}
+
+/**
+ * Handle touch events and convert them to mouse events for X11 control
+ * 
+ * This implements touchpad-style control:
+ * - Touch down: Send left mouse button press
+ * - Touch move: Send relative mouse movement
+ * - Touch up: Send left mouse button release
+ * 
+ * @param event The touch motion event
+ * @param inputSender The X11 input sender to send events to
+ * @param lastTouchX Last recorded touch X position
+ * @param lastTouchY Last recorded touch Y position
+ * @param isFirstTouch Whether this is the first touch (for initialization)
+ * @param leftButtonDown Whether the left button is currently pressed
+ * @param updateLastTouch Lambda to update last touch position
+ * @param updateFirstTouch Lambda to update first touch flag
+ * @param updateLeftButton Lambda to update left button state
+ */
+private fun handleX11TouchEvent(
+    event: MotionEvent,
+    inputSender: X11InputSender,
+    lastTouchX: Float,
+    lastTouchY: Float,
+    isFirstTouch: Boolean,
+    leftButtonDown: Boolean,
+    updateLastTouch: (Float, Float) -> Unit,
+    updateFirstTouch: (Boolean) -> Unit,
+    updateLeftButton: (Boolean) -> Unit
+) {
+    // 检查输入是否已初始化
+    if (!inputSender.isInitialized) {
+        Log.w("X11Touch", "InputSender not initialized, skipping touch event")
+        return
+    }
+
+    when (event.actionMasked) {
+        MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+            val actionIndex = event.actionIndex
+            val x = event.getX(actionIndex)
+            val y = event.getY(actionIndex)
+            
+            Log.d("X11Touch", "Touch down at ($x, $y)")
+            
+            // 记录初始触摸位置
+            updateLastTouch(x, y)
+            updateFirstTouch(false)
+            
+            // 如果左键未按下，发送左键按下事件
+            if (!leftButtonDown) {
+                inputSender.sendMouseButtonEvent(1, true)
+                updateLeftButton(true)
+                Log.d("X11Touch", "Left button pressed")
+            }
+        }
+        
+        MotionEvent.ACTION_MOVE -> {
+            // 处理所有指针的移动
+            for (i in 0 until event.pointerCount) {
+                val pointerId = event.getPointerId(i)
+                val x = event.getX(i)
+                val y = event.getY(i)
+                
+                // 只处理主指针（actionIndex 对应的指针）
+                if (pointerId == event.getPointerId(event.actionIndex)) {
+                    // 计算相对移动
+                    val dx = x - lastTouchX
+                    val dy = y - lastTouchY
+                    
+                    // 只有当移动超过阈值时才发送移动事件（防止抖动）
+                    if (kotlin.math.abs(dx) > 2 || kotlin.math.abs(dy) > 2) {
+                        // 发送鼠标移动事件
+                        val intDx = kotlin.math.round(dx).toInt()
+                        val intDy = kotlin.math.round(dy).toInt()
+                        inputSender.sendMouseMotionEvent(intDx, intDy)
+                        
+                        // 更新位置
+                        updateLastTouch(x, y)
+                        Log.v("X11Touch", "Move: dx=$intDx, dy=$intDy")
+                    }
+                    break
+                }
+            }
+        }
+        
+        MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+            Log.d("X11Touch", "Touch up")
+            
+            // 如果左键处于按下状态，发送左键释放事件
+            if (leftButtonDown) {
+                inputSender.sendMouseButtonEvent(1, false)
+                updateLeftButton(false)
+                Log.d("X11Touch", "Left button released")
+            }
+            
+            updateFirstTouch(true)
         }
     }
 }
