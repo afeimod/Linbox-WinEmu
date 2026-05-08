@@ -826,8 +826,9 @@ class ControlElement(
                     if (isKeepButtonPressedAfterMinTime()) touchTime = System.currentTimeMillis()
                     if (!isToggleSwitch || !isSelected) {
                         for (i in states.indices) {
-                            if (getBindingAt(i) != Binding.NONE) {
-                                inputControlsView.handleInputEvent(getBindingAt(i), true)
+                            val binding = getBindingAt(i)
+                            if (binding != Binding.NONE) {
+                                inputControlsView.handleInputEvent(binding, true)
                             }
                         }
                     }
@@ -837,8 +838,11 @@ class ControlElement(
                 }
                 Type.BUTTON -> {
                     if (isKeepButtonPressedAfterMinTime()) touchTime = System.currentTimeMillis()
-           if (!isFlagSet(FLAG_TOGGLE_SWITCH) || !isFlagSet(FLAG_SELECTED)) {
-                        inputControlsView.handleInputEvent(getBindingAt(0), true)
+                    val binding = getBindingAt(0)
+                    if (!isFlagSet(FLAG_TOGGLE_SWITCH) || !isFlagSet(FLAG_SELECTED)) {
+                        if (binding != Binding.NONE) {
+                            inputControlsView.handleInputEvent(binding, true)
+                        }
                     }
 
                     // 如果启用了鼠标移动模式，将触摸事件传递给触摸板
@@ -941,7 +945,7 @@ class ControlElement(
                             )
                             inputControlsView.handleInputEvent(binding, true, adjustedValue)
                             states[i] = true
-                        } else {
+                        } else if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             val value = if (binding.isMouseMove()) {
                                 if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
@@ -978,7 +982,7 @@ class ControlElement(
                             val interpolatedValue = interpolator?.getInterpolation(kotlin.math.min(1.0f, kotlin.math.abs(inputValue / TRACKPAD_MAX_SPEED))) ?: 0f
                             inputControlsView.handleInputEvent(binding, true, Mathf.clamp(interpolatedValue * kotlin.math.sign(inputValue), -1f, 1f))
                             states[i] = true
-                        } else {
+                        } else if (binding != Binding.NONE) {
                             if (kotlin.math.abs(inputValue) > InputControlsView.CURSOR_ACCELERATION_THRESHOLD) {
                                 inputControlsView.handleInputEvent(binding, true, inputValue * InputControlsView.CURSOR_ACCELERATION)
                             }
@@ -1012,14 +1016,16 @@ class ControlElement(
 
                     for (i in 0..3) {
                         val binding = getBindingAt(i)
-                        val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                        val value = if (binding.isMouseMove()) {
-                            if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
-                        } else {
-                            if (i == 1 || i == 3) deltaX else deltaY
+                        if (binding != Binding.NONE) {
+                            val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
+                            val value = if (binding.isMouseMove()) {
+                                if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
+                            } else {
+                                if (i == 1 || i == 3) deltaX else deltaY
+                            }
+                            inputControlsView.handleInputEvent(binding, state, value)
+                            states[i] = state
                         }
-                        inputControlsView.handleInputEvent(binding, state, value)
-                        states[i] = state
                     }
                 }
                 else -> {}
@@ -1084,15 +1090,18 @@ class ControlElement(
                 }
                 Type.BUTTON -> {
                     var selected = isFlagSet(FLAG_SELECTED)
+                    val binding = getBindingAt(0)
                     if (isKeepButtonPressedAfterMinTime() && touchTime != null) {
                         selected = (System.currentTimeMillis() - touchTime!!) > BUTTON_MIN_TIME_TO_KEEP_PRESSED
-                        if (!selected) {
-                            inputControlsView.handleInputEvent(getBindingAt(0), false)
+                        if (!selected && binding != Binding.NONE) {
+                            inputControlsView.handleInputEvent(binding, false)
                         }
                         setFlag(FLAG_SELECTED, selected)
                         touchTime = null
                     } else if (!isFlagSet(FLAG_TOGGLE_SWITCH) || isFlagSet(FLAG_SELECTED)) {
-                        inputControlsView.handleInputEvent(getBindingAt(0), false)
+                        if (binding != Binding.NONE) {
+                            inputControlsView.handleInputEvent(binding, false)
+                        }
                     }
 
                     // 如果启用了鼠标移动模式，停止触摸板移动
