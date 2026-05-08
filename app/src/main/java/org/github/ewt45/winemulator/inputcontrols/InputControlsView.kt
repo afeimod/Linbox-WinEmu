@@ -550,7 +550,7 @@ class InputControlsView(context: Context?) : View(context) {
     fun handleInputEvent(binding: Binding, isActionDown: Boolean, offset: Float) {
         val handler = inputEventHandler ?: return
 
-        if (binding.isGamepad) {
+        if (binding.isGamepad()) {
             // Gamepad events are handled by the gamepad state management
             val state = profile?.getGamepadState()
             val buttonIdx = binding.ordinal - Binding.GAMEPAD_BUTTON_A.ordinal

@@ -344,7 +344,7 @@ class ControlElement(
                 for (part in parts) {
                     if (part.isNotEmpty()) sb.append(part[0])
                 }
-                return (if (binding.isMouse) "M" else "") + sb
+                return (if (binding.isMouse()) "M" else "") + sb
             } else return displayText
         }
     }
@@ -933,7 +933,7 @@ class ControlElement(
                     for (i in 0..3) {
                         val binding = getBindingAt(i)
 
-                        if (binding.isGamepad) {
+                        if (binding.isGamepad()) {
                             val inputValue = if (i == 1 || i == 3) deltaX else deltaY
                             val adjustedValue = Mathf.clamp(
                                 kotlin.math.abs(kotlin.math.abs(inputValue) - 0.01f) * kotlin.math.sign(inputValue) * STICK_SENSITIVITY,
@@ -969,7 +969,7 @@ class ControlElement(
                         val binding = getBindingAt(i)
                         val inputValue = if (i == 1 || i == 3) deltaX else deltaY
 
-                        if (binding.isGamepad) {
+                        if (binding.isGamepad()) {
                             if (kotlin.math.abs(inputValue) > TRACKPAD_ACCELERATION_THRESHOLD) {
                                 inputControlsView.handleInputEvent(binding, true, inputValue * STICK_SENSITIVITY)
                             }
@@ -1028,7 +1028,9 @@ class ControlElement(
             return true
         } else if (pointerId == currentPointerId && type == Type.RANGE_BUTTON) {
             scroller?.handleTouchMove(x, y)
-            if (scroller?.isScrolling() == true) {
+            // 检查 scroller 的滚动状态（通过比较 scrollOffset 的变化）
+            val isCurrentlyScrolling = scroller != null && kotlin.math.abs(scroller.getScrollOffset()) > 0.1f
+            if (isCurrentlyScrolling) {
                 setFlag(FLAG_PRESSED, false)
                 inputControlsView.invalidate()
             }
