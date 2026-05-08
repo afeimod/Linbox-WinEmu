@@ -434,6 +434,7 @@ class InputControlsView(context: Context?) : View(context) {
      * 2. Each pointer determines if it should be handled by an element or touchpad
      * 3. Correct event delegation based on pointer ID
      * 4. Properly handle mouse/touchpad input without early returns
+     * 5. Touch input always works even without virtual controls enabled
      */
     fun handleTouchEvent(event: MotionEvent): Boolean {
         // Handle mouse input - pass through to touchpad for cursor movement
@@ -443,9 +444,33 @@ class InputControlsView(context: Context?) : View(context) {
             return true
         }
 
+        // Always handle touch events for touchpad functionality
+        // This is the key fix - touch events should always work for cursor control
+        val actionMasked = event.actionMasked
+
+        when (actionMasked) {
+            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                // Initialize touchpad tracking for this touch
+                touchpadView?.onTouchEvent(event)
+                return true
+            }
+
+            MotionEvent.ACTION_MOVE -> {
+                // Forward all move events to touchpad for cursor control
+                touchpadView?.onTouchEvent(event)
+                return true
+            }
+
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                // Handle touch release
+                touchpadView?.onTouchEvent(event)
+                return true
+            }
+        }
+
+        // Only process virtual control elements if profile exists and we're not in edit mode
         if (!editMode && profile != null) {
             val actionIndex = event.actionIndex
-            val actionMasked = event.actionMasked
             val actionPointerId = event.getPointerId(actionIndex)
 
             when (actionMasked) {
@@ -453,7 +478,6 @@ class InputControlsView(context: Context?) : View(context) {
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
                     var handled = false
-                    touchpadView?.setPointerButtonLeftEnabled(true)
 
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchDown(actionPointerId, x, y)) {
@@ -465,7 +489,8 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // Only pass to touchpad if no element handled this pointer
+                    // Even if handled by element, still pass to touchpad for cursor tracking
+                    // But don't pass again if already done above
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
@@ -536,7 +561,7 @@ class InputControlsView(context: Context?) : View(context) {
                 }
             }
         }
-        return false
+        return true
     }
 
     /**
