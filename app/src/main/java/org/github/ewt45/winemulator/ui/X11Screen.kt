@@ -179,8 +179,8 @@ fun X11Screen(
                                 { first -> isFirstTouch = first },
                                 { down -> leftButtonDown = down }
                             )
-                            // 返回 false 让 InputControlsView 也能处理事件
-                            false
+                            // 返回 true 拦截事件，让 LorieView 处理原生 X11 鼠标控制
+                            true
                         }
                     } ?: run {
                         Log.e("X11Screen", "Could not find LorieView in X11 content")
