@@ -518,10 +518,8 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // Track the touch state for virtual buttons
-                    if (!handled) {
-                        touchpadView?.onTouchEvent(event)
-                    }
+                    // 总是传递给 touchpad 处理按钮按下
+                    touchpadView?.onTouchEvent(event)
                     return true
                 }
 
@@ -581,10 +579,8 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // Pass to touchpad if no element handled
-                    if (!handled) {
-                        touchpadView?.onTouchEvent(event)
-                    }
+                    // 总是传递给 touchpad 处理按钮释放
+                    touchpadView?.onTouchEvent(event)
                     return true
                 }
             }
@@ -985,17 +981,13 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                val actionIndex = event.actionIndex
-                val pointerId = event.getPointerId(actionIndex)
-                if (pointerId == activePointerId || actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_CANCEL) {
-                    // 发送左键释放事件 (按钮1是左键)
-                    if (leftButtonPressed) {
-                        inputEventHandler?.onPointerButton(1, false)
-                        leftButtonPressed = false
-                    }
-                    activePointerId = -1
-                    isDragging = false
+                // 总是发送左键释放事件，不管是否被虚拟按钮处理
+                if (leftButtonPressed) {
+                    inputEventHandler?.onPointerButton(1, false)
+                    leftButtonPressed = false
                 }
+                activePointerId = -1
+                isDragging = false
                 return true
             }
         }
