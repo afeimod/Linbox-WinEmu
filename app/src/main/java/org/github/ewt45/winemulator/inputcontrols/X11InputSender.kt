@@ -64,17 +64,15 @@ class X11InputSender {
      */
     fun sendKeyEvent(evdevKeycode: Int, isDown: Boolean) {
         val sender = inputEventSender ?: return
-        val handler = inputHandler ?: return
         
         val androidKeycode = evdevToAndroidKeycode(evdevKeycode)
         if (androidKeycode == 0) return
         
-        // Execute directly on input thread to avoid main thread message queue overflow
-        handler.post {
-            val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
-            val event = KeyEvent(action, androidKeycode)
-            sender.sendKeyEvent(event)
-        }
+        // Send synchronously to ensure correct event ordering
+        // InputEventSender handles thread safety internally
+        val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+        val event = KeyEvent(action, androidKeycode)
+        sender.sendKeyEvent(event)
     }
 
     /**
