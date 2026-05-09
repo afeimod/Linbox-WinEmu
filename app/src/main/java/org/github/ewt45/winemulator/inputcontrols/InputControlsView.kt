@@ -428,9 +428,15 @@ class InputControlsView(context: Context?) : View(context) {
             }
             return true
         }
-        // In non-edit mode, handle touch events for virtual controls
-        handleTouchEvent(event)
-        return true
+
+        // 非编辑模式下，只有当 showTouchscreenControls 为 true 时才处理触摸事件
+        // 返回 handleTouchEvent 的结果，让事件正确传递
+        if (!editMode && profile != null && showTouchscreenControls) {
+            return handleTouchEvent(event)
+        }
+
+        // 当 showTouchscreenControls 为 false 或 profile 为 null 时，不处理触摸事件，让事件传递给下层
+        return false
     }
 
     /**
