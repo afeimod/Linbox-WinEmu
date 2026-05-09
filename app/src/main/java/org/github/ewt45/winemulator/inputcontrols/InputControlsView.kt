@@ -522,7 +522,6 @@ class InputControlsView(context: Context?) : View(context) {
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
-                    // Return true to track state, but touchpadView won't send button events
                     return true
                 }
 
@@ -568,7 +567,6 @@ class InputControlsView(context: Context?) : View(context) {
                         touchpadView?.onTouchEvent(newEvent)
                         newEvent.recycle()
                     }
-                    // Return true to track state for virtual buttons
                     return true
                 }
 
@@ -587,14 +585,12 @@ class InputControlsView(context: Context?) : View(context) {
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
-                    // Return true to track state for virtual buttons
                     return true
                 }
             }
         } else {
             // No profile configured, pass events to touchpad for cursor movement
             touchpadView?.onTouchEvent(event)
-            // Return true to track state for virtual buttons
             return true
         }
         return true
@@ -934,8 +930,6 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
     private var rightButtonPressed = false
 
     fun onTouchEvent(event: MotionEvent): Boolean {
-        // Only send cursor movement events, NOT button events
-        // Button events will be handled by LorieView natively
         val actionMasked = event.actionMasked
 
         when (actionMasked) {
@@ -949,6 +943,10 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
                     initialX = lastX
                     initialY = lastY
                     isDragging = false
+                    
+                    // 发送左键按下事件
+                    inputEventHandler?.onPointerButton(0, true)
+                    leftButtonPressed = true
                 }
                 return true
             }
@@ -976,7 +974,7 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
                             }
                         }
 
-                        // Send cursor movement only (no button events)
+                        // Send cursor movement
                         if (kotlin.math.abs(dx) > 0.5f || kotlin.math.abs(dy) > 0.5f) {
                             sendCursorMove(dx, dy)
                         }
@@ -990,6 +988,11 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
                 val actionIndex = event.actionIndex
                 val pointerId = event.getPointerId(actionIndex)
                 if (pointerId == activePointerId || actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_CANCEL) {
+                    // 发送左键释放事件
+                    if (leftButtonPressed) {
+                        inputEventHandler?.onPointerButton(0, false)
+                        leftButtonPressed = false
+                    }
                     activePointerId = -1
                     isDragging = false
                 }
