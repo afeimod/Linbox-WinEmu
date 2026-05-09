@@ -171,15 +171,16 @@ fun X11Screen(
                             handleX11TouchEvent(
                                 event, 
                                 x11InputSender, 
-                                { Pair(lastTouchX, lastTouchY) },
+                                lastTouchX, 
+                                lastTouchY, 
+                                isFirstTouch, 
+                                leftButtonDown,
                                 { x, y -> lastTouchX = x; lastTouchY = y },
-                                { isFirstTouch },
                                 { first -> isFirstTouch = first },
-                                { leftButtonDown },
                                 { down -> leftButtonDown = down }
                             )
-                            // 返回 true 拦截事件，让 LorieView 处理原生 X11 鼠标控制
-                            true
+                            // 返回 false 让 InputControlsView 也能处理事件
+                            false
                         }
                     } ?: run {
                         Log.e("X11Screen", "Could not find LorieView in X11 content")
@@ -248,11 +249,12 @@ fun X11Screen(
 private fun handleX11TouchEvent(
     event: MotionEvent,
     inputSender: X11InputSender,
-    getLastTouch: () -> Pair<Float, Float>,
+    lastTouchX: Float,
+    lastTouchY: Float,
+    isFirstTouch: Boolean,
+    leftButtonDown: Boolean,
     updateLastTouch: (Float, Float) -> Unit,
-    getIsFirstTouch: () -> Boolean,
     updateFirstTouch: (Boolean) -> Unit,
-    getLeftButtonDown: () -> Boolean,
     updateLeftButton: (Boolean) -> Unit
 ) {
     // 检查输入是否已初始化
@@ -260,11 +262,6 @@ private fun handleX11TouchEvent(
         Log.w("X11Touch", "InputSender not initialized, skipping touch event")
         return
     }
-
-    val lastTouchX = getLastTouch().first
-    val lastTouchY = getLastTouch().second
-    val isFirstTouch = getIsFirstTouch()
-    val leftButtonDown = getLeftButtonDown()
 
     when (event.actionMasked) {
         MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
