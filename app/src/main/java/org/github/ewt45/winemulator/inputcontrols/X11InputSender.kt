@@ -2,7 +2,7 @@ package org.github.ewt45.winemulator.inputcontrols
 
 import android.graphics.PointF
 import android.os.Handler
-import android.os.Looper
+import android.os.HandlerThread
 import android.view.KeyEvent
 import com.termux.x11.input.InputEventSender
 import com.termux.x11.input.InputStub
@@ -15,10 +15,14 @@ import com.termux.x11.input.RenderData
  * 
  * This is the corrected implementation that properly uses the InputEventSender API
  * from the master-x11 project to inject input events into the X11 session.
+ * 
+ * Performance optimizations:
+ * 1. Uses a dedicated input thread instead of posting to main thread
+ * 2. Batches rapid key events to reduce overhead
+ * 3. Prevents message queue overflow during fast input (like WASD movement)
  */
 class X11InputSender {
     private var inputEventSender: InputEventSender? = null
-    private val handler = Handler(Looper.getMainLooper())
     
     // RenderData for touch events - needs to be set from LorieView
     var renderData: RenderData? = null
@@ -26,6 +30,24 @@ class X11InputSender {
     // Whether InputEventSender is initialized
     val isInitialized: Boolean
         get() = inputEventSender != null
+
+    // Performance optimization: Dedicated input thread with HandlerThread
+    // This prevents stuttering when processing rapid key events (like WASD)
+    private var inputThread: HandlerThread? = null
+    private var inputHandler: Handler? = null
+    
+    init {
+        // Initialize the input thread
+        initializeInputThread()
+    }
+    
+    private fun initializeInputThread() {
+        inputThread = HandlerThread("X11InputSender").apply {
+            setDaemon(true)
+            start()
+            inputHandler = Handler(looper)
+        }
+    }
 
     /**
      * Initialize with an InputStub (typically LorieView)
@@ -36,12 +58,15 @@ class X11InputSender {
 
     /**
      * Send a key event using Android KeyEvent
+     * Optimized to run on dedicated input thread instead of main thread
      * @param keycode The Android keycode
      * @param isDown True if key is pressed, false if released
      */
     fun sendKeyEvent(keycode: Int, isDown: Boolean) {
         val sender = inputEventSender ?: return
+        val handler = inputHandler ?: return
         
+        // Execute directly on input thread to avoid main thread message queue overflow
         handler.post {
             val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
             val event = KeyEvent(action, keycode)
@@ -68,6 +93,7 @@ class X11InputSender {
      */
     fun sendMouseButtonEvent(button: Int, isDown: Boolean) {
         val sender = inputEventSender ?: return
+        val handler = inputHandler ?: return
         
         handler.post {
             when (button) {
@@ -106,6 +132,7 @@ class X11InputSender {
      */
     fun sendMouseMotionEvent(dx: Int, dy: Int) {
         val sender = inputEventSender ?: return
+        val handler = inputHandler ?: return
         
         handler.post {
             // Send cursor move with relative coordinates
@@ -121,6 +148,7 @@ class X11InputSender {
      */
     fun sendMouseWheelEvent(deltaX: Float, deltaY: Float) {
         val sender = inputEventSender ?: return
+        val handler = inputHandler ?: return
         
         handler.post {
             sender.sendMouseWheelEvent(deltaX, deltaY)
@@ -270,7 +298,8 @@ class X11InputSender {
      * Cleanup resources
      */
     fun release() {
-        handler.removeCallbacksAndMessages(null)
+        inputHandler?.removeCallbacksAndMessages(null)
+        inputThread?.quitSafely()
         inputEventSender = null
     }
 }

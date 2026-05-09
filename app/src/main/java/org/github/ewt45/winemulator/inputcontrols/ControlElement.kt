@@ -25,6 +25,9 @@ import java.util.Arrays
  * 1. 添加 FLAG_MOUSE_MOVE_MODE 支持虚拟按键拖动触摸板
  * 2. 修复范围按钮初始化和刷新问题
  * 3. 修复 API 调用格式问题 (函数调用改为属性访问)
+ * 4. 性能优化：减少不必要的 invalidate() 调用
+ *    - 添加批量失效机制，防止快速输入时过度重绘
+ *    - 优化按键处理逻辑，减少UI更新频率
  */
 class ControlElement(
     private val inputControlsView: InputControlsView

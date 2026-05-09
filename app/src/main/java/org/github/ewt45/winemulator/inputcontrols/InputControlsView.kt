@@ -3,7 +3,6 @@ package org.github.ewt45.winemulator.inputcontrols
 import android.content.Context
 import android.graphics.*
 import android.os.Handler
-import android.os.Looper
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
@@ -17,6 +16,11 @@ import java.io.InputStream
 import java.util.HashMap
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * InputControlsView - Adapted for Linbox compatibility
@@ -27,6 +31,10 @@ import java.util.TimerTask
  * Fixed issues:
  * 1. Multi-touch support: Virtual buttons and touchpad can be used simultaneously
  * 2. Key repeat support for WASD and other keyboard keys
+ * 3. Performance optimization: Fixed stuttering/lag when using WASD for movement
+ *    - Replaced multiple Timer threads with single ScheduledExecutorService
+ *    - Batched invalidate() calls to reduce overdraw
+ *    - Optimized event posting to main thread
  */
 class InputControlsView(context: Context?) : View(context) {
     companion object {
@@ -72,10 +80,20 @@ class InputControlsView(context: Context?) : View(context) {
     private var mouseMoveTimer: Timer? = null
     private val mouseMoveOffset = PointF()
     private val counterMap = HashMap<String, Int>()
-    // Key repeat timers
-    private val keyRepeatTimers = HashMap<Binding, Timer>()
-    private val keyRepeatHandlers = HashMap<Binding, Runnable>()
-    private val mainHandler = Handler(Looper.getMainLooper())
+    
+    // Key repeat optimization: Use single ScheduledExecutorService instead of multiple Timer threads
+    // This significantly reduces thread overhead and prevents stuttering when multiple keys are pressed
+    private val keyRepeatExecutor: ScheduledExecutorService = Executors.newScheduledThreadPool(1) { r ->
+        Thread(r, "KeyRepeatExecutor").also { it.isDaemon = true }
+    }
+    private val keyRepeatFutures = ConcurrentHashMap<Binding, ScheduledFuture<*>>()
+    
+    // Batched invalidation to reduce overdraw
+    private var pendingInvalidation = false
+    private val invalidationRunnable = Runnable { 
+        pendingInvalidation = false
+        this.invalidate()
+    }
 
     fun counterMapIncrease(iconId: String) {
         var v = counterMap[iconId]
@@ -776,76 +794,75 @@ class InputControlsView(context: Context?) : View(context) {
 
     /**
      * Start key repeat for continuous input
+     * Optimized to use single ScheduledExecutorService instead of multiple Timer threads
+     * This prevents stuttering when multiple keys (like WASD) are pressed simultaneously
      */
     private fun startKeyRepeat(binding: Binding) {
         // 检查是否已经有重复任务在运行
-        if (keyRepeatTimers.containsKey(binding)) {
+        if (keyRepeatFutures.containsKey(binding)) {
             return
         }
 
-        // 保存binding引用用于Runnable
-        val bindingRef = binding
-
-        // 创建重复处理器
-        val repeatHandler = object : Runnable {
-            override fun run() {
-                val handler = inputEventHandler ?: return
-                // 再次检查是否已被停止
-                val timer = keyRepeatTimers[bindingRef] ?: return
-                handler.onKeyEvent(bindingRef.toEvdev(), true)
+        val handler = inputEventHandler ?: return
+        
+        // Capture keycode and handler reference to avoid issues with lambda capture
+        val keycode = binding.toEvdev()
+        
+        // 延迟后开始重复发送按键事件（使用 initialDelay）
+        val future = keyRepeatExecutor.scheduleAtFixedRate({
+            try {
+                handler.onKeyEvent(keycode, true)
+            } catch (e: Exception) {
+                // 忽略异常，防止定时任务中断
             }
-        }
-
-        keyRepeatHandlers[binding] = repeatHandler
-
-        // 创建定时器（daemon线程）
-        val timer = Timer(true)
-        keyRepeatTimers[binding] = timer
-
-        // 延迟后开始重复发送按键事件
-        val delayedHandler = object : Runnable {
-            override fun run() {
-                // 获取当前的 timer 引用，检查是否仍然是有效的
-                val currentTimer = keyRepeatTimers[bindingRef]
-                if (currentTimer == null || currentTimer != timer) {
-                    // 已经被停止，忽略
-                    return
-                }
-                val handler = inputEventHandler ?: return
-                handler.onKeyEvent(bindingRef.toEvdev(), true)
-                // 开始定时重复
-                try {
-                    currentTimer.schedule(object : TimerTask() {
-                        override fun run() {
-                            mainHandler.post(repeatHandler)
-                        }
-                    }, KEY_REPEAT_INTERVAL, KEY_REPEAT_INTERVAL)
-                } catch (e: IllegalStateException) {
-                    // Timer 已经被取消，忽略
-                }
+        }, KEY_REPEAT_DELAY, KEY_REPEAT_INTERVAL, TimeUnit.MILLISECONDS)
+        
+        keyRepeatFutures[binding] = future
+    }
+    
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // Cleanup: Cancel all pending key repeat tasks and shutdown executor
+        stopAllKeyRepeats()
+        keyRepeatExecutor.shutdown()
+        try {
+            if (!keyRepeatExecutor.awaitTermination(1, TimeUnit.SECONDS)) {
+                keyRepeatExecutor.shutdownNow()
             }
+        } catch (e: InterruptedException) {
+            keyRepeatExecutor.shutdownNow()
         }
-
-        mainHandler.postDelayed(delayedHandler, KEY_REPEAT_DELAY)
+        
+        // Cancel mouse move timer
+        mouseMoveTimer?.cancel()
+        mouseMoveTimer = null
     }
 
     /**
      * Stop key repeat
      */
     private fun stopKeyRepeat(binding: Binding) {
-        val timer = keyRepeatTimers.remove(binding)
-        timer?.cancel()
-        keyRepeatHandlers.remove(binding)
+        keyRepeatFutures.remove(binding)?.cancel(false)
     }
 
     /**
      * Stop all key repeats
      */
     fun stopAllKeyRepeats() {
-        val timers = HashMap(keyRepeatTimers)
-        keyRepeatTimers.clear()
-        keyRepeatHandlers.clear()
-        timers.values.forEach { it.cancel() }
+        keyRepeatFutures.values.forEach { it.cancel(false) }
+        keyRepeatFutures.clear()
+    }
+    
+    /**
+     * Batch invalidation calls to reduce overdraw
+     * Instead of immediately invalidating on each input event, 
+     * we post a delayed invalidation that coalesces multiple calls
+     */
+    fun postBatchedInvalidation() {
+        if (!pendingInvalidation) {
+            pendingInvalidation = true
+            post(invalidationRunnable)
+        }
     }
 
     fun sendText(text: String?) {
