@@ -43,10 +43,10 @@ class InputControlsView(context: Context?) : View(context) {
         const val MAX_TAP_MILLISECONDS: Short = 200
         const val CURSOR_ACCELERATION = 1.25f
         const val CURSOR_ACCELERATION_THRESHOLD: Byte = 6
-        // Key repeat intervals - 调整以获得更流畅的持续移动
-        // 初始延迟应该足够长以区分单击和按住，重复间隔应该足够短以保证流畅移动
-        const val KEY_REPEAT_DELAY = 150L      // 初始延迟：150ms
-        const val KEY_REPEAT_INTERVAL = 33L   // 重复间隔：33ms ≈ 30fps，足以保持流畅移动
+        // Key repeat intervals - 优化以获得更快的响应
+        // 初始延迟应该足够短以保持即时响应，重复间隔应该足够短以保证流畅移动
+        const val KEY_REPEAT_DELAY = 80L      // 初始延迟：80ms - 快速响应
+        const val KEY_REPEAT_INTERVAL = 20L   // 重复间隔：20ms ≈ 50fps，极流畅移动
         
         /**
          * Convert evdev keycode to Android keycode
@@ -902,11 +902,12 @@ class InputControlsView(context: Context?) : View(context) {
                         // X11 按钮号从 1 开始，ordinal 是 0-based，所以要 +1
                         handler.onPointerButton(pointerButton.ordinal + 1, true)
                     } else {
-                        // 创建 KeyEvent 并发送给 handler
+                        // 创建 KeyEvent 并发送给 handler - 使用包含eventTime的构造函数
                         val evdevKeycode = binding.toEvdev()
                         val androidKeycode = evdevToAndroidKeycode(evdevKeycode)
                         if (androidKeycode != 0) {
-                            val keyEvent = KeyEvent(KeyEvent.ACTION_DOWN, androidKeycode)
+                            val eventTime = System.currentTimeMillis()
+                            val keyEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_DOWN, androidKeycode, 0, 0, 0, 0)
                             handler.onKeyEvent(keyEvent)
                         }
                     }
@@ -919,11 +920,12 @@ class InputControlsView(context: Context?) : View(context) {
                         // X11 按钮号从 1 开始，ordinal 是 0-based，所以要 +1
                         handler.onPointerButton(pointerButton.ordinal + 1, false)
                     } else {
-                        // 创建 KeyEvent 并发送给 handler
+                        // 创建 KeyEvent 并发送给 handler - 使用包含eventTime的构造函数
                         val evdevKeycode = binding.toEvdev()
                         val androidKeycode = evdevToAndroidKeycode(evdevKeycode)
                         if (androidKeycode != 0) {
-                            val keyEvent = KeyEvent(KeyEvent.ACTION_UP, androidKeycode)
+                            val eventTime = System.currentTimeMillis()
+                            val keyEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_UP, androidKeycode, 0, 0, 0, 0)
                             handler.onKeyEvent(keyEvent)
                         }
                     }
