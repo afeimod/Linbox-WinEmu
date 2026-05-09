@@ -57,19 +57,22 @@ class X11InputSender {
     }
 
     /**
-     * Send a key event using Android KeyEvent
+     * Send a key event using evdev keycode
      * Optimized to run on dedicated input thread instead of main thread
-     * Handles ACTION_MULTIPLE events for continuous key presses (like WASD movement)
-     * @param event The Android KeyEvent - can be ACTION_DOWN, ACTION_UP, or ACTION_MULTIPLE
+     * @param evdevKeycode The evdev keycode
+     * @param isDown True if key is pressed, false if released
      */
-    fun sendKeyEvent(event: KeyEvent) {
+    fun sendKeyEvent(evdevKeycode: Int, isDown: Boolean) {
         val sender = inputEventSender ?: return
         val handler = inputHandler ?: return
         
+        val androidKeycode = evdevToAndroidKeycode(evdevKeycode)
+        if (androidKeycode == 0) return
+        
         // Execute directly on input thread to avoid main thread message queue overflow
         handler.post {
-            // Forward the complete KeyEvent to the sender
-            // This preserves ACTION_MULTIPLE for continuous key presses
+            val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
+            val event = KeyEvent(action, androidKeycode)
             sender.sendKeyEvent(event)
         }
     }
@@ -80,12 +83,7 @@ class X11InputSender {
      * @param isDown True if key is pressed, false if released
      */
     fun sendEvdevKeyEvent(evdevKeycode: Int, isDown: Boolean) {
-        val androidKeycode = evdevToAndroidKeycode(evdevKeycode)
-        if (androidKeycode != 0) {
-            val action = if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP
-            val event = KeyEvent(action, androidKeycode)
-            sendKeyEvent(event)
-        }
+        sendKeyEvent(evdevKeycode, isDown)
     }
 
     /**

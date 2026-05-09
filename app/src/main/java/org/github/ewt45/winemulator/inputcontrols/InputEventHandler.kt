@@ -1,17 +1,15 @@
 package org.github.ewt45.winemulator.inputcontrols
 
-import android.view.KeyEvent
-
 /**
  * Interface for handling input events from virtual controls
  */
 interface InputEventHandler {
     /**
-     * Handle a key event with full KeyEvent information
-     * This supports ACTION_MULTIPLE events for continuous key presses (like WASD movement)
-     * @param event The Android KeyEvent containing keycode, action, and repeat count
+     * Handle a key event
+     * @param keycode The keycode (can be evdev or Android keycode depending on implementation)
+     * @param isDown True if key is pressed, false if released
      */
-    fun onKeyEvent(event: KeyEvent)
+    fun onKeyEvent(keycode: Int, isDown: Boolean)
 
     /**
      * Handle pointer movement
