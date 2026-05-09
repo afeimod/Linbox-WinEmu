@@ -518,8 +518,10 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // 总是传递给 touchpad 处理按钮按下
-                    touchpadView?.onTouchEvent(event)
+                    // 只有当没有虚拟按钮处理时才传递给 touchpad
+                    if (!handled) {
+                        touchpadView?.onTouchEvent(event)
+                    }
                     return true
                 }
 
@@ -579,8 +581,10 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // 总是传递给 touchpad 处理按钮释放
-                    touchpadView?.onTouchEvent(event)
+                    // 只有当没有虚拟按钮处理时才传递给 touchpad
+                    if (!handled) {
+                        touchpadView?.onTouchEvent(event)
+                    }
                     return true
                 }
             }
@@ -939,10 +943,6 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
                     initialX = lastX
                     initialY = lastY
                     isDragging = false
-                    
-                    // 发送左键按下事件 (按钮1是左键)
-                    inputEventHandler?.onPointerButton(1, true)
-                    leftButtonPressed = true
                 }
                 return true
             }
@@ -981,11 +981,6 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                // 总是发送左键释放事件，不管是否被虚拟按钮处理
-                if (leftButtonPressed) {
-                    inputEventHandler?.onPointerButton(1, false)
-                    leftButtonPressed = false
-                }
                 activePointerId = -1
                 isDragging = false
                 return true
