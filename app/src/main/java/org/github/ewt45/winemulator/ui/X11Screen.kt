@@ -2,7 +2,6 @@ package org.github.ewt45.winemulator.ui
 
 import android.content.Context
 import android.util.Log
-import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -89,22 +88,8 @@ fun X11Screen(
     // InputEventHandler 使用 X11InputSender
     val inputEventHandler = remember {
         object : InputEventHandler {
-            override fun onKeyEvent(event: KeyEvent) {
-                // 根据事件类型决定如何发送
-                when (event.action) {
-                    KeyEvent.ACTION_MULTIPLE -> {
-                        // ACTION_MULTIPLE 用于持续按键 - 直接发送完整事件
-                        x11InputSender.sendKeyEvent(event)
-                    }
-                    KeyEvent.ACTION_DOWN -> {
-                        // 单独按下 - 发送按下事件
-                        x11InputSender.sendEvdevKeyEvent(event.keyCode, true)
-                    }
-                    KeyEvent.ACTION_UP -> {
-                        // 释放 - 发送释放事件
-                        x11InputSender.sendEvdevKeyEvent(event.keyCode, false)
-                    }
-                }
+            override fun onKeyEvent(keycode: Int, isDown: Boolean) {
+                x11InputSender.sendEvdevKeyEvent(keycode, isDown)
             }
             override fun onPointerMove(dx: Int, dy: Int) {
                 x11InputSender.sendMouseMotionEvent(dx, dy)
