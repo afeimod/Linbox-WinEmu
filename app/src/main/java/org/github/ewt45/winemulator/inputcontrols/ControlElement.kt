@@ -948,12 +948,19 @@ class ControlElement(
                             states[i] = true
                         } else if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            val value = if (binding.isMouseMove()) {
-                                if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
+                            
+                            // 对于键盘绑定（WASD等），使用 updateKeyboardKeyState 来保持按键持续按下
+                            if (binding.isKeyboard()) {
+                                inputControlsView.updateKeyboardKeyState(binding, state)
                             } else {
-                                if (i == 1 || i == 3) deltaX else deltaY
+                                // 对于鼠标移动或其他绑定，使用原有的 handleInputEvent
+                                val value = if (binding.isMouseMove()) {
+                                    if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
+                                } else {
+                                    if (i == 1 || i == 3) deltaX else deltaY
+                                }
+                                inputControlsView.handleInputEvent(binding, state, value)
                             }
-                            inputControlsView.handleInputEvent(binding, state, value)
                             states[i] = state
                         }
                     }
@@ -1019,12 +1026,19 @@ class ControlElement(
                         val binding = getBindingAt(i)
                         if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            val value = if (binding.isMouseMove()) {
-                                if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
+                            
+                            // 对于键盘绑定（WASD等），使用 updateKeyboardKeyState 来保持按键持续按下
+                            if (binding.isKeyboard()) {
+                                inputControlsView.updateKeyboardKeyState(binding, state)
                             } else {
-                                if (i == 1 || i == 3) deltaX else deltaY
+                                // 对于鼠标移动或其他绑定，使用原有的 handleInputEvent
+                                val value = if (binding.isMouseMove()) {
+                                    if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
+                                } else {
+                                    if (i == 1 || i == 3) deltaX else deltaY
+                                }
+                                inputControlsView.handleInputEvent(binding, state, value)
                             }
-                            inputControlsView.handleInputEvent(binding, state, value)
                             states[i] = state
                         }
                     }
@@ -1113,7 +1127,16 @@ class ControlElement(
                 }
                 Type.RANGE_BUTTON, Type.D_PAD, Type.STICK, Type.TRACKPAD -> {
                     for (i in states.indices) {
-                        if (states[i]) inputControlsView.handleInputEvent(getBindingAt(i), false)
+                        if (states[i]) {
+                            val binding = getBindingAt(i)
+                            // 对于键盘绑定，使用 updateKeyboardKeyState(false) 来停止 key repeat
+                            // 这会自动发送 KEY_UP 事件
+                            if (binding.isKeyboard()) {
+                                inputControlsView.updateKeyboardKeyState(binding, false)
+                            } else {
+                                inputControlsView.handleInputEvent(binding, false)
+                            }
+                        }
                         states[i] = false
                     }
 

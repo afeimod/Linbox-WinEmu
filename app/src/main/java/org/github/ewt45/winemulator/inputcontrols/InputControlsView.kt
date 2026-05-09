@@ -89,6 +89,10 @@ class InputControlsView(context: Context?) : View(context) {
     }
     private val keyRepeatFutures = ConcurrentHashMap<Binding, ScheduledFuture<*>>()
     
+    // Track keyboard key states for D-PAD continuous press
+    // This ensures that when WASD is mapped to a D-PAD, the keys are held continuously
+    private val keyboardKeyStates = ConcurrentHashMap<Binding, Boolean>()
+    
     // Batched invalidation to reduce overdraw
     private var pendingInvalidation = false
     private val invalidationRunnable = Runnable { 
@@ -767,11 +771,32 @@ class InputControlsView(context: Context?) : View(context) {
                 }
                 if (isActionDown) createMouseMoveTimer()
             } else {
-                // 键盘按键：直接发送按下/抬起事件，不需要 key repeat
+                // 键盘按键：直接发送按下/抬起事件
                 // 游戏/应用会自己处理"按键被按住"的状态
                 handler.onKeyEvent(binding.toEvdev(), isActionDown)
             }
         }
+    }
+
+    /**
+     * Update keyboard key state for D-PAD/STICK continuous press
+     * Call this from ControlElement when a direction state changes on a D-PAD or STICK
+     * @param binding The keyboard binding to update
+     * @param isActive True if this direction is now active, false if inactive
+     */
+    fun updateKeyboardKeyState(binding: Binding, isActive: Boolean) {
+        val wasActive = keyboardKeyStates[binding] ?: false
+        
+        if (isActive && !wasActive) {
+            // State changed from inactive to active - start key repeat
+            keyboardKeyStates[binding] = true
+            startKeyRepeat(binding)
+        } else if (!isActive && wasActive) {
+            // State changed from active to inactive - stop key repeat
+            keyboardKeyStates[binding] = false
+            stopKeyRepeat(binding)
+        }
+        // If state hasn't changed, do nothing - key repeat handles continuous press
     }
 
     /**
@@ -790,8 +815,10 @@ class InputControlsView(context: Context?) : View(context) {
         // Capture keycode and handler reference to avoid issues with lambda capture
         val keycode = binding.toEvdev()
         
-        // 使用 scheduleAtFixedRate 实现平滑的按键重复
-        // 优化：降低初始延迟和重复间隔以获得更快的响应
+        // 立即发送初始按键按下事件，以确保即时响应
+        handler.onKeyEvent(keycode, true)
+        
+        // 使用 scheduleAtFixedRate 实现后续的平滑按键重复
         val future = keyRepeatExecutor.scheduleAtFixedRate({
             try {
                 handler.onKeyEvent(keycode, true)
@@ -825,15 +852,25 @@ class InputControlsView(context: Context?) : View(context) {
      * Stop key repeat
      */
     private fun stopKeyRepeat(binding: Binding) {
-        keyRepeatFutures.remove(binding)?.cancel(false)
+        val future = keyRepeatFutures.remove(binding) ?: return
+        future.cancel(false)
+        
+        // 发送按键抬起事件
+        val handler = inputEventHandler ?: return
+        handler.onKeyEvent(binding.toEvdev(), false)
     }
 
     /**
      * Stop all key repeats
      */
     fun stopAllKeyRepeats() {
-        keyRepeatFutures.values.forEach { it.cancel(false) }
+        val handler = inputEventHandler
+        for (future in keyRepeatFutures.values) {
+            future.cancel(false)
+        }
         keyRepeatFutures.clear()
+        // Also clear keyboard key states
+        keyboardKeyStates.clear()
     }
     
     /**
