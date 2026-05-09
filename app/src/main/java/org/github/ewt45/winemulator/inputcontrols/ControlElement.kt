@@ -857,11 +857,6 @@ class ControlElement(
                         }
                     }
 
-                    // 如果启用了鼠标移动模式，将触摸事件传递给触摸板
-                    if (isMouseMoveMode()) {
-                        inputControlsView.handleButtonMouseMove(pointerId, x, y, android.view.MotionEvent.ACTION_DOWN)
-                    }
-
                     setFlag(FLAG_PRESSED, true)
                     inputControlsView.invalidate()
                     return true
@@ -895,12 +890,6 @@ class ControlElement(
      * @return 是否处理了此事件
      */
     fun handleTouchMove(pointerId: Int, x: Float, y: Float): Boolean {
-        // 处理鼠标移动模式
-        if (pointerId == currentPointerId && type == Type.BUTTON && isMouseMoveMode()) {
-            inputControlsView.handleButtonMouseMove(pointerId, x, y, android.view.MotionEvent.ACTION_MOVE)
-            return true
-        }
-
         if (pointerId == currentPointerId && (type == Type.D_PAD || type == Type.STICK || type == Type.TRACKPAD)) {
             var deltaX: Float
             var deltaY: Float
@@ -1114,11 +1103,6 @@ class ControlElement(
                         if (binding != Binding.NONE) {
                             inputControlsView.handleInputEvent(binding, false)
                         }
-                    }
-
-                    // 如果启用了鼠标移动模式，停止触摸板移动
-                    if (isMouseMoveMode()) {
-                        inputControlsView.handleButtonMouseMove(pointerId, x, y, android.view.MotionEvent.ACTION_UP)
                     }
 
                     if (isFlagSet(FLAG_TOGGLE_SWITCH)) {
