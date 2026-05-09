@@ -944,8 +944,8 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
                     initialY = lastY
                     isDragging = false
                     
-                    // 发送左键按下事件
-                    inputEventHandler?.onPointerButton(0, true)
+                    // 发送左键按下事件 (按钮1是左键)
+                    inputEventHandler?.onPointerButton(1, true)
                     leftButtonPressed = true
                 }
                 return true
@@ -988,9 +988,9 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
                 val actionIndex = event.actionIndex
                 val pointerId = event.getPointerId(actionIndex)
                 if (pointerId == activePointerId || actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_CANCEL) {
-                    // 发送左键释放事件
+                    // 发送左键释放事件 (按钮1是左键)
                     if (leftButtonPressed) {
-                        inputEventHandler?.onPointerButton(0, false)
+                        inputEventHandler?.onPointerButton(1, false)
                         leftButtonPressed = false
                     }
                     activePointerId = -1
