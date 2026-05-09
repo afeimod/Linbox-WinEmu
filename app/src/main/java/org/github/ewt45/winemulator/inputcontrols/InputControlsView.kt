@@ -47,6 +47,135 @@ class InputControlsView(context: Context?) : View(context) {
         // 初始延迟应该足够长以区分单击和按住，重复间隔应该足够短以保证流畅移动
         const val KEY_REPEAT_DELAY = 150L      // 初始延迟：150ms
         const val KEY_REPEAT_INTERVAL = 33L   // 重复间隔：33ms ≈ 30fps，足以保持流畅移动
+        
+        /**
+         * Convert evdev keycode to Android keycode
+         * This mapping follows the Linux evdev to Android keycode conversion
+         */
+        fun evdevToAndroidKeycode(evdev: Int): Int {
+            return when (evdev) {
+                // Escape and special keys
+                1 -> KeyEvent.KEYCODE_ESCAPE
+                
+                // Function keys F1-F12
+                59 -> KeyEvent.KEYCODE_F1
+                60 -> KeyEvent.KEYCODE_F2
+                61 -> KeyEvent.KEYCODE_F3
+                62 -> KeyEvent.KEYCODE_F4
+                63 -> KeyEvent.KEYCODE_F5
+                64 -> KeyEvent.KEYCODE_F6
+                65 -> KeyEvent.KEYCODE_F7
+                66 -> KeyEvent.KEYCODE_F8
+                67 -> KeyEvent.KEYCODE_F9
+                68 -> KeyEvent.KEYCODE_F10
+                87 -> KeyEvent.KEYCODE_F11
+                88 -> KeyEvent.KEYCODE_F12
+                
+                // Numbers row (with shift)
+                2 -> KeyEvent.KEYCODE_1
+                3 -> KeyEvent.KEYCODE_2
+                4 -> KeyEvent.KEYCODE_3
+                5 -> KeyEvent.KEYCODE_4
+                6 -> KeyEvent.KEYCODE_5
+                7 -> KeyEvent.KEYCODE_6
+                8 -> KeyEvent.KEYCODE_7
+                9 -> KeyEvent.KEYCODE_8
+                10 -> KeyEvent.KEYCODE_9
+                11 -> KeyEvent.KEYCODE_0
+                
+                // Letters Q-Z
+                16 -> KeyEvent.KEYCODE_Q
+                17 -> KeyEvent.KEYCODE_W
+                18 -> KeyEvent.KEYCODE_E
+                19 -> KeyEvent.KEYCODE_R
+                20 -> KeyEvent.KEYCODE_T
+                21 -> KeyEvent.KEYCODE_Y
+                22 -> KeyEvent.KEYCODE_U
+                23 -> KeyEvent.KEYCODE_I
+                24 -> KeyEvent.KEYCODE_O
+                25 -> KeyEvent.KEYCODE_P
+                26 -> KeyEvent.KEYCODE_LEFT_BRACKET
+                27 -> KeyEvent.KEYCODE_RIGHT_BRACKET
+                28 -> KeyEvent.KEYCODE_ENTER
+                29 -> KeyEvent.KEYCODE_CTRL_LEFT  // Left Control
+                
+                // Letters A-L
+                30 -> KeyEvent.KEYCODE_A
+                31 -> KeyEvent.KEYCODE_S
+                32 -> KeyEvent.KEYCODE_D
+                33 -> KeyEvent.KEYCODE_F
+                34 -> KeyEvent.KEYCODE_G
+                35 -> KeyEvent.KEYCODE_H
+                36 -> KeyEvent.KEYCODE_J
+                37 -> KeyEvent.KEYCODE_K
+                38 -> KeyEvent.KEYCODE_L
+                39 -> KeyEvent.KEYCODE_SEMICOLON
+                40 -> KeyEvent.KEYCODE_APOSTROPHE
+                41 -> KeyEvent.KEYCODE_GRAVE  // Backtick/Tilde
+                
+                // Modifiers
+                42 -> KeyEvent.KEYCODE_SHIFT_LEFT
+                43 -> KeyEvent.KEYCODE_BACKSLASH
+                44 -> KeyEvent.KEYCODE_Z
+                45 -> KeyEvent.KEYCODE_X
+                46 -> KeyEvent.KEYCODE_C
+                47 -> KeyEvent.KEYCODE_V
+                48 -> KeyEvent.KEYCODE_B
+                49 -> KeyEvent.KEYCODE_N
+                50 -> KeyEvent.KEYCODE_M
+                51 -> KeyEvent.KEYCODE_COMMA
+                52 -> KeyEvent.KEYCODE_PERIOD
+                53 -> KeyEvent.KEYCODE_SLASH
+                54 -> KeyEvent.KEYCODE_SHIFT_RIGHT
+                55 -> KeyEvent.KEYCODE_NUMPAD_MULTIPLY
+                56 -> KeyEvent.KEYCODE_ALT_LEFT
+                57 -> KeyEvent.KEYCODE_SPACE
+                58 -> KeyEvent.KEYCODE_CAPS_LOCK
+                
+                // Navigation cluster
+                72 -> KeyEvent.KEYCODE_DPAD_UP  // Up arrow
+                73 -> KeyEvent.KEYCODE_PAGE_UP
+                74 -> KeyEvent.KEYCODE_PAGE_DOWN
+                75 -> KeyEvent.KEYCODE_NUMPAD_4  // Keypad 4 (also used as Left on some keyboards)
+                76 -> KeyEvent.KEYCODE_NUMPAD_5  // Keypad 5
+                77 -> KeyEvent.KEYCODE_NUMPAD_6  // Keypad 6 (also used as Right on some keyboards)
+                78 -> KeyEvent.KEYCODE_NUMPAD_1  // Keypad 1 (also used as End on some keyboards)
+                79 -> KeyEvent.KEYCODE_NUMPAD_7  // Keypad 7 (also used as Home on some keyboards)
+                80 -> KeyEvent.KEYCODE_DPAD_DOWN  // Down arrow
+                81 -> KeyEvent.KEYCODE_NUMPAD_0  // Keypad 0 (also used as Insert on some keyboards)
+                82 -> KeyEvent.KEYCODE_NUMPAD_SUBTRACT
+                83 -> KeyEvent.KEYCODE_NUMPAD_DOT  // Keypad Delete/Decimal
+                84 -> KeyEvent.KEYCODE_NUMPAD_DIVIDE
+                85 -> KeyEvent.KEYCODE_NUMPAD_MULTIPLY
+                86 -> KeyEvent.KEYCODE_NUMPAD_ADD
+                
+                // Additional navigation keys
+                102 -> KeyEvent.KEYCODE_MOVE_HOME
+                104 -> KeyEvent.KEYCODE_PAGE_UP
+                105 -> KeyEvent.KEYCODE_DPAD_LEFT
+                106 -> KeyEvent.KEYCODE_DPAD_RIGHT
+                107 -> KeyEvent.KEYCODE_MOVE_END
+                109 -> KeyEvent.KEYCODE_PAGE_DOWN
+                110 -> KeyEvent.KEYCODE_INSERT
+                111 -> KeyEvent.KEYCODE_FORWARD_DEL
+                
+                // Keypad enter (different from regular enter)
+                96 -> KeyEvent.KEYCODE_NUMPAD_ENTER
+                
+                // Right side modifiers
+                97 -> KeyEvent.KEYCODE_CTRL_RIGHT
+                98 -> KeyEvent.KEYCODE_NUMPAD_DIVIDE  // Actually this is Print Screen on some keyboards
+                99 -> KeyEvent.KEYCODE_SYSRQ  // Print Screen/SysRq
+                
+                // Additional keys
+                100 -> KeyEvent.KEYCODE_ALT_RIGHT  // Alt Gr / Right Alt
+                
+                else -> {
+                    // For unknown keycodes, try to use the keycode directly if it's in a valid Android range
+                    if (evdev in 1..255) evdev else 0
+                }
+            }
+        }
     }
 
     // Public properties for external access
@@ -773,7 +902,13 @@ class InputControlsView(context: Context?) : View(context) {
                         // X11 按钮号从 1 开始，ordinal 是 0-based，所以要 +1
                         handler.onPointerButton(pointerButton.ordinal + 1, true)
                     } else {
-                        handler.onKeyEvent(binding.toEvdev(), true)
+                        // 创建 KeyEvent 并发送给 handler
+                        val evdevKeycode = binding.toEvdev()
+                        val androidKeycode = evdevToAndroidKeycode(evdevKeycode)
+                        if (androidKeycode != 0) {
+                            val keyEvent = KeyEvent(KeyEvent.ACTION_DOWN, androidKeycode)
+                            handler.onKeyEvent(keyEvent)
+                        }
                     }
                     // Key repeat for keyboard keys - 只对键盘按键启用
                     if (pointerButton == null && binding != Binding.NONE) {
@@ -784,7 +919,13 @@ class InputControlsView(context: Context?) : View(context) {
                         // X11 按钮号从 1 开始，ordinal 是 0-based，所以要 +1
                         handler.onPointerButton(pointerButton.ordinal + 1, false)
                     } else {
-                        handler.onKeyEvent(binding.toEvdev(), false)
+                        // 创建 KeyEvent 并发送给 handler
+                        val evdevKeycode = binding.toEvdev()
+                        val androidKeycode = evdevToAndroidKeycode(evdevKeycode)
+                        if (androidKeycode != 0) {
+                            val keyEvent = KeyEvent(KeyEvent.ACTION_UP, androidKeycode)
+                            handler.onKeyEvent(keyEvent)
+                        }
                     }
                     // 停止 key repeat
                     stopKeyRepeat(binding)
@@ -814,10 +955,13 @@ class InputControlsView(context: Context?) : View(context) {
         // 这解决了之前的"一走一停"问题，因为接收端会将 ACTION_MULTIPLE 识别为持续的按住状态
         val future = keyRepeatExecutor.scheduleAtFixedRate({
             try {
-                val eventTime = System.currentTimeMillis()
                 // 创建 ACTION_MULTIPLE 事件来表示持续的按键按住
-                val keyEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_MULTIPLE, keycode, 1)
-                handler.onKeyEvent(keycode, true)
+                val androidKeycode = evdevToAndroidKeycode(keycode)
+                if (androidKeycode != 0) {
+                    val eventTime = System.currentTimeMillis()
+                    val keyEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_MULTIPLE, androidKeycode, 1)
+                    handler.onKeyEvent(keyEvent)
+                }
             } catch (e: Exception) {
                 // 忽略异常，防止定时任务中断
             }
