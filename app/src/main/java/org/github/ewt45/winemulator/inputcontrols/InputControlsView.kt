@@ -522,7 +522,8 @@ class InputControlsView(context: Context?) : View(context) {
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
-                    return true
+                    // 如果虚拟按钮处理了，返回true；否则返回false让LorieView处理
+                    return handled
                 }
 
                 MotionEvent.ACTION_MOVE -> {
@@ -585,15 +586,17 @@ class InputControlsView(context: Context?) : View(context) {
                     if (!handled) {
                         touchpadView?.onTouchEvent(event)
                     }
-                    return true
+                    // 如果虚拟按钮处理了，返回true；否则返回false让LorieView处理
+                    return handled
                 }
             }
         } else {
             // No profile configured, pass events to touchpad for cursor movement
             touchpadView?.onTouchEvent(event)
-            return true
+            // 返回false让LorieView处理原生X11鼠标控制
+            return false
         }
-        return true
+        return false
     }
 
     /**
