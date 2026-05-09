@@ -171,12 +171,11 @@ fun X11Screen(
                             handleX11TouchEvent(
                                 event, 
                                 x11InputSender, 
-                                lastTouchX, 
-                                lastTouchY, 
-                                isFirstTouch, 
-                                leftButtonDown,
+                                { Pair(lastTouchX, lastTouchY) },
                                 { x, y -> lastTouchX = x; lastTouchY = y },
+                                { isFirstTouch },
                                 { first -> isFirstTouch = first },
+                                { leftButtonDown },
                                 { down -> leftButtonDown = down }
                             )
                             // 返回 false 让 InputControlsView 也能处理事件
@@ -249,12 +248,11 @@ fun X11Screen(
 private fun handleX11TouchEvent(
     event: MotionEvent,
     inputSender: X11InputSender,
-    lastTouchX: Float,
-    lastTouchY: Float,
-    isFirstTouch: Boolean,
-    leftButtonDown: Boolean,
+    getLastTouch: () -> Pair<Float, Float>,
     updateLastTouch: (Float, Float) -> Unit,
+    getIsFirstTouch: () -> Boolean,
     updateFirstTouch: (Boolean) -> Unit,
+    getLeftButtonDown: () -> Boolean,
     updateLeftButton: (Boolean) -> Unit
 ) {
     // 检查输入是否已初始化
@@ -262,6 +260,10 @@ private fun handleX11TouchEvent(
         Log.w("X11Touch", "InputSender not initialized, skipping touch event")
         return
     }
+
+    val lastTouch = getLastTouch()
+    val isFirstTouch = getIsFirstTouch()
+    val leftButtonDown = getLeftButtonDown()
 
     when (event.actionMasked) {
         MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
@@ -293,8 +295,8 @@ private fun handleX11TouchEvent(
                 // 只处理主指针（actionIndex 对应的指针）
                 if (pointerId == event.getPointerId(event.actionIndex)) {
                     // 计算相对移动
-                    val dx = x - lastTouchX
-                    val dy = y - lastTouchY
+                    val dx = x - lastTouch.first
+                    val dy = y - lastTouch.second
                     
                     // 只有当移动超过阈值时才发送移动事件（防止抖动）
                     if (kotlin.math.abs(dx) > 2 || kotlin.math.abs(dy) > 2) {
