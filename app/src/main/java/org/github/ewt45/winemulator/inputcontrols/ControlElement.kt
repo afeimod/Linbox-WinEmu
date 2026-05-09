@@ -949,11 +949,13 @@ class ControlElement(
                         } else if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于键盘绑定（WASD等），使用 updateKeyboardKeyState 来保持按键持续按下
+                            // 对于键盘绑定（WASD等），只在状态变化时发送事件
+                            // 遵循 winlator 的逻辑：直接发送按下/抬起，不需要 key repeat
                             if (binding.isKeyboard()) {
-                                inputControlsView.updateKeyboardKeyState(binding, state)
+                                if (state != states[i]) {
+                                    inputControlsView.handleInputEvent(binding, state)
+                                }
                             } else {
-                                // 对于鼠标移动或其他绑定，使用原有的 handleInputEvent
                                 val value = if (binding.isMouseMove()) {
                                     if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
                                 } else {
@@ -1027,11 +1029,14 @@ class ControlElement(
                         if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于键盘绑定（WASD等），使用 updateKeyboardKeyState 来保持按键持续按下
+                            // 对于键盘绑定（WASD等），只在状态变化时发送事件
+                            // 遵循 winlator 的逻辑：直接发送按下/抬起，不需要 key repeat
+                            // 游戏自己会处理"按住"的状态
                             if (binding.isKeyboard()) {
-                                inputControlsView.updateKeyboardKeyState(binding, state)
+                                if (state != states[i]) {
+                                    inputControlsView.handleInputEvent(binding, state)
+                                }
                             } else {
-                                // 对于鼠标移动或其他绑定，使用原有的 handleInputEvent
                                 val value = if (binding.isMouseMove()) {
                                     if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
                                 } else {
@@ -1129,13 +1134,8 @@ class ControlElement(
                     for (i in states.indices) {
                         if (states[i]) {
                             val binding = getBindingAt(i)
-                            // 对于键盘绑定，使用 updateKeyboardKeyState(false) 来停止 key repeat
-                            // 这会自动发送 KEY_UP 事件
-                            if (binding.isKeyboard()) {
-                                inputControlsView.updateKeyboardKeyState(binding, false)
-                            } else {
-                                inputControlsView.handleInputEvent(binding, false)
-                            }
+                            // 直接发送按键抬起事件，遵循 winlator 逻辑
+                            inputControlsView.handleInputEvent(binding, false)
                         }
                         states[i] = false
                     }
