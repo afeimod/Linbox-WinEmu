@@ -120,8 +120,6 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
 
     override fun onPause() {
         super.onPause()
-        // 停止所有按键重复
-        inputControlsView.stopAllKeyRepeats()
     }
 
     @Suppress("DEPRECATION")
