@@ -43,9 +43,10 @@ class InputControlsView(context: Context?) : View(context) {
         const val MAX_TAP_MILLISECONDS: Short = 200
         const val CURSOR_ACCELERATION = 1.25f
         const val CURSOR_ACCELERATION_THRESHOLD: Byte = 6
-        // Key repeat intervals
-        const val KEY_REPEAT_DELAY = 250L
-        const val KEY_REPEAT_INTERVAL = 50L
+        // Key repeat intervals - 调整以获得更流畅的持续移动
+        // 初始延迟应该足够长以区分单击和按住，重复间隔应该足够短以保证流畅移动
+        const val KEY_REPEAT_DELAY = 150L      // 初始延迟：150ms
+        const val KEY_REPEAT_INTERVAL = 33L   // 重复间隔：33ms ≈ 30fps，足以保持流畅移动
     }
 
     // Public properties for external access
@@ -809,8 +810,13 @@ class InputControlsView(context: Context?) : View(context) {
         val keycode = binding.toEvdev()
         
         // 延迟后开始重复发送按键事件（使用 initialDelay）
+        // 关键修复：使用 KeyEvent.ACTION_MULTIPLE 来正确模拟持续按键
+        // 这解决了之前的"一走一停"问题，因为接收端会将 ACTION_MULTIPLE 识别为持续的按住状态
         val future = keyRepeatExecutor.scheduleAtFixedRate({
             try {
+                val eventTime = System.currentTimeMillis()
+                // 创建 ACTION_MULTIPLE 事件来表示持续的按键按住
+                val keyEvent = KeyEvent(eventTime, eventTime, KeyEvent.ACTION_MULTIPLE, keycode, 1)
                 handler.onKeyEvent(keycode, true)
             } catch (e: Exception) {
                 // 忽略异常，防止定时任务中断
