@@ -30,15 +30,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
-import android.graphics.BitmapFactory
-import androidx.core.graphics.drawable.toBitmap
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import org.github.ewt45.winemulator.Consts
 import kotlin.math.abs
 import kotlin.math.cos
@@ -82,19 +81,19 @@ fun ExpandableFloatingMenu(
 
     // 加载自定义图标
     val moveIconBitmap = remember {
-        ContextCompat.getDrawable(context, org.github.ewt45.winemulator.R.drawable.icon_move)?.toBitmap()
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_move)?.toBitmap()
     }
     val homeIconBitmap = remember {
-        ContextCompat.getDrawable(context, org.github.ewt45.winemulator.R.drawable.icon_home)?.toBitmap()
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_home)?.toBitmap()
     }
     val settingsIconBitmap = remember {
-        ContextCompat.getDrawable(context, org.github.ewt45.winemulator.R.drawable.icon_settings)?.toBitmap()
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_settings)?.toBitmap()
     }
     val gamepadIconBitmap = remember {
-        ContextCompat.getDrawable(context, org.github.ewt45.winemulator.R.drawable.icon_gamepad)?.toBitmap()
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_gamepad)?.toBitmap()
     }
     val displaySettingsIconBitmap = remember {
-        ContextCompat.getDrawable(context, org.github.ewt45.winemulator.R.drawable.icon_display_settings)?.toBitmap()
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_display_settings)?.toBitmap()
     }
 
     LaunchedEffect(parentWidth, parentHeight, buttonSizePx) {
@@ -235,7 +234,9 @@ fun ExpandableFloatingMenu(
                         contentDescription = "收起菜单",
                         modifier = Modifier
                             .size(36.dp)
-                            .rotate(rotationAngle),
+                            .graphicsLayer {
+                                rotationZ = rotationAngle
+                            },
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
                 } else {
@@ -246,7 +247,9 @@ fun ExpandableFloatingMenu(
                             contentDescription = "展开菜单",
                             modifier = Modifier
                                 .size(36.dp)
-                                .rotate(rotationAngle),
+                                .graphicsLayer {
+                                    rotationZ = rotationAngle
+                                },
                         )
                     } else {
                         Icon(
@@ -254,7 +257,9 @@ fun ExpandableFloatingMenu(
                             contentDescription = "展开菜单",
                             modifier = Modifier
                                 .size(36.dp)
-                                .rotate(rotationAngle),
+                                .graphicsLayer {
+                                    rotationZ = rotationAngle
+                                },
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
