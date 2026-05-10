@@ -207,8 +207,9 @@ class InputControlsView(context: Context?) : View(context) {
             element.x = cursor.x
             element.y = cursor.y
             profile!!.addElement(element)
-            profile!!.save()
             selectElement(element)
+            profile!!.save()
+            invalidate()
             return true
         }
         return false
@@ -410,41 +411,29 @@ class InputControlsView(context: Context?) : View(context) {
                         offsetX = x - element.x
                         offsetY = y - element.y
                         moveCursor = false
+                        moveElement = true  // Start moving immediately when touching an element
                     }
-                    // Store initial touch position for edit mode movement detection
-                    initialTouchX = x
-                    initialTouchY = y
-                    previousTouchX = x
-                    previousTouchY = y
                     selectElement(element)
+                    invalidate()  // Immediate refresh on touch
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (selectedElement != null) {
-                        // Calculate movement distance from initial touch position
-                        val dx = kotlin.math.abs(event.x - initialTouchX)
-                        val dy = kotlin.math.abs(event.y - initialTouchY)
-                        if (dx >= MAX_TAP_TRAVEL_DISTANCE || dy >= MAX_TAP_TRAVEL_DISTANCE) {
-                            moveElement = true
-                        }
-                        if (moveElement) {
-                            selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
-                            selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
-                            invalidate()
-                        }
-                        // Update previous touch position for next move calculation
-                        previousTouchX = event.x
-                        previousTouchY = event.y
+                    if (selectedElement != null && moveElement) {
+                        selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
+                        selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
+                        invalidate()  // Immediate refresh for smooth dragging
                     }
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (selectedElement != null && profile != null && moveElement) profile!!.save()
+                    if (selectedElement != null && profile != null) {
+                        profile!!.save()
+                        invalidate()  // Refresh after release
+                    }
                     if (moveCursor) {
                         cursor.set(
                             Mathf.roundTo(event.x, snappingSize.toFloat()).toInt(),
                             Mathf.roundTo(event.y, snappingSize.toFloat()).toInt()
                         )
                     }
-                    invalidate()
                 }
             }
             return true
@@ -491,41 +480,29 @@ class InputControlsView(context: Context?) : View(context) {
                         offsetX = x - element.x
                         offsetY = y - element.y
                         moveCursor = false
+                        moveElement = true  // Start moving immediately when touching an element
                     }
-                    // Store initial touch position for edit mode movement detection
-                    initialTouchX = x
-                    initialTouchY = y
-                    previousTouchX = x
-                    previousTouchY = y
                     selectElement(element)
+                    invalidate()  // Immediate refresh on touch
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (selectedElement != null) {
-                        // Calculate movement distance from initial touch position
-                        val dx = kotlin.math.abs(event.x - initialTouchX)
-                        val dy = kotlin.math.abs(event.y - initialTouchY)
-                        if (dx >= MAX_TAP_TRAVEL_DISTANCE || dy >= MAX_TAP_TRAVEL_DISTANCE) {
-                            moveElement = true
-                        }
-                        if (moveElement) {
-                            selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
-                            selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
-                            invalidate()
-                        }
-                        // Update previous touch position for next move calculation
-                        previousTouchX = event.x
-                        previousTouchY = event.y
+                    if (selectedElement != null && moveElement) {
+                        selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
+                        selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
+                        invalidate()  // Immediate refresh for smooth dragging
                     }
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (selectedElement != null && profile != null && moveElement) profile!!.save()
+                    if (selectedElement != null && profile != null) {
+                        profile!!.save()
+                        invalidate()  // Refresh after release
+                    }
                     if (moveCursor) {
                         cursor.set(
                             Mathf.roundTo(event.x, snappingSize.toFloat()).toInt(),
                             Mathf.roundTo(event.y, snappingSize.toFloat()).toInt()
                         )
                     }
-                    invalidate()
                 }
             }
             return true
