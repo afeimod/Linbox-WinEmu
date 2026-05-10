@@ -70,11 +70,6 @@ class InputControlsView(context: Context?) : View(context) {
     private var snappingSize = 0
     private var offsetX = 0f
     private var offsetY = 0f
-    // Track initial touch position for edit mode movement detection
-    private var initialTouchX = 0f
-    private var initialTouchY = 0f
-    private var previousTouchX = 0f
-    private var previousTouchY = 0f
     private var selectedElement: ControlElement? = null
     private var profile: ControlsProfile? = null
     private val icons = arrayOfNulls<Bitmap>(17)
@@ -207,9 +202,8 @@ class InputControlsView(context: Context?) : View(context) {
             element.x = cursor.x
             element.y = cursor.y
             profile!!.addElement(element)
-            selectElement(element)
             profile!!.save()
-            invalidate()
+            selectElement(element)
             return true
         }
         return false
@@ -399,61 +393,44 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // 在编辑模式下，即使readyToDraw为false也处理触摸事件
-        if (editMode) {
-            val width = width
-            val height = height
-            // 确保在处理前snappingSize已初始化
-            if (snappingSize == 0 && width > 0 && height > 0) {
-                snappingSize = maxOf(width, height) / 100
-            }
+        if (editMode && readyToDraw) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     val x = event.x
                     val y = event.y
+
                     val element = intersectElement(x, y)
                     moveCursor = true
-                    moveElement = false
                     if (element != null) {
                         offsetX = x - element.x
                         offsetY = y - element.y
                         moveCursor = false
-                        moveElement = true  // 触摸元素后立即开始移动
                     }
                     selectElement(element)
-                    invalidate()  // 立即刷新
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (selectedElement != null && moveElement) {
-                        selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
-                        selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
-                        invalidate()  // 立即刷新
+                    if (selectedElement != null) {
+                        selectedElement!!.setX(Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt())
+                        selectedElement!!.setY(Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt())
+                        invalidate()
                     }
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (selectedElement != null && profile != null) {
-                        profile!!.save()
-                        invalidate()  // 刷新
-                    }
+                    if (selectedElement != null && profile != null) profile!!.save()
                     if (moveCursor) {
                         cursor.set(
                             Mathf.roundTo(event.x, snappingSize.toFloat()).toInt(),
                             Mathf.roundTo(event.y, snappingSize.toFloat()).toInt()
                         )
                     }
+                    invalidate()
                 }
             }
             return true
         }
 
-        // 非编辑模式下，只有当 showTouchscreenControls 为 true 时才处理触摸事件
-        // 返回 handleTouchEvent 的结果，让事件正确传递
-        if (!editMode && profile != null && showTouchscreenControls) {
-            return handleTouchEvent(event)
-        }
-
-        // 当 showTouchscreenControls 为 false 或 profile 为 null 时，不处理触摸事件，让事件传递给下层
-        return false
+        // 在非编辑模式下，处理虚拟按键的触摸事件
+        return handleTouchEvent(event)
     }
 
     /**
@@ -480,36 +457,32 @@ class InputControlsView(context: Context?) : View(context) {
                 MotionEvent.ACTION_DOWN -> {
                     val x = event.x
                     val y = event.y
+
                     val element = intersectElement(x, y)
                     moveCursor = true
-                    moveElement = false
                     if (element != null) {
                         offsetX = x - element.x
                         offsetY = y - element.y
                         moveCursor = false
-                        moveElement = true  // Start moving immediately when touching an element
                     }
                     selectElement(element)
-                    invalidate()  // Immediate refresh on touch
                 }
                 MotionEvent.ACTION_MOVE -> {
-                    if (selectedElement != null && moveElement) {
-                        selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
-                        selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
-                        invalidate()  // Immediate refresh for smooth dragging
+                    if (selectedElement != null) {
+                        selectedElement!!.setX(Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt())
+                        selectedElement!!.setY(Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt())
+                        invalidate()
                     }
                 }
                 MotionEvent.ACTION_UP -> {
-                    if (selectedElement != null && profile != null) {
-                        profile!!.save()
-                        invalidate()  // Refresh after release
-                    }
+                    if (selectedElement != null && profile != null) profile!!.save()
                     if (moveCursor) {
                         cursor.set(
                             Mathf.roundTo(event.x, snappingSize.toFloat()).toInt(),
                             Mathf.roundTo(event.y, snappingSize.toFloat()).toInt()
                         )
                     }
+                    invalidate()
                 }
             }
             return true
