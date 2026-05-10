@@ -126,6 +126,20 @@
                     android:text="Vertical"
                     android:textColor="#FFFFFF" />
             </RadioGroup>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Count"
+                android:textColor="#FFFFFF" />
+
+            <Spinner
+                android:id="@+id/SCount"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:background="#FFFFFF" />
         </LinearLayout>
 
         <!-- Bindings Container -->
