@@ -181,10 +181,15 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         // 加载绑定配置
         loadBindingSpinners(element, view.findViewById(R.id.LLBindings))
 
-        // 对于 RANGE_BUTTON，立即刷新 scroller
+
+        // 对于 RANGE_BUTTON，初始化并刷新 scroller
         if (type == ControlElement.Type.RANGE_BUTTON) {
             // 确保 scroller 已初始化
-            element.setRange(element.getRange())
+            if (element.scroller == null) {
+                element.scroller = RangeScroller(inputControlsView, element)
+            }
+            // 强制刷新布局
+            inputControlsView.invalidate()
         }
     }
 
@@ -209,6 +214,12 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
 
         // 加载范围选择器
         loadRangeSpinner(element, view.findViewById<Spinner>(R.id.SRange).apply {
+            visibility = if (element.type == ControlElement.Type.RANGE_BUTTON) View.VISIBLE else View.GONE
+        })
+
+
+        // 加载个数选择器（用于RANGE_BUTTON）
+        loadCountSpinner(element, view.findViewById<Spinner>(R.id.SCount).apply {
             visibility = if (element.type == ControlElement.Type.RANGE_BUTTON) View.VISIBLE else View.GONE
         })
 
@@ -391,7 +402,32 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
                     element.setRange(newRange)
                     profile?.save()
                     // 立即刷新视图
-                    scheduleRefresh()
+                    inputControlsView.invalidate()
+                }
+            }
+            override fun onNothingSelected(parent: AdapterView<*>?) {}
+        }
+    }
+
+    /**
+     * 加载个数选择器（用于RANGE_BUTTON）
+     * 修复问题2补充：添加Range Button的个数设置
+     */
+    private fun loadCountSpinner(element: ControlElement, spinner: Spinner) {
+        val countOptions = arrayOf("2", "3", "4", "5", "6", "7", "8", "9", "10")
+        spinner.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, countOptions)
+        val currentCount = element.getBindingCount()
+        val index = countOptions.indexOf(currentCount.toString())
+        if (index >= 0) {
+            spinner.setSelection(index, false)
+        }
+        spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
+                val newCount = countOptions[position].toInt()
+                if (element.getBindingCount() != newCount) {
+                    element.setBindingCount(newCount)
+                    profile?.save()
+                    inputControlsView.invalidate()
                 }
             }
             override fun onNothingSelected(parent: AdapterView<*>?) {}
