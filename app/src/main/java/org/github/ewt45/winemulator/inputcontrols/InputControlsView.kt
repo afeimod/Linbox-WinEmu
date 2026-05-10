@@ -81,10 +81,13 @@ class InputControlsView(context: Context?) : View(context) {
     private val activeKeyboardBindings = HashMap<Binding, Boolean>()
     private val keyRepeatRunnable = object : TimerTask() {
         override fun run() {
-            val handler = inputEventHandler ?: return
-            // 遍历所有活跃的键盘绑定，持续发送按下事件
-            for ((binding, _) in activeKeyboardBindings) {
-                handler.onKeyEvent(binding.toEvdev(), true)
+            // 使用 post 在主线程上执行，避免线程安全问题
+            this@InputControlsView.post {
+                val handler = inputEventHandler ?: return@post
+                val bindingsCopy = activeKeyboardBindings.keys.toList()
+                for (binding in bindingsCopy) {
+                    handler.onKeyEvent(binding.toEvdev(), true)
+                }
             }
         }
     }
