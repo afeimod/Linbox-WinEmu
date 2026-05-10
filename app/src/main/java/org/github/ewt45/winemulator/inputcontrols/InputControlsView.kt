@@ -75,6 +75,19 @@ class InputControlsView(context: Context?) : View(context) {
     private val icons = arrayOfNulls<Bitmap>(17)
     private var mouseMoveTimer: Timer? = null
     private val mouseMoveOffset = PointF()
+    
+    // 键盘D-PAD持续按键机制 - 用于确保游戏能持续收到按键事件
+    private var keyRepeatTimer: Timer? = null
+    private val activeKeyboardBindings = HashMap<Binding, Boolean>()
+    private val keyRepeatRunnable = object : TimerTask() {
+        override fun run() {
+            val handler = inputEventHandler ?: return
+            // 遍历所有活跃的键盘绑定，持续发送按下事件
+            for ((binding, _) in activeKeyboardBindings) {
+                handler.onKeyEvent(binding.toEvdev(), true)
+            }
+        }
+    }
     private val counterMap = HashMap<String, Int>()
     
     // Batched invalidation to reduce overdraw
@@ -735,11 +748,49 @@ class InputControlsView(context: Context?) : View(context) {
                 }
                 if (isActionDown) createMouseMoveTimer()
             } else {
-                // 键盘按键：直接发送按下/抬起事件
-                // 游戏/应用会自己处理"按键被按住"的状态
-                handler.onKeyEvent(binding.toEvdev(), isActionDown)
+                // 键盘按键处理
+                // 对于D-PAD/STICK使用的键盘绑定，需要持续发送事件以确保游戏能正确识别
+                if (binding.isKeyboard()) {
+                    if (isActionDown) {
+                        // 记录并发送按下事件
+                        activeKeyboardBindings[binding] = true
+                        handler.onKeyEvent(binding.toEvdev(), true)
+                        // 启动定时器持续发送事件
+                        startKeyRepeatTimer()
+                    } else {
+                        // 移除记录并发送抬起事件
+                        activeKeyboardBindings.remove(binding)
+                        handler.onKeyEvent(binding.toEvdev(), false)
+                        // 如果没有其他活跃的键盘绑定，停止定时器
+                        if (activeKeyboardBindings.isEmpty()) {
+                            stopKeyRepeatTimer()
+                        }
+                    }
+                } else {
+                    handler.onKeyEvent(binding.toEvdev(), isActionDown)
+                }
             }
         }
+    }
+    
+    /**
+     * 启动键盘重复定时器
+     * 持续发送键盘按下事件以确保游戏能识别被按住的键
+     */
+    private fun startKeyRepeatTimer() {
+        if (keyRepeatTimer == null) {
+            keyRepeatTimer = Timer()
+            // 每30ms发送一次按键事件（约33fps），足够流畅
+            keyRepeatTimer!!.schedule(keyRepeatRunnable, 30, 30)
+        }
+    }
+    
+    /**
+     * 停止键盘重复定时器
+     */
+    private fun stopKeyRepeatTimer() {
+        keyRepeatTimer?.cancel()
+        keyRepeatTimer = null
     }
 
     /**
