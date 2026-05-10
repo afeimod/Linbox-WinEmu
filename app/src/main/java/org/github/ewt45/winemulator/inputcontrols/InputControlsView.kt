@@ -399,7 +399,14 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (editMode && readyToDraw) {
+        // 在编辑模式下，即使readyToDraw为false也处理触摸事件
+        if (editMode) {
+            val width = width
+            val height = height
+            // 确保在处理前snappingSize已初始化
+            if (snappingSize == 0 && width > 0 && height > 0) {
+                snappingSize = maxOf(width, height) / 100
+            }
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
                     val x = event.x
@@ -411,22 +418,22 @@ class InputControlsView(context: Context?) : View(context) {
                         offsetX = x - element.x
                         offsetY = y - element.y
                         moveCursor = false
-                        moveElement = true  // Start moving immediately when touching an element
+                        moveElement = true  // 触摸元素后立即开始移动
                     }
                     selectElement(element)
-                    invalidate()  // Immediate refresh on touch
+                    invalidate()  // 立即刷新
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (selectedElement != null && moveElement) {
                         selectedElement!!.x = Mathf.roundTo(event.x - offsetX, snappingSize.toFloat()).toInt()
                         selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
-                        invalidate()  // Immediate refresh for smooth dragging
+                        invalidate()  // 立即刷新
                     }
                 }
                 MotionEvent.ACTION_UP -> {
                     if (selectedElement != null && profile != null) {
                         profile!!.save()
-                        invalidate()  // Refresh after release
+                        invalidate()  // 刷新
                     }
                     if (moveCursor) {
                         cursor.set(
