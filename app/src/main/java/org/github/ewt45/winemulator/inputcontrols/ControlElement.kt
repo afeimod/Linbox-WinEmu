@@ -230,6 +230,7 @@ class ControlElement(
     fun setScale(scale: Float) {
         this.scale = scale
         propertyFlags = propertyFlags or FLAG_BOUNDING_BOX_NEEDS_UPDATE
+        inputControlsView.invalidate()  // 立即刷新以更新按键大小
     }
 
     fun getX(): Int = x
@@ -949,11 +950,14 @@ class ControlElement(
                         } else if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于键盘绑定（WASD等），只在状态变化时发送事件
-                            // 遵循 winlator 的逻辑：直接发送按下/抬起，不需要 key repeat
+                            // 对于键盘绑定（WASD等），需要持续发送按下事件
+                            // 确保游戏能持续收到移动信号
                             if (binding.isKeyboard()) {
-                                if (state != states[i]) {
-                                    inputControlsView.handleInputEvent(binding, state)
+                                if (state) {
+                                    inputControlsView.handleInputEvent(binding, true)
+                                } else if (states[i]) {
+                                    // 只有之前状态是按下时才发送抬起
+                                    inputControlsView.handleInputEvent(binding, false)
                                 }
                             } else {
                                 val value = if (binding.isMouseMove()) {
@@ -1029,12 +1033,13 @@ class ControlElement(
                         if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于键盘绑定（WASD等），只在状态变化时发送事件
-                            // 遵循 winlator 的逻辑：直接发送按下/抬起，不需要 key repeat
-                            // 游戏自己会处理"按住"的状态
+                            // 对于键盘绑定（WASD等），需要持续发送按下事件
+                            // 确保游戏能持续收到移动信号
                             if (binding.isKeyboard()) {
-                                if (state != states[i]) {
-                                    inputControlsView.handleInputEvent(binding, state)
+                                if (state) {
+                                    inputControlsView.handleInputEvent(binding, true)
+                                } else if (states[i]) {
+                                    inputControlsView.handleInputEvent(binding, false)
                                 }
                             } else {
                                 val value = if (binding.isMouseMove()) {
@@ -1050,6 +1055,7 @@ class ControlElement(
                 }
                 else -> {}
             }
+
 
             return true
         } else if (pointerId == currentPointerId && type == Type.RANGE_BUTTON) {
