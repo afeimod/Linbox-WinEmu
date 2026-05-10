@@ -70,6 +70,11 @@ class InputControlsView(context: Context?) : View(context) {
     private var snappingSize = 0
     private var offsetX = 0f
     private var offsetY = 0f
+    // Track initial touch position for edit mode movement detection
+    private var initialTouchX = 0f
+    private var initialTouchY = 0f
+    private var previousTouchX = 0f
+    private var previousTouchY = 0f
     private var selectedElement: ControlElement? = null
     private var profile: ControlsProfile? = null
     private val icons = arrayOfNulls<Bitmap>(17)
@@ -406,12 +411,18 @@ class InputControlsView(context: Context?) : View(context) {
                         offsetY = y - element.y
                         moveCursor = false
                     }
+                    // Store initial touch position for edit mode movement detection
+                    initialTouchX = x
+                    initialTouchY = y
+                    previousTouchX = x
+                    previousTouchY = y
                     selectElement(element)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (selectedElement != null) {
-                        val dx = kotlin.math.abs(event.x - event.x)
-                        val dy = kotlin.math.abs(event.y - event.y)
+                        // Calculate movement distance from initial touch position
+                        val dx = kotlin.math.abs(event.x - initialTouchX)
+                        val dy = kotlin.math.abs(event.y - initialTouchY)
                         if (dx >= MAX_TAP_TRAVEL_DISTANCE || dy >= MAX_TAP_TRAVEL_DISTANCE) {
                             moveElement = true
                         }
@@ -420,6 +431,9 @@ class InputControlsView(context: Context?) : View(context) {
                             selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
                             invalidate()
                         }
+                        // Update previous touch position for next move calculation
+                        previousTouchX = event.x
+                        previousTouchY = event.y
                     }
                 }
                 MotionEvent.ACTION_UP -> {
@@ -478,12 +492,18 @@ class InputControlsView(context: Context?) : View(context) {
                         offsetY = y - element.y
                         moveCursor = false
                     }
+                    // Store initial touch position for edit mode movement detection
+                    initialTouchX = x
+                    initialTouchY = y
+                    previousTouchX = x
+                    previousTouchY = y
                     selectElement(element)
                 }
                 MotionEvent.ACTION_MOVE -> {
                     if (selectedElement != null) {
-                        val dx = kotlin.math.abs(event.x - event.x)
-                        val dy = kotlin.math.abs(event.y - event.y)
+                        // Calculate movement distance from initial touch position
+                        val dx = kotlin.math.abs(event.x - initialTouchX)
+                        val dy = kotlin.math.abs(event.y - initialTouchY)
                         if (dx >= MAX_TAP_TRAVEL_DISTANCE || dy >= MAX_TAP_TRAVEL_DISTANCE) {
                             moveElement = true
                         }
@@ -492,6 +512,9 @@ class InputControlsView(context: Context?) : View(context) {
                             selectedElement!!.y = Mathf.roundTo(event.y - offsetY, snappingSize.toFloat()).toInt()
                             invalidate()
                         }
+                        // Update previous touch position for next move calculation
+                        previousTouchX = event.x
+                        previousTouchY = event.y
                     }
                 }
                 MotionEvent.ACTION_UP -> {
