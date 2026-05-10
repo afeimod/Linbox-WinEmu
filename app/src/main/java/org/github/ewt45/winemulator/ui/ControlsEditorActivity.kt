@@ -242,13 +242,17 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 tvScaleView.text = "$progress%"
                 if (fromUser) {
-                    element.scale = progress / 100.0f
-                    profile?.save()
-                    scheduleRefresh()
+                    // 使用 setScale 方法确保立即刷新
+                    element.setScale(progress / 100.0f)
+                    // 立即刷新视图以显示大小变化
+                    inputControlsView.invalidate()
                 }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                // 拖动结束时保存配置
+                profile?.save()
+            }
         })
         sbScale.progress = (element.scale * 100).toInt()
 
