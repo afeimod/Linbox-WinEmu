@@ -78,16 +78,26 @@ class InputControlsView(context: Context?) : View(context) {
     
     // 键盘D-PAD持续按键机制 - 用于确保游戏能持续收到按键事件
     private var keyRepeatTimer: Timer? = null
-    private val activeKeyboardBindings = HashMap<Binding, Boolean>()
+    private final val activeKeyboardBindings = HashMap<Binding, Boolean>()
     private val keyRepeatRunnable = object : TimerTask() {
         override fun run() {
-            // 使用 post 在主线程上执行，避免线程安全问题
-            this@InputControlsView.post {
-                val handler = inputEventHandler ?: return@post
-                val bindingsCopy = activeKeyboardBindings.keys.toList()
-                for (binding in bindingsCopy) {
-                    handler.onKeyEvent(binding.toEvdev(), true)
+            // 使用 Handler 在主线程上执行，避免线程安全问题
+            try {
+                Handler(Looper.getMainLooper()).post {
+                    try {
+                        val handler = inputEventHandler ?: return@post
+                        val bindingsCopy = synchronized(activeKeyboardBindings) {
+                            activeKeyboardBindings.keys.toList()
+                        }
+                        for (binding in bindingsCopy) {
+                            handler.onKeyEvent(binding.toEvdev(), true)
+                        }
+                    } catch (e: Exception) {
+                        // 忽略异常，防止崩溃
+                    }
                 }
+            } catch (e: Exception) {
+                // 忽略异常，防止崩溃
             }
         }
     }
@@ -753,20 +763,26 @@ class InputControlsView(context: Context?) : View(context) {
             } else {
                 // 键盘按键处理
                 // 对于D-PAD/STICK使用的键盘绑定，需要持续发送事件以确保游戏能正确识别
-                if (binding.isKeyboard()) {
+                if (binding.isKeyboard() && binding != Binding.NONE) {
                     if (isActionDown) {
                         // 记录并发送按下事件
-                        activeKeyboardBindings[binding] = true
+                        synchronized(activeKeyboardBindings) {
+                            activeKeyboardBindings[binding] = true
+                        }
                         handler.onKeyEvent(binding.toEvdev(), true)
                         // 启动定时器持续发送事件
                         startKeyRepeatTimer()
                     } else {
                         // 移除记录并发送抬起事件
-                        activeKeyboardBindings.remove(binding)
+                        synchronized(activeKeyboardBindings) {
+                            activeKeyboardBindings.remove(binding)
+                        }
                         handler.onKeyEvent(binding.toEvdev(), false)
                         // 如果没有其他活跃的键盘绑定，停止定时器
-                        if (activeKeyboardBindings.isEmpty()) {
-                            stopKeyRepeatTimer()
+                        synchronized(activeKeyboardBindings) {
+                            if (activeKeyboardBindings.isEmpty()) {
+                                stopKeyRepeatTimer()
+                            }
                         }
                     }
                 } else {
