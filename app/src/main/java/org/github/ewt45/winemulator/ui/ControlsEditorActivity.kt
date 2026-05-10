@@ -184,10 +184,8 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
 
         // 对于 RANGE_BUTTON，初始化并刷新 scroller
         if (type == ControlElement.Type.RANGE_BUTTON) {
-            // 确保 scroller 已初始化
-            if (element.scroller == null) {
-                element.scroller = RangeScroller(inputControlsView, element)
-            }
+            // 通过 setRange 触发 scroller 初始化
+            element.setRange(element.getRange())
             // 强制刷新布局
             inputControlsView.invalidate()
         }
