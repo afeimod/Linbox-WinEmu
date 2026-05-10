@@ -1033,14 +1033,17 @@ class ControlElement(
                         if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于键盘绑定（WASD等），需要持续发送按下事件
-                            // 确保游戏能持续收到移动信号
+                            // 对于键盘绑定（WASD等），确保只在状态变化时发送事件
+                            // 防止重复发送导致游戏无法正确识别按键状态
                             if (binding.isKeyboard()) {
-                                if (state) {
+                                if (state && !states[i]) {
+                                    // 从释放变为按下，只发送一次按下事件
                                     inputControlsView.handleInputEvent(binding, true)
-                                } else if (states[i]) {
+                                } else if (!state && states[i]) {
+                                    // 从按下变为释放，发送抬起事件
                                     inputControlsView.handleInputEvent(binding, false)
                                 }
+                                // 如果 state 和 states[i] 相同（持续按住或持续释放），不发送任何事件
                             } else {
                                 val value = if (binding.isMouseMove()) {
                                     if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
