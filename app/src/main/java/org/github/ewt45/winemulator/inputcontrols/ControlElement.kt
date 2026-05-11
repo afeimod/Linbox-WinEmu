@@ -852,9 +852,16 @@ class ControlElement(
                 Type.BUTTON -> {
                     if (isKeepButtonPressedAfterMinTime()) touchTime = System.currentTimeMillis()
                     val binding = getBindingAt(0)
-                    if (!isFlagSet(FLAG_TOGGLE_SWITCH) || !isFlagSet(FLAG_SELECTED)) {
+                    // Toggle按钮的按下逻辑
+                    if (!isFlagSet(FLAG_TOGGLE_SWITCH)) {
+                        // 非Toggle按钮：直接发送按下事件
                         if (binding != Binding.NONE) {
                             inputControlsView.handleInputEvent(binding, true)
+                        }
+                    } else if (!isFlagSet(FLAG_SELECTED)) {
+                        // Toggle按钮且未选中：发送按下事件
+                        if (binding != Binding.NONE) {
+                            inputControlsView.sendKeyDown(binding)
                         }
                     }
 
@@ -1223,11 +1230,13 @@ class ControlElement(
                         }
                         setFlag(FLAG_SELECTED, selected)
                         touchTime = null
-                    } else if (!isFlagSet(FLAG_TOGGLE_SWITCH) || isFlagSet(FLAG_SELECTED)) {
+                    } else if (!isFlagSet(FLAG_TOGGLE_SWITCH)) {
+                        // 非Toggle按钮：抬起时发送释放事件
                         if (binding != Binding.NONE) {
                             inputControlsView.handleInputEvent(binding, false)
                         }
                     }
+                    // Toggle按钮：抬起时不发送释放事件（长按保持）
 
                     if (isFlagSet(FLAG_TOGGLE_SWITCH)) {
                         setFlag(FLAG_SELECTED, !selected)

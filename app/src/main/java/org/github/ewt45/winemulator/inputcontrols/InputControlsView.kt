@@ -754,23 +754,17 @@ class InputControlsView(context: Context?) : View(context) {
                 }
                 if (isActionDown) createMouseMoveTimer()
             } else {
-                // 键盘按键处理：使用按键重复机制实现持续输入
-                // 注意：对于普通按钮，需要区分按下和释放
-                // 对于Toggle按钮，只在状态真正变化时处理
+                // 键盘按键处理
                 if (isActionDown) {
-                    // 首次按下：发送按下事件并添加到已按下按键集合
-                    handler.onKeyEvent(binding.toEvdev(), true)
-                    pressedKeys.add(binding)
-                    // 启动按键重复定时器（如果尚未运行）
-                    startKeyRepeatIfNeeded()
-                } else {
-                    // 按键释放：发送释放事件并从已按下按键集合移除
-                    // 只有当按键确实被按下时才发送释放事件
-                    if (pressedKeys.contains(binding)) {
-                        handler.onKeyEvent(binding.toEvdev(), false)
-                        pressedKeys.remove(binding)
+                    // 按下
+                    if (!pressedKeys.contains(binding)) {
+                        pressedKeys.add(binding)
+                        // 启动按键重复定时器（如果尚未运行）
+                        startKeyRepeatIfNeeded()
                     }
-                    // 如果没有其他按下的按键，停止重复定时器
+                } else {
+                    // 释放：从pressedKeys移除，停止重复定时器
+                    pressedKeys.remove(binding)
                     if (pressedKeys.isEmpty()) {
                         stopKeyRepeat()
                     }
@@ -806,6 +800,22 @@ class InputControlsView(context: Context?) : View(context) {
             }
         }
         // 如果状态没有变化（持续按住或持续释放），不执行任何操作
+    }
+
+    /**
+     * 发送按键按下事件（用于Toggle按钮等需要手动控制的场景）
+     */
+    fun sendKeyDown(binding: Binding) {
+        val handler = inputEventHandler ?: return
+        handler.onKeyEvent(binding.toEvdev(), true)
+    }
+
+    /**
+     * 发送按键释放事件（用于Toggle按钮等需要手动控制的场景）
+     */
+    fun sendKeyUp(binding: Binding) {
+        val handler = inputEventHandler ?: return
+        handler.onKeyEvent(binding.toEvdev(), false)
     }
 
     /**
