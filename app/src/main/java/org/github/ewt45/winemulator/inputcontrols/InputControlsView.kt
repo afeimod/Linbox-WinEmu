@@ -783,19 +783,23 @@ class InputControlsView(context: Context?) : View(context) {
     fun updateKeyState(binding: Binding, isActive: Boolean) {
         val handler = inputEventHandler ?: return
         
-        if (isActive) {
-            // 发送按下事件
+        // 检查按键状态是否真的发生变化，避免重复发送事件
+        val isCurrentlyPressed = pressedKeys.contains(binding)
+        
+        if (isActive && !isCurrentlyPressed) {
+            // 从释放变为按下
             handler.onKeyEvent(binding.toEvdev(), true)
             pressedKeys.add(binding)
             startKeyRepeatIfNeeded()
-        } else {
-            // 发送释放事件
+        } else if (!isActive && isCurrentlyPressed) {
+            // 从按下变为释放
             handler.onKeyEvent(binding.toEvdev(), false)
             pressedKeys.remove(binding)
             if (pressedKeys.isEmpty()) {
                 stopKeyRepeat()
             }
         }
+        // 如果状态没有变化（持续按住或持续释放），不执行任何操作
     }
 
     /**
@@ -824,11 +828,14 @@ class InputControlsView(context: Context?) : View(context) {
     private fun onKeyRepeat() {
         val handler = inputEventHandler ?: return
         
-        // 遍历所有按下的按键，发送重复按下事件
-        // 注意：这里只发送按下事件（true），不发送释放事件
-        // X11会自动处理按键的自动重复
-        for (binding in pressedKeys.toList()) {
-            handler.onKeyEvent(binding.toEvdev(), true)
+        // 复制按键列表，避免在遍历时修改集合
+        val keysToRepeat = pressedKeys.toList()
+        
+        // 发送到主线程处理
+        Handler(Looper.getMainLooper()).post {
+            for (binding in keysToRepeat) {
+                handler.onKeyEvent(binding.toEvdev(), true)
+            }
         }
     }
 

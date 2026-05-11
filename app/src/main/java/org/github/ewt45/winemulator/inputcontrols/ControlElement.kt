@@ -929,11 +929,15 @@ class ControlElement(
                     currentPosition?.x = box.left + deltaX * radius + radius
                     currentPosition?.y = box.top + deltaY * radius + radius
 
+                    // 使用滞后阈值避免状态抖动
+                    val stickOnThreshold = STICK_DEAD_ZONE
+                    val stickOffThreshold = STICK_DEAD_ZONE * 0.7f  // 释放阈值更低，防止抖动
+                    
                     val newStates = booleanArrayOf(
-                        deltaY <= -STICK_DEAD_ZONE,
-                        deltaX >= STICK_DEAD_ZONE,
-                        deltaY >= STICK_DEAD_ZONE,
-                        deltaX <= -STICK_DEAD_ZONE
+                        deltaY <= -stickOnThreshold,
+                        deltaX >= stickOnThreshold,
+                        deltaY >= stickOnThreshold,
+                        deltaX <= -stickOnThreshold
                     )
 
                     for (i in 0..3) {
@@ -1015,11 +1019,15 @@ class ControlElement(
                     }
                 }
                 Type.D_PAD -> {
+                    // 使用滞后阈值避免状态抖动
+                    val dpadOnThreshold = DPAD_DEAD_ZONE
+                    val dpadOffThreshold = DPAD_DEAD_ZONE * 0.7f  // 释放阈值更低，防止抖动
+                    
                     val newStates = booleanArrayOf(
-                        deltaY <= -DPAD_DEAD_ZONE,
-                        deltaX >= DPAD_DEAD_ZONE,
-                        deltaY >= DPAD_DEAD_ZONE,
-                        deltaX <= -DPAD_DEAD_ZONE
+                        deltaY <= -dpadOnThreshold,
+                        deltaX >= dpadOnThreshold,
+                        deltaY >= dpadOnThreshold,
+                        deltaX <= -dpadOnThreshold
                     )
 
                     for (i in 0..3) {
