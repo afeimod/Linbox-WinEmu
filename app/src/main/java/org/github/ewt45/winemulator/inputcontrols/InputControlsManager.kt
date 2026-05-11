@@ -42,7 +42,8 @@ class InputControlsManager(private val context: Context) {
     private fun copyAssetProfilesIfNeeded() {
         val profilesDir = InputControlsManager.getProfilesDir(context)
         if (FileUtils.isEmpty(profilesDir)) {
-            FileUtils.copy(context, "inputcontrols/profiles", profilesDir)
+            // Use copyAssetsDir to copy all files from asset directory
+            FileUtils.copyAssetsDir(context, "inputcontrols/profiles", profilesDir)
             return
         }
 
