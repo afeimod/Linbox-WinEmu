@@ -803,19 +803,33 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     /**
-     * 发送按键按下事件（用于Toggle按钮等需要手动控制的场景）
+     * 发送按键按下事件并添加到重复队列（用于Toggle按钮等需要手动控制的场景）
+     * 注意：这个方法会发送按下事件并将按键添加到pressedKeys，启动重复定时器
      */
     fun sendKeyDown(binding: Binding) {
         val handler = inputEventHandler ?: return
+        // 发送按下事件
         handler.onKeyEvent(binding.toEvdev(), true)
+        // 添加到pressedKeys以启用重复机制
+        if (!pressedKeys.contains(binding)) {
+            pressedKeys.add(binding)
+            startKeyRepeatIfNeeded()
+        }
     }
 
     /**
-     * 发送按键释放事件（用于Toggle按钮等需要手动控制的场景）
+     * 发送按键释放事件并从重复队列移除（用于Toggle按钮等需要手动控制的场景）
+     * 注意：这个方法会发送释放事件并将按键从pressedKeys移除
      */
     fun sendKeyUp(binding: Binding) {
         val handler = inputEventHandler ?: return
+        // 发送释放事件
         handler.onKeyEvent(binding.toEvdev(), false)
+        // 从pressedKeys移除
+        pressedKeys.remove(binding)
+        if (pressedKeys.isEmpty()) {
+            stopKeyRepeat()
+        }
     }
 
     /**
