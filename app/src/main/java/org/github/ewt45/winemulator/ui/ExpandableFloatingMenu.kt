@@ -61,7 +61,7 @@ fun ExpandableFloatingMenu(
     val density = LocalDensity.current
     val context = LocalContext.current
     val buttonSizePx = with(density) { Consts.Ui.minimizedIconSize.dp.toPx() }
-    val miniButtonSizePx = with(density) { 40.dp.toPx() }
+    val miniButtonSizePx = with(density) { 36.dp.toPx() }
     val dragThreshold = with(density) { 30.dp.toPx() }
     val initialX = with(density) { 48.dp.toPx() }
     val initialY = with(density) { 100.dp.toPx() }
@@ -148,11 +148,7 @@ fun ExpandableFloatingMenu(
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
-                        .size(40.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = CircleShape
-                        )
+                        .size(36.dp)
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() }
