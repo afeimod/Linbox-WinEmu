@@ -1009,8 +1009,8 @@ class ControlElement(
                         } else if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于所有按键（包括键盘绑定WASD），直接调用handleInputEvent
-                            // 不要使用按键重复机制，游戏需要的是持续按下的状态，而不是重复的按下事件
+                            // 对于键盘绑定（WASD等），直接使用handleInputEvent发送状态
+                            // 不使用updateKeyState，因为它会触发按键重复机制导致游戏移动时出现停顿
                             if (binding.isKeyboard()) {
                                 inputControlsView.handleInputEvent(binding, state)
                             } else {
@@ -1145,8 +1145,8 @@ class ControlElement(
                         if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于所有按键（包括键盘绑定WASD），直接调用handleInputEvent
-                            // 不要使用按键重复机制，游戏需要的是持续按下的状态，而不是重复的按下事件
+                            // 对于键盘绑定（WASD等），直接使用handleInputEvent发送状态
+                            // 不使用updateKeyState，因为它会触发按键重复机制导致游戏移动时出现停顿
                             if (binding.isKeyboard()) {
                                 inputControlsView.handleInputEvent(binding, state)
                             } else {
