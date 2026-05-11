@@ -1009,9 +1009,10 @@ class ControlElement(
                         } else if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于键盘绑定（WASD等），使用updateKeyState来确保正确的按键状态跟踪和重复
+                            // 对于所有按键（包括键盘绑定WASD），直接调用handleInputEvent
+                            // 不要使用按键重复机制，游戏需要的是持续按下的状态，而不是重复的按下事件
                             if (binding.isKeyboard()) {
-                                inputControlsView.updateKeyState(binding, state)
+                                inputControlsView.handleInputEvent(binding, state)
                             } else {
                                 val value = if (binding.isMouseMove()) {
                                     if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
@@ -1144,9 +1145,10 @@ class ControlElement(
                         if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于键盘绑定（WASD等），使用updateKeyState来确保正确的按键状态跟踪和重复
+                            // 对于所有按键（包括键盘绑定WASD），直接调用handleInputEvent
+                            // 不要使用按键重复机制，游戏需要的是持续按下的状态，而不是重复的按下事件
                             if (binding.isKeyboard()) {
-                                inputControlsView.updateKeyState(binding, state)
+                                inputControlsView.handleInputEvent(binding, state)
                             } else {
                                 val value = if (binding.isMouseMove()) {
                                     if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
