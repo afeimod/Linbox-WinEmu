@@ -755,6 +755,8 @@ class InputControlsView(context: Context?) : View(context) {
                 if (isActionDown) createMouseMoveTimer()
             } else {
                 // 键盘按键处理：使用按键重复机制实现持续输入
+                // 注意：对于普通按钮，需要区分按下和释放
+                // 对于Toggle按钮，只在状态真正变化时处理
                 if (isActionDown) {
                     // 首次按下：发送按下事件并添加到已按下按键集合
                     handler.onKeyEvent(binding.toEvdev(), true)
@@ -763,8 +765,11 @@ class InputControlsView(context: Context?) : View(context) {
                     startKeyRepeatIfNeeded()
                 } else {
                     // 按键释放：发送释放事件并从已按下按键集合移除
-                    handler.onKeyEvent(binding.toEvdev(), false)
-                    pressedKeys.remove(binding)
+                    // 只有当按键确实被按下时才发送释放事件
+                    if (pressedKeys.contains(binding)) {
+                        handler.onKeyEvent(binding.toEvdev(), false)
+                        pressedKeys.remove(binding)
+                    }
                     // 如果没有其他按下的按键，停止重复定时器
                     if (pressedKeys.isEmpty()) {
                         stopKeyRepeat()
