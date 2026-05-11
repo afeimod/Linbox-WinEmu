@@ -756,14 +756,16 @@ class InputControlsView(context: Context?) : View(context) {
             } else {
                 // 键盘按键处理
                 if (isActionDown) {
-                    // 按下
+                    // 按下：发送按下事件并添加到pressedKeys
+                    handler.onKeyEvent(binding.toEvdev(), true)
                     if (!pressedKeys.contains(binding)) {
                         pressedKeys.add(binding)
                         // 启动按键重复定时器（如果尚未运行）
                         startKeyRepeatIfNeeded()
                     }
                 } else {
-                    // 释放：从pressedKeys移除，停止重复定时器
+                    // 释放：发送释放事件并从pressedKeys移除
+                    handler.onKeyEvent(binding.toEvdev(), false)
                     pressedKeys.remove(binding)
                     if (pressedKeys.isEmpty()) {
                         stopKeyRepeat()
@@ -872,13 +874,17 @@ class InputControlsView(context: Context?) : View(context) {
     private fun onKeyRepeat() {
         val handler = inputEventHandler ?: return
         
-        // 复制按键列表，避免在遍历时修改集合
-        val keysToRepeat = pressedKeys.toList()
+        // 复制按键列表并过滤仍在pressedKeys中的按键
+        // 这样可以防止已释放的按键继续发送重复事件
+        val keysToRepeat = pressedKeys.filter { it in pressedKeys }
         
         // 发送到主线程处理
         Handler(Looper.getMainLooper()).post {
             for (binding in keysToRepeat) {
-                handler.onKeyEvent(binding.toEvdev(), true)
+                // 再次检查按键是否仍在pressedKeys中，确保线程安全
+                if (pressedKeys.contains(binding)) {
+                    handler.onKeyEvent(binding.toEvdev(), true)
+                }
             }
         }
     }
