@@ -929,16 +929,18 @@ class ControlElement(
                     currentPosition?.x = box.left + deltaX * radius + radius
                     currentPosition?.y = box.top + deltaY * radius + radius
 
-                    // 使用滞后阈值避免状态抖动
+                    // 使用滞后阈值实现更平滑的状态切换
+                    // 激活阈值较高，释放阈值较低，防止边界抖动
                     val stickOnThreshold = STICK_DEAD_ZONE
-                    val stickOffThreshold = STICK_DEAD_ZONE * 0.7f  // 释放阈值更低，防止抖动
+                    val stickOffThreshold = STICK_DEAD_ZONE * 0.5f  // 释放阈值更低
                     
-                    val newStates = booleanArrayOf(
-                        deltaY <= -stickOnThreshold,
-                        deltaX >= stickOnThreshold,
-                        deltaY >= stickOnThreshold,
-                        deltaX <= -stickOnThreshold
-                    )
+                    // 为每个方向计算状态，考虑之前的状态实现滞后
+                    val upState = deltaY <= -if (states[0]) stickOffThreshold else stickOnThreshold
+                    val rightState = deltaX >= if (states[1]) stickOffThreshold else stickOnThreshold
+                    val downState = deltaY >= if (states[2]) stickOffThreshold else stickOnThreshold
+                    val leftState = deltaX <= if (states[3]) stickOffThreshold else stickOnThreshold
+                    
+                    val newStates = booleanArrayOf(upState, rightState, downState, leftState)
 
                     for (i in 0..3) {
                         val binding = getBindingAt(i)
@@ -1019,16 +1021,18 @@ class ControlElement(
                     }
                 }
                 Type.D_PAD -> {
-                    // 使用滞后阈值避免状态抖动
+                    // 使用滞后阈值实现更平滑的状态切换
+                    // 激活阈值较高，释放阈值较低，防止边界抖动
                     val dpadOnThreshold = DPAD_DEAD_ZONE
-                    val dpadOffThreshold = DPAD_DEAD_ZONE * 0.7f  // 释放阈值更低，防止抖动
+                    val dpadOffThreshold = DPAD_DEAD_ZONE * 0.5f  // 释放阈值更低
                     
-                    val newStates = booleanArrayOf(
-                        deltaY <= -dpadOnThreshold,
-                        deltaX >= dpadOnThreshold,
-                        deltaY >= dpadOnThreshold,
-                        deltaX <= -dpadOnThreshold
-                    )
+                    // 为每个方向计算状态，考虑之前的状态实现滞后
+                    val upState = deltaY <= -if (states[0]) dpadOffThreshold else dpadOnThreshold
+                    val rightState = deltaX >= if (states[1]) dpadOffThreshold else dpadOnThreshold
+                    val downState = deltaY >= if (states[2]) dpadOffThreshold else dpadOnThreshold
+                    val leftState = deltaX <= if (states[3]) dpadOffThreshold else dpadOnThreshold
+                    
+                    val newStates = booleanArrayOf(upState, rightState, downState, leftState)
 
                     for (i in 0..3) {
                         val binding = getBindingAt(i)
