@@ -783,9 +783,10 @@ class InputControlsView(context: Context?) : View(context) {
     fun updateKeyState(binding: Binding, isActive: Boolean) {
         val handler = inputEventHandler ?: return
         
-        // 检查按键状态是否真的发生变化，避免重复发送事件
+        // 获取当前按键的实际状态
         val isCurrentlyPressed = pressedKeys.contains(binding)
         
+        // 状态变化时的处理
         if (isActive && !isCurrentlyPressed) {
             // 从释放变为按下
             handler.onKeyEvent(binding.toEvdev(), true)
@@ -800,6 +801,20 @@ class InputControlsView(context: Context?) : View(context) {
             }
         }
         // 如果状态没有变化（持续按住或持续释放），不执行任何操作
+    }
+
+    /**
+     * 检查并刷新按键状态，防止意外的状态中断
+     * 这个方法会检查所有已按下的按键，确保它们的状态正确
+     */
+    fun refreshKeyStates() {
+        val handler = inputEventHandler ?: return
+        // 只在有按键被按下时刷新
+        if (pressedKeys.isNotEmpty()) {
+            for (binding in pressedKeys.toList()) {
+                handler.onKeyEvent(binding.toEvdev(), true)
+            }
+        }
     }
 
     /**

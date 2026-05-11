@@ -932,13 +932,59 @@ class ControlElement(
                     // 使用滞后阈值实现更平滑的状态切换
                     // 激活阈值较高，释放阈值较低，防止边界抖动
                     val stickOnThreshold = STICK_DEAD_ZONE
-                    val stickOffThreshold = STICK_DEAD_ZONE * 0.5f  // 释放阈值更低
+                    val stickOffThreshold = STICK_DEAD_ZONE * 0.5f
                     
-                    // 为每个方向计算状态，考虑之前的状态实现滞后
-                    val upState = deltaY <= -if (states[0]) stickOffThreshold else stickOnThreshold
-                    val rightState = deltaX >= if (states[1]) stickOffThreshold else stickOnThreshold
-                    val downState = deltaY >= if (states[2]) stickOffThreshold else stickOnThreshold
-                    val leftState = deltaX <= if (states[3]) stickOffThreshold else stickOnThreshold
+                    // 计算四个方向的基础状态
+                    val rawUp = -deltaY
+                    val rawRight = deltaX
+                    val rawDown = deltaY
+                    val rawLeft = -deltaX
+                    
+                    // 使用滞后阈值判断状态
+                    val upState: Boolean
+                    val rightState: Boolean
+                    val downState: Boolean
+                    val leftState: Boolean
+                    
+                    if (rawUp > 0) {
+                        upState = if (states[0]) {
+                            rawUp >= stickOffThreshold
+                        } else {
+                            rawUp >= stickOnThreshold
+                        }
+                    } else {
+                        upState = false
+                    }
+                    
+                    if (rawRight > 0) {
+                        rightState = if (states[1]) {
+                            rawRight >= stickOffThreshold
+                        } else {
+                            rawRight >= stickOnThreshold
+                        }
+                    } else {
+                        rightState = false
+                    }
+                    
+                    if (rawDown > 0) {
+                        downState = if (states[2]) {
+                            rawDown >= stickOffThreshold
+                        } else {
+                            rawDown >= stickOnThreshold
+                        }
+                    } else {
+                        downState = false
+                    }
+                    
+                    if (rawLeft > 0) {
+                        leftState = if (states[3]) {
+                            rawLeft >= stickOffThreshold
+                        } else {
+                            rawLeft >= stickOnThreshold
+                        }
+                    } else {
+                        leftState = false
+                    }
                     
                     val newStates = booleanArrayOf(upState, rightState, downState, leftState)
 
@@ -1023,14 +1069,66 @@ class ControlElement(
                 Type.D_PAD -> {
                     // 使用滞后阈值实现更平滑的状态切换
                     // 激活阈值较高，释放阈值较低，防止边界抖动
+                    // 但在方向切换时，中心区域需要特殊处理避免所有方向同时释放
                     val dpadOnThreshold = DPAD_DEAD_ZONE
-                    val dpadOffThreshold = DPAD_DEAD_ZONE * 0.5f  // 释放阈值更低
+                    val dpadOffThreshold = DPAD_DEAD_ZONE * 0.5f
                     
-                    // 为每个方向计算状态，考虑之前的状态实现滞后
-                    val upState = deltaY <= -if (states[0]) dpadOffThreshold else dpadOnThreshold
-                    val rightState = deltaX >= if (states[1]) dpadOffThreshold else dpadOnThreshold
-                    val downState = deltaY >= if (states[2]) dpadOffThreshold else dpadOnThreshold
-                    val leftState = deltaX <= if (states[3]) dpadOffThreshold else dpadOnThreshold
+                    // 计算四个方向的基础状态
+                    val rawUp = -deltaY
+                    val rawRight = deltaX
+                    val rawDown = deltaY
+                    val rawLeft = -deltaX
+                    
+                    // 使用滞后阈值判断状态
+                    // 只有当新状态明显超过阈值且之前状态也处于活跃时才能关闭
+                    val upState: Boolean
+                    val rightState: Boolean
+                    val downState: Boolean
+                    val leftState: Boolean
+                    
+                    if (rawUp > 0) {
+                        // 上方向
+                        upState = if (states[0]) {
+                            rawUp >= dpadOffThreshold
+                        } else {
+                            rawUp >= dpadOnThreshold
+                        }
+                    } else {
+                        upState = false
+                    }
+                    
+                    if (rawRight > 0) {
+                        // 右方向
+                        rightState = if (states[1]) {
+                            rawRight >= dpadOffThreshold
+                        } else {
+                            rawRight >= dpadOnThreshold
+                        }
+                    } else {
+                        rightState = false
+                    }
+                    
+                    if (rawDown > 0) {
+                        // 下方向
+                        downState = if (states[2]) {
+                            rawDown >= dpadOffThreshold
+                        } else {
+                            rawDown >= dpadOnThreshold
+                        }
+                    } else {
+                        downState = false
+                    }
+                    
+                    if (rawLeft > 0) {
+                        // 左方向
+                        leftState = if (states[3]) {
+                            rawLeft >= dpadOffThreshold
+                        } else {
+                            rawLeft >= dpadOnThreshold
+                        }
+                    } else {
+                        leftState = false
+                    }
                     
                     val newStates = booleanArrayOf(upState, rightState, downState, leftState)
 
