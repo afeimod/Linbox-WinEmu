@@ -76,6 +76,54 @@ abstract class FileUtils {
         }
 
         /**
+         * Copy entire asset directory (including subdirectories) to destination directory.
+         * This is needed because Android assets don't support true directories - they use
+         * a flat naming convention with "/" as separators. This function recursively copies
+         * all assets under the given path.
+         * 
+         * @param context Application context
+         * @param assetPath Path to the asset directory (e.g., "inputcontrols/profiles")
+         * @param destDir Destination directory
+         * @return true if all files were copied successfully
+         */
+        fun copyAssetsDir(context: Context, assetPath: String, destDir: File): Boolean {
+            return try {
+                val assetManager = context.assets
+                
+                // First, ensure destination directory exists
+                if (!destDir.exists()) {
+                    destDir.mkdirs()
+                }
+
+                // List all files in the asset directory
+                val files = assetManager.list(assetPath) ?: return true  // Empty directory is OK
+                
+                if (files.isEmpty()) return true
+                
+                for (file in files) {
+                    val sourcePath = "$assetPath/$file"
+                    
+                    // Check if this is a directory or file
+                    val subFiles = assetManager.list(sourcePath)
+                    
+                    if (subFiles != null && subFiles.isNotEmpty()) {
+                        // It's a directory - recursively copy
+                        val subDestDir = File(destDir, file)
+                        copyAssetsDir(context, sourcePath, subDestDir)
+                    } else {
+                        // It's a file - copy it
+                        val destFile = File(destDir, file)
+                        copy(context, sourcePath, destFile)
+                    }
+                }
+                true
+            } catch (e: Exception) {
+                e.printStackTrace()
+                false
+            }
+        }
+
+        /**
          * Read JSON array from file
          */
         fun readJSONArray(file: File): org.json.JSONArray? {
