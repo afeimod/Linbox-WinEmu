@@ -71,7 +71,7 @@ object Consts {
 
     object Ui {
         /** 最小化时的宽高dp值 */
-        val minimizedIconSize = 48
+        val minimizedIconSize = 36
     }
 
     /**
