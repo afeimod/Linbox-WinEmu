@@ -218,20 +218,34 @@ fun ExpandableFloatingMenu(
                 },
             contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(Consts.Ui.minimizedIconSize.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
-                // 展开时显示关闭图标，收起时显示移动图标
-                if (isExpanded) {
+            // 展开时显示关闭图标，收起时显示移动图标
+            if (isExpanded) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "收起菜单",
+                    modifier = Modifier
+                        .size(36.dp)
+                        .graphicsLayer {
+                            rotationZ = rotationAngle
+                        },
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                )
+            } else {
+                // 使用自定义移动图标
+                if (moveIconBitmap != null) {
+                    Image(
+                        bitmap = moveIconBitmap.asImageBitmap(),
+                        contentDescription = "展开菜单",
+                        modifier = Modifier
+                            .size(36.dp)
+                            .graphicsLayer {
+                                rotationZ = rotationAngle
+                            },
+                    )
+                } else {
                     Icon(
-                        imageVector = Icons.Filled.Close,
-                        contentDescription = "收起菜单",
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = "展开菜单",
                         modifier = Modifier
                             .size(36.dp)
                             .graphicsLayer {
@@ -239,30 +253,6 @@ fun ExpandableFloatingMenu(
                             },
                         tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     )
-                } else {
-                    // 使用自定义移动图标
-                    if (moveIconBitmap != null) {
-                        Image(
-                            bitmap = moveIconBitmap.asImageBitmap(),
-                            contentDescription = "展开菜单",
-                            modifier = Modifier
-                                .size(36.dp)
-                                .graphicsLayer {
-                                    rotationZ = rotationAngle
-                                },
-                        )
-                    } else {
-                        Icon(
-                            imageVector = Icons.Filled.Add,
-                            contentDescription = "展开菜单",
-                            modifier = Modifier
-                                .size(36.dp)
-                                .graphicsLayer {
-                                    rotationZ = rotationAngle
-                                },
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                        )
-                    }
                 }
             }
         }
