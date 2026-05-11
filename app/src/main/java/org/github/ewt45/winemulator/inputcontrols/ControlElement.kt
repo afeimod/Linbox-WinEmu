@@ -950,15 +950,9 @@ class ControlElement(
                         } else if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于键盘绑定（WASD等），需要持续发送按下事件
-                            // 确保游戏能持续收到移动信号
+                            // 对于键盘绑定（WASD等），使用updateKeyState来确保正确的按键状态跟踪和重复
                             if (binding.isKeyboard()) {
-                                if (state) {
-                                    inputControlsView.handleInputEvent(binding, true)
-                                } else if (states[i]) {
-                                    // 只有之前状态是按下时才发送抬起
-                                    inputControlsView.handleInputEvent(binding, false)
-                                }
+                                inputControlsView.updateKeyState(binding, state)
                             } else {
                                 val value = if (binding.isMouseMove()) {
                                     if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)
@@ -1033,17 +1027,9 @@ class ControlElement(
                         if (binding != Binding.NONE) {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             
-                            // 对于键盘绑定（WASD等），确保只在状态变化时发送事件
-                            // 防止重复发送导致游戏无法正确识别按键状态
+                            // 对于键盘绑定（WASD等），使用updateKeyState来确保正确的按键状态跟踪和重复
                             if (binding.isKeyboard()) {
-                                if (state && !states[i]) {
-                                    // 从释放变为按下，只发送一次按下事件
-                                    inputControlsView.handleInputEvent(binding, true)
-                                } else if (!state && states[i]) {
-                                    // 从按下变为释放，发送抬起事件
-                                    inputControlsView.handleInputEvent(binding, false)
-                                }
-                                // 如果 state 和 states[i] 相同（持续按住或持续释放），不发送任何事件
+                                inputControlsView.updateKeyState(binding, state)
                             } else {
                                 val value = if (binding.isMouseMove()) {
                                     if (i == 1 || i == 3) kotlin.math.sign(deltaX) else kotlin.math.sign(deltaY)

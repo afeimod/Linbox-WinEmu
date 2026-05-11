@@ -17,6 +17,9 @@ import java.io.InputStream
 import java.util.HashMap
 import java.util.Timer
 import java.util.TimerTask
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledFuture
+import java.util.concurrent.TimeUnit
 
 /**
  * InputControlsView - Adapted for Linbox compatibility
@@ -78,6 +81,11 @@ class InputControlsView(context: Context?) : View(context) {
     private val mouseMoveOffset = PointF()
     private val counterMap = HashMap<String, Int>()
     
+    // Key repeat support for continuous press
+    private val pressedKeys = mutableSetOf<Binding>()
+    private val keyRepeatScheduler = Executors.newSingleThreadScheduledExecutor()
+    private var keyRepeatTask: ScheduledFuture<*>? = null
+    
     // Batched invalidation to reduce overdraw
     private var pendingInvalidation = false
     private val invalidationRunnable = Runnable { 
@@ -118,6 +126,16 @@ class InputControlsView(context: Context?) : View(context) {
         layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
         // 初始化触摸板视图，用于光标控制
         touchpadView = TouchpadViewCompat(this)
+    }
+
+    override fun onDetachedFromWindow() {
+        super.onDetachedFromWindow()
+        // 清理按键重复定时器资源，防止内存泄漏
+        stopKeyRepeat()
+        keyRepeatScheduler.shutdown()
+        // 清理鼠标移动定时器
+        mouseMoveTimer?.cancel()
+        mouseMoveTimer = null
     }
 
     fun setEditMode(editMode: Boolean) {
@@ -736,9 +754,22 @@ class InputControlsView(context: Context?) : View(context) {
                 }
                 if (isActionDown) createMouseMoveTimer()
             } else {
-                // 键盘按键处理：直接发送按下/抬起事件
-                // 游戏会自己处理按住状态，不需要持续发送
-                handler.onKeyEvent(binding.toEvdev(), isActionDown)
+                // 键盘按键处理：使用按键重复机制实现持续输入
+                if (isActionDown) {
+                    // 首次按下：发送按下事件并添加到已按下按键集合
+                    handler.onKeyEvent(binding.toEvdev(), true)
+                    pressedKeys.add(binding)
+                    // 启动按键重复定时器（如果尚未运行）
+                    startKeyRepeatIfNeeded()
+                } else {
+                    // 按键释放：发送释放事件并从已按下按键集合移除
+                    handler.onKeyEvent(binding.toEvdev(), false)
+                    pressedKeys.remove(binding)
+                    // 如果没有其他按下的按键，停止重复定时器
+                    if (pressedKeys.isEmpty()) {
+                        stopKeyRepeat()
+                    }
+                }
             }
         }
     }
@@ -749,6 +780,57 @@ class InputControlsView(context: Context?) : View(context) {
      * @param binding The keyboard binding to update
      * @param isActive True if this direction is now active, false if inactive
      */
+    fun updateKeyState(binding: Binding, isActive: Boolean) {
+        val handler = inputEventHandler ?: return
+        
+        if (isActive) {
+            // 发送按下事件
+            handler.onKeyEvent(binding.toEvdev(), true)
+            pressedKeys.add(binding)
+            startKeyRepeatIfNeeded()
+        } else {
+            // 发送释放事件
+            handler.onKeyEvent(binding.toEvdev(), false)
+            pressedKeys.remove(binding)
+            if (pressedKeys.isEmpty()) {
+                stopKeyRepeat()
+            }
+        }
+    }
+
+    /**
+     * Start key repeat timer if not already running
+     */
+    private fun startKeyRepeatIfNeeded() {
+        if (keyRepeatTask == null || keyRepeatTask!!.isCancelled) {
+            keyRepeatTask = keyRepeatScheduler.scheduleAtFixedRate({
+                onKeyRepeat()
+            }, KEY_REPEAT_DELAY, KEY_REPEAT_INTERVAL, TimeUnit.MILLISECONDS)
+        }
+    }
+
+    /**
+     * Stop key repeat timer
+     */
+    private fun stopKeyRepeat() {
+        keyRepeatTask?.cancel(false)
+        keyRepeatTask = null
+    }
+
+    /**
+     * Send repeat events for all currently pressed keys
+     * This is called periodically by the key repeat timer
+     */
+    private fun onKeyRepeat() {
+        val handler = inputEventHandler ?: return
+        
+        // 遍历所有按下的按键，发送重复按下事件
+        // 注意：这里只发送按下事件（true），不发送释放事件
+        // X11会自动处理按键的自动重复
+        for (binding in pressedKeys.toList()) {
+            handler.onKeyEvent(binding.toEvdev(), true)
+        }
+    }
 
     fun sendText(text: String?) {
         // Text sending is not directly supported
