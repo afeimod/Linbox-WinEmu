@@ -29,13 +29,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -48,25 +43,6 @@ import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
-
-// 为图标Bitmap添加白色描边的扩展函数
-fun android.graphics.Bitmap.withWhiteStroke(strokeWidth: Float = 4f): android.graphics.Bitmap {
-    val paint = android.graphics.Paint().apply {
-        this.strokeWidth = strokeWidth
-        this.style = android.graphics.Paint.Style.STROKE
-        this.color = android.graphics.Color.WHITE
-        this.isAntiAlias = true
-        this.setShadowLayer(strokeWidth * 1.5f, 0f, 0f, android.graphics.Color.WHITE)
-    }
-    val newBitmap = android.graphics.Bitmap.createBitmap(
-        (this.width + strokeWidth * 2).toInt(),
-        (this.height + strokeWidth * 2).toInt(),
-        android.graphics.Bitmap.Config.ARGB_8888
-    )
-    val canvas = android.graphics.Canvas(newBitmap)
-    canvas.drawBitmap(this, strokeWidth, strokeWidth, paint)
-    return newBitmap
-}
 
 /**
  * 可展开的悬浮菜单按钮
@@ -103,21 +79,21 @@ fun ExpandableFloatingMenu(
         label = "rotation"
     )
 
-    // 加载自定义图标（带白色描边）
+    // 加载自定义图标
     val moveIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_move)?.toBitmap()?.withWhiteStroke(4f)
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_move)?.toBitmap()
     }
     val homeIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_home)?.toBitmap()?.withWhiteStroke(3f)
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_home)?.toBitmap()
     }
     val settingsIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_settings)?.toBitmap()?.withWhiteStroke(3f)
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_settings)?.toBitmap()
     }
     val gamepadIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_gamepad)?.toBitmap()?.withWhiteStroke(3f)
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_gamepad)?.toBitmap()
     }
     val displaySettingsIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_display_settings)?.toBitmap()?.withWhiteStroke(3f)
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_display_settings)?.toBitmap()
     }
 
     LaunchedEffect(parentWidth, parentHeight, buttonSizePx) {
