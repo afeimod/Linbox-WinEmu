@@ -160,6 +160,8 @@ fun X11Screen(
                     }
                     lorieView?.let {
                         x11InputSender.initialize(it)
+                        // Reset mouse button states on X11 initialization to prevent stuck buttons
+                        x11InputSender.resetMouseButtonStates()
                         renderData.scale = android.graphics.PointF(1f, 1f)
                         x11InputSender.renderData = renderData
                         onLorieViewReady?.invoke(it)
