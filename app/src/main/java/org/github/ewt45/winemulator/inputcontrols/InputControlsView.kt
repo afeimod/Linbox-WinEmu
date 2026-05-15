@@ -54,6 +54,8 @@ class InputControlsView(context: Context?) : View(context) {
             field = value
             // 当 inputEventHandler 被设置时，同时更新 touchpadView
             touchpadView?.inputEventHandler = value
+            // Reset touchpad state when handler is set to prevent stuck buttons
+            touchpadView?.resetTouchpadState()
         }
     var showTouchscreenControlsVal: Boolean = true
     var overlayOpacityVal: Float = DEFAULT_OVERLAY_OPACITY
@@ -975,9 +977,27 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
     private var isDragging = false
     private var activePointerId = -1
 
-    // Track button state
+    // Track button state - Initialize as NOT pressed to prevent stuck button on startup
     private var leftButtonPressed = false
     private var rightButtonPressed = false
+
+    /**
+     * Reset touchpad state - Call this when X11 session starts
+     * Ensures no buttons are stuck in pressed state
+     */
+    fun resetTouchpadState() {
+        // Release any stuck buttons
+        if (leftButtonPressed) {
+            inputEventHandler?.onPointerButton(0, false)
+            leftButtonPressed = false
+        }
+        if (rightButtonPressed) {
+            inputEventHandler?.onPointerButton(2, false)
+            rightButtonPressed = false
+        }
+        activePointerId = -1
+        isDragging = false
+    }
 
     fun onTouchEvent(event: MotionEvent): Boolean {
         val actionMasked = event.actionMasked
