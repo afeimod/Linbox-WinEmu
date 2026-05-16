@@ -29,9 +29,32 @@ class X11InputSender {
 
     /**
      * Initialize with an InputStub (typically LorieView)
+     * Also resets all mouse button states to prevent stuck buttons on startup
      */
     fun initialize(inputStub: InputStub) {
         inputEventSender = InputEventSender(inputStub)
+        // 初始化后重置鼠标按钮状态，确保没有按钮处于按下状态
+        resetMouseButtons()
+    }
+
+    /**
+     * 重置所有鼠标按钮状态，确保没有按钮处于按下状态
+     * 这可以解决首次启动时鼠标按钮卡住的问题
+     */
+    private fun resetMouseButtons() {
+        val sender = inputEventSender ?: return
+        // 发送所有鼠标按钮的释放事件
+        sender.sendMouseEvent(null, BUTTON_LEFT, false, true)
+        sender.sendMouseEvent(null, BUTTON_MIDDLE, false, true)
+        sender.sendMouseEvent(null, BUTTON_RIGHT, false, true)
+    }
+
+    /**
+     * 强制重置所有鼠标按钮状态（公开方法）
+     * 可供外部调用以确保没有卡住的鼠标按钮
+     */
+    fun forceResetMouseButtons() {
+        resetMouseButtons()
     }
 
     /**
