@@ -74,7 +74,7 @@ class X11InputSender {
     fun resetMouseButtonStates() {
         pressedMouseButtons.clear()
         // Send release events for all possible mouse buttons
-        handler.post {
+        inputHandler?.post {
             val sender = inputEventSender ?: return@post
             // Release all buttons in case any were stuck
             sender.sendMouseEvent(null, BUTTON_LEFT, false, true)
@@ -360,14 +360,5 @@ class X11InputSender {
                 if (evdev in 1..255) evdev else 0
             }
         }
-    }
-
-    /**
-     * Cleanup resources
-     */
-    fun release() {
-        inputHandler?.removeCallbacksAndMessages(null)
-        inputThread?.quitSafely()
-        inputEventSender = null
     }
 }
