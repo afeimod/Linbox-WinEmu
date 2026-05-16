@@ -61,12 +61,6 @@ fun X11Screen(
     var currentProfileId by remember { mutableStateOf(prefs.getInt(InputControlsFragment.SELECTED_PROFILE_ID, 0)) }
     var showTouchscreenControls by remember { mutableStateOf(prefs.getBoolean("show_touchscreen_controls", false)) }
 
-    // 触摸事件跟踪变量
-    var lastTouchX by remember { mutableFloatStateOf(0f) }
-    var lastTouchY by remember { mutableFloatStateOf(0f) }
-    var isFirstTouch by remember { mutableStateOf(true) }
-    var leftButtonDown by remember { mutableStateOf(false) }
-
     // 轮询监听 SharedPreferences 变化（后备同步机制）
     LaunchedEffect(Unit) {
         while (true) {
@@ -160,30 +154,15 @@ fun X11Screen(
                     }
                     lorieView?.let {
                         x11InputSender.initialize(it)
-                        // Force reset mouse button states on X11 initialization
-                        // Use synchronous reset to ensure immediate effect before any events
+                        // 在初始化后强制重置鼠标按钮状态，防止首次启动时鼠标卡在按下状态
                         x11InputSender.forceResetMouseButtons()
                         renderData.scale = android.graphics.PointF(1f, 1f)
                         x11InputSender.renderData = renderData
                         onLorieViewReady?.invoke(it)
                         Log.d("X11Screen", "X11InputSender initialized with LorieView")
                         
-                        // 添加触摸监听器用于 X11 鼠标控制
-                        // 返回 true 拦截事件，false 则让事件继续传递
-                        it.setOnTouchListener { v, event ->
-                            handleX11TouchEvent(
-                                event, 
-                                x11InputSender, 
-                                { Pair(lastTouchX, lastTouchY) },
-                                { x, y -> lastTouchX = x; lastTouchY = y },
-                                { isFirstTouch },
-                                { first -> isFirstTouch = first },
-                                { leftButtonDown },
-                                { down -> leftButtonDown = down }
-                            )
-                            // 返回 false 让 InputControlsView 也能处理事件
-                            false
-                        }
+                        // 不再设置触摸监听器，因为 InputControlsView 会处理触摸事件
+                        // 触摸监听器会导致重复发送鼠标按钮事件
                     } ?: run {
                         Log.e("X11Screen", "Could not find LorieView in X11 content")
                     }
