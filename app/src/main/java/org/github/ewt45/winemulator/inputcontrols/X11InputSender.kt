@@ -71,6 +71,13 @@ class X11InputSender {
     }
 
     /**
+     * 公开方法，用于外部强制重置鼠标按钮状态
+     */
+    fun forceResetMouseButtons() {
+        resetMouseButtons()
+    }
+
+    /**
      * Send a key event using evdev keycode
      * Optimized to run on dedicated input thread instead of main thread
      * @param evdevKeycode The evdev keycode
