@@ -994,7 +994,7 @@ class TouchpadViewCompat(private val inputControlsView: InputControlsView) {
                     initialY = lastY
                     isDragging = false
                     // 发送左键按下事件
-                    if (pointerButtonLeftEnabled) {
+                    if (pointerButtonLeftEnabled && !leftButtonPressed) {
                         inputEventHandler?.onPointerButton(0, true)
                         leftButtonPressed = true
                     }
