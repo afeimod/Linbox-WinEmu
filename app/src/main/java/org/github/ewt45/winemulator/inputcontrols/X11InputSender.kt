@@ -25,6 +25,7 @@ import com.termux.x11.input.RenderData
  * - Tracks pressed mouse buttons to avoid duplicate events
  * - Resets all mouse button states on initialization/connection to prevent
  *   stuck buttons when X11 session starts
+ * - Uses synchronous reset to ensure immediate effect
  */
 class X11InputSender {
     private var inputEventSender: InputEventSender? = null
@@ -64,11 +65,25 @@ class X11InputSender {
     fun initialize(inputStub: InputStub) {
         inputEventSender = InputEventSender(inputStub)
         // Reset all mouse button states on initialization to prevent stuck buttons
-        resetMouseButtonStates()
+        // Call synchronously for immediate effect
+        resetMouseButtonStatesInternal()
     }
 
     /**
-     * Reset all mouse button states
+     * Internal synchronous reset of mouse button states
+     * Sends release events directly without using the async handler
+     */
+    private fun resetMouseButtonStatesInternal() {
+        pressedMouseButtons.clear()
+        val sender = inputEventSender ?: return
+        // Send release events synchronously for all buttons
+        sender.sendMouseEvent(null, BUTTON_LEFT, false, true)
+        sender.sendMouseEvent(null, BUTTON_MIDDLE, false, true)
+        sender.sendMouseEvent(null, BUTTON_RIGHT, false, true)
+    }
+
+    /**
+     * Reset all mouse button states (async version for external calls)
      * Call this when X11 session starts to ensure no buttons are stuck in pressed state
      */
     fun resetMouseButtonStates() {
@@ -81,6 +96,13 @@ class X11InputSender {
             sender.sendMouseEvent(null, BUTTON_MIDDLE, false, true)
             sender.sendMouseEvent(null, BUTTON_RIGHT, false, true)
         }
+    }
+
+    /**
+     * Synchronous force reset - use this when stuck button is detected
+     */
+    fun forceResetMouseButtons() {
+        resetMouseButtonStatesInternal()
     }
 
     /**
