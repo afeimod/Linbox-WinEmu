@@ -20,6 +20,12 @@ import com.termux.x11.input.RenderData
  * 1. Uses a dedicated input thread instead of posting to main thread
  * 2. Batches rapid key events to reduce overhead
  * 3. Prevents message queue overflow during fast input (like WASD movement)
+ * 
+ * Mouse button state fix:
+ * - Tracks pressed mouse buttons to avoid duplicate events
+ * - Resets all mouse button states on initialization/connection to prevent
+ *   stuck buttons when X11 session starts
+ * - Uses synchronous reset to ensure immediate effect
  */
 class X11InputSender {
     private var inputEventSender: InputEventSender? = null
@@ -36,6 +42,9 @@ class X11InputSender {
     private var inputThread: HandlerThread? = null
     private var inputHandler: Handler? = null
     
+    // Track pressed mouse buttons to prevent duplicate events and reset state on connect
+    private val pressedMouseButtons = mutableSetOf<Int>()
+    
     init {
         // Initialize the input thread
         initializeInputThread()
@@ -51,30 +60,49 @@ class X11InputSender {
 
     /**
      * Initialize with an InputStub (typically LorieView)
+     * Also resets all mouse button states to prevent stuck buttons on startup
      */
     fun initialize(inputStub: InputStub) {
         inputEventSender = InputEventSender(inputStub)
-        // 初始化后重置鼠标按钮状态，确保没有按钮处于按下状态
-        resetMouseButtons()
+        // Reset all mouse button states on initialization to prevent stuck buttons
+        // Call synchronously for immediate effect
+        resetMouseButtonStatesInternal()
     }
 
     /**
-     * 重置所有鼠标按钮状态，确保没有按钮处于按下状态
-     * 这可以解决首次启动时鼠标按钮卡住的问题
+     * Internal synchronous reset of mouse button states
+     * Sends release events directly without using the async handler
      */
-    private fun resetMouseButtons() {
+    private fun resetMouseButtonStatesInternal() {
+        pressedMouseButtons.clear()
         val sender = inputEventSender ?: return
-        // 发送所有鼠标按钮的释放事件
+        // Send release events synchronously for all buttons
         sender.sendMouseEvent(null, BUTTON_LEFT, false, true)
         sender.sendMouseEvent(null, BUTTON_MIDDLE, false, true)
         sender.sendMouseEvent(null, BUTTON_RIGHT, false, true)
     }
 
     /**
-     * 公开方法，用于外部强制重置鼠标按钮状态
+     * Reset all mouse button states (async version for external calls)
+     * Call this when X11 session starts to ensure no buttons are stuck in pressed state
+     */
+    fun resetMouseButtonStates() {
+        pressedMouseButtons.clear()
+        // Send release events for all possible mouse buttons
+        inputHandler?.post {
+            val sender = inputEventSender ?: return@post
+            // Release all buttons in case any were stuck
+            sender.sendMouseEvent(null, BUTTON_LEFT, false, true)
+            sender.sendMouseEvent(null, BUTTON_MIDDLE, false, true)
+            sender.sendMouseEvent(null, BUTTON_RIGHT, false, true)
+        }
+    }
+
+    /**
+     * Synchronous force reset - use this when stuck button is detected
      */
     fun forceResetMouseButtons() {
-        resetMouseButtons()
+        resetMouseButtonStatesInternal()
     }
 
     /**
@@ -114,6 +142,20 @@ class X11InputSender {
         val sender = inputEventSender ?: return
         val handler = inputHandler ?: return
         
+        // Check for duplicate events - only process if state actually changes
+        val currentState = pressedMouseButtons.contains(button)
+        if (currentState == isDown) {
+            // State already matches, ignore duplicate event
+            return
+        }
+        
+        // Update tracked state
+        if (isDown) {
+            pressedMouseButtons.add(button)
+        } else {
+            pressedMouseButtons.remove(button)
+        }
+        
         handler.post {
             when (button) {
                 1 -> {
@@ -142,6 +184,35 @@ class X11InputSender {
                 }
             }
         }
+    }
+
+    /**
+     * Force release all mouse buttons
+     * Use this when X11 session needs to ensure no stuck buttons
+     */
+    fun releaseAllMouseButtons() {
+        val sender = inputEventSender ?: return
+        val handler = inputHandler ?: return
+        
+        // Clear tracked state
+        pressedMouseButtons.clear()
+        
+        handler.post {
+            // Release all buttons
+            sender.sendMouseEvent(null, BUTTON_LEFT, false, true)
+            sender.sendMouseEvent(null, BUTTON_MIDDLE, false, true)
+            sender.sendMouseEvent(null, BUTTON_RIGHT, false, true)
+        }
+    }
+
+    /**
+     * Cleanup resources
+     */
+    fun release() {
+        inputHandler?.removeCallbacksAndMessages(null)
+        inputThread?.quitSafely()
+        inputEventSender = null
+        pressedMouseButtons.clear()
     }
 
     /**
@@ -311,14 +382,5 @@ class X11InputSender {
                 if (evdev in 1..255) evdev else 0
             }
         }
-    }
-
-    /**
-     * Cleanup resources
-     */
-    fun release() {
-        inputHandler?.removeCallbacksAndMessages(null)
-        inputThread?.quitSafely()
-        inputEventSender = null
     }
 }
