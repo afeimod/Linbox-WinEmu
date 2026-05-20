@@ -416,15 +416,16 @@ class InputControlsView(
     /**
      * 处理触摸事件，支持多点触摸
      * 允许触摸板和虚拟按键同时工作
+     * 
+     * 关键修复：
+     * - 每个触摸点由各自对应的元素独立处理
+     * - 虚拟按键区域的触摸由对应的 ControlElement 处理
+     * - 非虚拟按键区域的触摸传递给触摸板（用于移动鼠标）
      */
     private fun handleTouchEvent(event: MotionEvent): Boolean {
         val actionIndex = event.actionIndex
         val pointerId = event.getPointerId(actionIndex)
         val actionMasked = event.actionMasked
-
-        var handled = false
-        var passthroughHandled = false
-        var passthroughDispatched = false
 
         when (actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
@@ -434,42 +435,40 @@ class InputControlsView(
                 // 记录初始触摸位置
                 pointerInitialPos[pointerId] = Pair(x, y)
                 
-                // 先检查是否触摸到了任何虚拟按键元素
-                var elementHandled = false
+                // 遍历所有元素，检查触摸点落在哪个元素上
+                var foundElement: ControlElement? = null
                 for (element in profile!!.getElements()) {
-                    if (element.handleTouchDown(pointerId, x, y)) {
-                        // 将此指针ID映射到该元素
-                        pointerToElementMap[pointerId] = element
-                        elementHandled = true
-                        handled = true
-                        
-                        // 如果绑定的是鼠标左键，禁用触摸板的左键功能
-                        if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
-                            touchpadView?.setPointerButtonLeftEnabled(false)
-                        }
-                        
-                        vibrator?.vibrate(vibrationEffect)
+                    if (element.containsPoint(x, y)) {
+                        foundElement = element
                         break
                     }
                 }
                 
-                // 如果没有元素处理这个触摸，让触摸板尝试处理
-                // 注意：触摸板只处理未被虚拟按键占用的指针
-                if (!elementHandled) {
-                    // 检查触摸板是否可以接受这个新指针
-                    if (touchpadView == null || pointerToElementMap.isEmpty()) {
-                        val touchpadHandled = touchpadView?.onTouchEvent(event) == true
-                        if (touchpadHandled) {
-                            // 将此指针ID映射到触摸板（用null表示）
-                            pointerToElementMap[pointerId] = null
-                            passthroughHandled = true
-                            passthroughDispatched = true
+                if (foundElement != null) {
+                    // 触摸在虚拟按键上，由该元素处理
+                    if (foundElement.handleTouchDown(pointerId, x, y)) {
+                        // 将此指针ID映射到该元素
+                        pointerToElementMap[pointerId] = foundElement
+                        
+                        // 如果绑定的是鼠标左键，禁用触摸板的左键功能
+                        if (foundElement.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
+                            touchpadView?.setPointerButtonLeftEnabled(false)
                         }
+                        
+                        vibrator?.vibrate(vibrationEffect)
+                        return true
                     }
+                } else {
+                    // 触摸不在任何虚拟按键上，由触摸板处理
+                    pointerToElementMap[pointerId] = null
+                    return touchpadView?.onTouchEvent(event) == true
                 }
             }
             
             MotionEvent.ACTION_MOVE -> {
+                var anyElementHandled = false
+                var anyTouchpadHandled = false
+                
                 // 处理所有移动的指针
                 for (i in 0 until event.pointerCount) {
                     val currentPointerId = event.getPointerId(i)
@@ -481,67 +480,67 @@ class InputControlsView(
                     if (element != null) {
                         // 虚拟按键处理移动事件
                         if (element.handleTouchMove(currentPointerId, x, y)) {
-                            handled = true
+                            anyElementHandled = true
+                        }
+                    } else {
+                        // 未映射到虚拟按键的指针，传递给触摸板
+                        if (touchpadView != null) {
+                            // 创建一个只包含当前指针的 MotionEvent
+                            val pointerIndex = i
+                            if (touchpadView.onTouchEvent(event)) {
+                                anyTouchpadHandled = true
+                            }
                         }
                     }
                 }
                 
-                // 触摸板处理所有未映射到虚拟按键的指针的移动
-                val touchpadPointers = pointerToElementMap.filter { it.key != null && it.value == null }.keys
-                if (touchpadPointers.isNotEmpty() && touchpadView != null) {
-                    passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                }
+                return anyElementHandled || anyTouchpadHandled
             }
             
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP -> {
                 // 获取抬起或取消的指针
-                val upPointerId = if (actionMasked == MotionEvent.ACTION_UP || actionMasked == MotionEvent.ACTION_CANCEL) {
-                    // ACTION_UP 和 ACTION_CANCEL 通常使用 pointerId 0
+                val upPointerId = if (actionMasked == MotionEvent.ACTION_UP) {
+                    // ACTION_UP 通常使用 pointerId 0
                     0
                 } else {
                     pointerId
                 }
                 
-                val x = event.getX(actionIndex)
-                val y = event.getY(actionIndex)
-                
                 // 检查这个指针是否对应一个虚拟按键元素
                 val element = pointerToElementMap[upPointerId]
                 if (element != null) {
                     // 虚拟按键处理抬起事件
-                    if (element.handleTouchUp(upPointerId)) {
-                        handled = true
-                    }
+                    element.handleTouchUp(upPointerId)
                     // 移除映射
                     pointerToElementMap.remove(upPointerId)
                     pointerInitialPos.remove(upPointerId)
                     
                     // 恢复触摸板的左键功能
                     touchpadView?.setPointerButtonLeftEnabled(true)
+                    return true
                 } else {
                     // 没有映射到虚拟按键的指针，传递给触摸板
-                    if (!passthroughDispatched) {
-                        passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                        passthroughDispatched = true
+                    pointerToElementMap.remove(upPointerId)
+                    pointerInitialPos.remove(upPointerId)
+                    return touchpadView?.onTouchEvent(event) == true
+                }
+            }
+            
+            MotionEvent.ACTION_CANCEL -> {
+                // 取消所有触摸
+                for ((id, elem) in pointerToElementMap) {
+                    if (elem != null) {
+                        elem.handleTouchUp(id)
                     }
                 }
+                pointerToElementMap.clear()
+                pointerInitialPos.clear()
+                touchpadView?.setPointerButtonLeftEnabled(true)
+                return true
             }
         }
         
-        // 如果是 ACTION_CANCEL，清空所有指针映射
-        if (actionMasked == MotionEvent.ACTION_CANCEL) {
-            for ((id, _) in pointerToElementMap) {
-                val element = pointerToElementMap[id]
-                if (element != null) {
-                    element.handleTouchUp(id)
-                }
-            }
-            pointerToElementMap.clear()
-            pointerInitialPos.clear()
-            touchpadView?.setPointerButtonLeftEnabled(true)
-        }
-        
-        return handled || passthroughHandled
+        return false
     }
 
     private fun intersectElement(x: Float, y: Float): ControlElement? {
