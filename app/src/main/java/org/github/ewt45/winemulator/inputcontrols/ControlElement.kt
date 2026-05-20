@@ -975,7 +975,7 @@ class ControlElement(
     }
 
     private fun getDarkColor(): Int {
-        val opacity = if (editMode) maxOf(0.15f, 1.0f) else 1.0f
+        val opacity = if (inputControlsView.isEditMode()) maxOf(0.15f, 1.0f) else 1.0f
         return Color.argb((opacity * inputControlsView.overlayOpacity * 255).toInt(), 0, 0, 0)
     }
 

@@ -141,6 +141,8 @@ class InputControlsView(
         editMode = mode
     }
 
+    fun isEditMode(): Boolean = editMode
+
     fun setProfile(profile: ControlsProfile?) {
         this.profile = profile
         deselectAllElements()
