@@ -826,10 +826,14 @@ class ControlElement(
                             states[i] = true
                         } else {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            // 对于键盘绑定（WASD等），直接使用handleInputEvent发送状态
-                            // 不使用updateKeyState，因为它会触发按键重复机制导致游戏移动时出现停顿
+                            // 对于键盘绑定（WASD等），只发送状态变化事件
+                            // 与D_PAD保持一致，避免重复发送导致的问题
                             if (binding.isKeyboard) {
-                                inputControlsView.handleInputEvent(binding, state)
+                                // 状态从 false 变成 true 时发送按下事件
+                                if (state && !states[i]) {
+                                    inputControlsView.handleInputEvent(binding, true)
+                                }
+                                // 状态从 true 变成 false 在 handleTouchUp 中处理
                             } else {
                                 inputControlsView.handleInputEvent(binding, state, value)
                             }
