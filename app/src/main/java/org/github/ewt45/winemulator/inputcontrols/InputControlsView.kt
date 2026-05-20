@@ -484,10 +484,9 @@ class InputControlsView(
                         }
                     } else {
                         // 未映射到虚拟按键的指针，传递给触摸板
-                        if (touchpadView != null) {
-                            // 创建一个只包含当前指针的 MotionEvent
-                            val pointerIndex = i
-                            if (touchpadView.onTouchEvent(event)) {
+                        val tv = touchpadView
+                        if (tv != null) {
+                            if (tv.onTouchEvent(event)) {
                                 anyTouchpadHandled = true
                             }
                         }
