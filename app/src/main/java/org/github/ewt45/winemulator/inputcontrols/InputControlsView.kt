@@ -48,6 +48,7 @@ class InputControlsView(
     private var offsetY = 0f
     private val cursor = Point()
     private var pendingProfileReload = false  // 标记是否需要在新尺寸测量后重新加载配置
+    private val icons: Array<Bitmap?> = arrayOfNulls(256)  // Icon缓存数组
 
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val path = Path()
