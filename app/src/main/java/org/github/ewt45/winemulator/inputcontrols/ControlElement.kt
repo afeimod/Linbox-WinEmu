@@ -736,7 +736,7 @@ class ControlElement(
                         inputControlsView.handleInputEvent(getBindingAt(1), true)
                     } else if (!isFlagSet(FLAG_SELECTED)) {
                         // Toggle按钮且未选中：发送按下事件
-                        inputControlsView.sendKeyDown(getBindingAt(0))
+                        inputControlsView.handleInputEvent(getBindingAt(0), true)
                     }
                     // 设置按下状态标志
                     setFlag(FLAG_PRESSED, true)
@@ -975,7 +975,7 @@ class ControlElement(
     }
 
     private fun getDarkColor(): Int {
-        val opacity = if (inputControlsView.isEditMode()) maxOf(0.15f, 1.0f) else 1.0f
+        val opacity = if (editMode) maxOf(0.15f, 1.0f) else 1.0f
         return Color.argb((opacity * inputControlsView.overlayOpacity * 255).toInt(), 0, 0, 0)
     }
 
