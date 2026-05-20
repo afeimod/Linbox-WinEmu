@@ -547,6 +547,9 @@ fun ElementSettingsDialog(
     var selectedShape by remember { mutableStateOf(element.shape) }
     var scale by remember { mutableStateOf(element.scale) }
     var text by remember { mutableStateOf(element.text) }
+    var selectedRange by remember { mutableStateOf(element.range ?: org.github.ewt45.winemulator.inputcontrols.ControlElement.Range.FROM_A_TO_Z) }
+    var selectedOrientation by remember { mutableStateOf(if (element.orientation.toInt() == 1) 1 else 0) }
+    var columns by remember { mutableStateOf(element.getBindingCount()) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -590,6 +593,111 @@ fun ElementSettingsDialog(
                                 },
                                 label = { Text(shape.name.replace("_", " ")) }
                             )
+                        }
+                    }
+                }
+
+                // Range Button specific settings
+                if (element.type == org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.RANGE_BUTTON) {
+                    // Range selector
+                    Text("范围", style = MaterialTheme.typography.labelMedium)
+                    var rangeExpanded by remember { mutableStateOf(false) }
+                    ExposedDropdownMenuBox(
+                        expanded = rangeExpanded,
+                        onExpandedChange = { rangeExpanded = !rangeExpanded }
+                    ) {
+                        OutlinedTextField(
+                            value = selectedRange.name.replace("_", " "),
+                            onValueChange = {},
+                            readOnly = true,
+                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = rangeExpanded) },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                        )
+                        ExposedDropdownMenu(
+                            expanded = rangeExpanded,
+                            onDismissRequest = { rangeExpanded = false }
+                        ) {
+                            org.github.ewt45.winemulator.inputcontrols.ControlElement.Range.entries.forEach { range ->
+                                DropdownMenuItem(
+                                    text = { Text(range.name.replace("_", " ")) },
+                                    onClick = {
+                                        selectedRange = range
+                                        element.range = range
+                                        rangeExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    // Orientation selector
+                    Text("方向", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = selectedOrientation == 0,
+                                onClick = {
+                                    selectedOrientation = 0
+                                    element.orientation = 0
+                                }
+                            )
+                            Text("水平")
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            RadioButton(
+                                selected = selectedOrientation == 1,
+                                onClick = {
+                                    selectedOrientation = 1
+                                    element.orientation = 1
+                                }
+                            )
+                            Text("垂直")
+                        }
+                    }
+
+                    // Columns number
+                    Text("列数: $columns", style = MaterialTheme.typography.labelMedium)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        IconButton(
+                            onClick = {
+                                if (columns > 3) {
+                                    columns--
+                                    element.setBindingCount(columns)
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Remove, contentDescription = "减少")
+                        }
+                        Slider(
+                            value = columns.toFloat(),
+                            onValueChange = {
+                                columns = it.toInt()
+                            },
+                            onValueChangeFinished = {
+                                element.setBindingCount(columns)
+                            },
+                            valueRange = 3f..8f,
+                            steps = 4,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = {
+                                if (columns < 8) {
+                                    columns++
+                                    element.setBindingCount(columns)
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Add, contentDescription = "增加")
                         }
                     }
                 }
