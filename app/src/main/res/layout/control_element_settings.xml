@@ -70,6 +70,51 @@
                 android:layout_marginTop="4dp"
                 android:background="#FFFFFF" />
 
+            <!-- Columns 数量配置 -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Columns"
+                android:textColor="#FFFFFF" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/BTColumnsMinus"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="#666666"
+                    android:text="-"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp" />
+
+                <TextView
+                    android:id="@+id/TVColumns"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:text="3"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp" />
+
+                <Button
+                    android:id="@+id/BTColumnsPlus"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="#666666"
+                    android:text="+"
+                    android:textColor="#FFFFFF"
+                    android:textSize="18sp" />
+
+            </LinearLayout>
+
         </LinearLayout>
 
         <!-- Orientation -->
