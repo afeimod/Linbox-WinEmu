@@ -3,6 +3,7 @@ package org.github.ewt45.winemulator.ui
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -13,7 +14,8 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
@@ -26,13 +28,16 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.toBitmap
 import org.github.ewt45.winemulator.Consts
 import kotlin.math.abs
 import kotlin.math.cos
@@ -42,6 +47,8 @@ import kotlin.math.sin
 /**
  * 可展开的悬浮菜单按钮
  * 点击主按钮展开子菜单，子菜单以向上弯曲的弧形排列显示在主按钮上方
+ * 
+ * 修改内容: 使用PNG图标替代矢量图标
  */
 @Composable
 fun ExpandableFloatingMenu(
@@ -54,8 +61,9 @@ fun ExpandableFloatingMenu(
     onX11SettingsClick: () -> Unit,
 ) {
     val density = LocalDensity.current
+    val context = LocalContext.current
     val buttonSizePx = with(density) { Consts.Ui.minimizedIconSize.dp.toPx() }
-    val miniButtonSizePx = with(density) { 40.dp.toPx() }
+    val miniButtonSizePx = with(density) { 36.dp.toPx() }
     val dragThreshold = with(density) { 30.dp.toPx() }
     val initialX = with(density) { 48.dp.toPx() }
     val initialY = with(density) { 100.dp.toPx() }
@@ -72,6 +80,23 @@ fun ExpandableFloatingMenu(
         animationSpec = tween(durationMillis = 300, easing = FastOutSlowInEasing),
         label = "rotation"
     )
+
+    // 加载自定义PNG图标
+    val moveIconBitmap = remember {
+        ContextCompat.getDrawable(context, R.drawable.icon_move)?.toBitmap()
+    }
+    val homeIconBitmap = remember {
+        ContextCompat.getDrawable(context, R.drawable.icon_home)?.toBitmap()
+    }
+    val settingsIconBitmap = remember {
+        ContextCompat.getDrawable(context, R.drawable.icon_settings)?.toBitmap()
+    }
+    val gamepadIconBitmap = remember {
+        ContextCompat.getDrawable(context, R.drawable.icon_gamepad)?.toBitmap()
+    }
+    val displaySettingsIconBitmap = remember {
+        ContextCompat.getDrawable(context, R.drawable.icon_display_settings)?.toBitmap()
+    }
 
     LaunchedEffect(parentWidth, parentHeight, buttonSizePx) {
         if (parentWidth > 0 && parentHeight > 0) {
@@ -96,11 +121,12 @@ fun ExpandableFloatingMenu(
         }
 
         if (isExpanded) {
+            // 使用自定义PNG图标
             val menuItems = listOf(
-                Triple(Icons.Default.Home, "主菜单", onMainMenuClick),
-                Triple(Icons.Filled.Settings, "一般设置", onGeneralSettingsClick),
-                Triple(Icons.Default.Menu, "虚拟按键设置", onVirtualKeysClick),
-                Triple(Icons.Default.Info, "X11显示设置", onX11SettingsClick)
+                Triple(homeIconBitmap, "主菜单", onMainMenuClick),
+                Triple(settingsIconBitmap, "一般设置", onGeneralSettingsClick),
+                Triple(gamepadIconBitmap, "虚拟按键设置", onVirtualKeysClick),
+                Triple(displaySettingsIconBitmap, "X11显示设置", onX11SettingsClick)
             )
 
             val arcRadius = with(density) { 60.dp.toPx() }
@@ -110,7 +136,7 @@ fun ExpandableFloatingMenu(
             val mainCenterY = offsetY + buttonSizePx / 2
             val direction = if (isOnLeftSide) 1f else -1f
 
-            menuItems.forEachIndexed { index, (icon, description, onClick) ->
+            menuItems.forEachIndexed { index, (bitmap, description, onClick) ->
                 val fraction = index.toFloat() / (menuItems.size - 1)
                 val angleDeg = arcSpread * (fraction - 0.5f)
                 val angleRad = Math.toRadians(angleDeg.toDouble()).toFloat()
@@ -124,11 +150,7 @@ fun ExpandableFloatingMenu(
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(x.roundToInt(), y.roundToInt()) }
-                        .size(40.dp)
-                        .background(
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            shape = CircleShape
-                        )
+                        .size(36.dp)
                         .clickable(
                             indication = null,
                             interactionSource = remember { MutableInteractionSource() }
@@ -138,17 +160,18 @@ fun ExpandableFloatingMenu(
                         },
                     contentAlignment = Alignment.Center
                 ) {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = description,
-                        modifier = Modifier.size(24.dp),
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    )
+                    if (bitmap != null) {
+                        Image(
+                            bitmap = bitmap.asImageBitmap(),
+                            contentDescription = description,
+                            modifier = Modifier.size(24.dp),
+                        )
+                    }
                 }
             }
         }
 
-        // 主按钮（代码保持不变）
+        // 主按钮 - 使用自定义移动PNG图标
         Box(
             modifier = Modifier
                 .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
@@ -193,23 +216,42 @@ fun ExpandableFloatingMenu(
                 },
             contentAlignment = Alignment.Center
         ) {
-            Box(
-                modifier = Modifier
-                    .size(Consts.Ui.minimizedIconSize.dp)
-                    .background(
-                        color = MaterialTheme.colorScheme.primaryContainer,
-                        shape = CircleShape
-                    ),
-                contentAlignment = Alignment.Center
-            ) {
+            // 展开时显示关闭图标，收起时显示移动PNG图标
+            if (isExpanded) {
                 Icon(
-                    imageVector = if (isExpanded) Icons.Filled.Close else Icons.Filled.Add,
-                    contentDescription = if (isExpanded) "收起菜单" else "展开菜单",
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "收起菜单",
                     modifier = Modifier
                         .size(36.dp)
-                        .rotate(rotationAngle),
+                        .graphicsLayer {
+                            rotationZ = rotationAngle
+                        },
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                 )
+            } else {
+                // 使用自定义移动PNG图标
+                if (moveIconBitmap != null) {
+                    Image(
+                        bitmap = moveIconBitmap.asImageBitmap(),
+                        contentDescription = "展开菜单",
+                        modifier = Modifier
+                            .size(36.dp)
+                            .graphicsLayer {
+                                rotationZ = rotationAngle
+                            },
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.Add,
+                        contentDescription = "展开菜单",
+                        modifier = Modifier
+                            .size(36.dp)
+                            .graphicsLayer {
+                                rotationZ = rotationAngle
+                            },
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    )
+                }
             }
         }
     }

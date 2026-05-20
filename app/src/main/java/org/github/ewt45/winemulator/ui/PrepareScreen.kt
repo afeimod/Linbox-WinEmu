@@ -72,6 +72,7 @@ import java.net.URL
 private val TAG = "PrepareScreen"
 
 // 下载链接映射 - key为发行版名称，value为URL列表（按优先级排序）
+// 添加rootfs下载功能：当assets中没有rootfs时，可以选择下载
 private val ROOTFS_DOWNLOAD_URLS = mapOf(
     "ubuntu" to listOf(
         "https://github.com/afeimod/Linbox-Rootfs-patchs/releases/download/rootfs-patch/ubuntu.tar.xz",
@@ -523,6 +524,12 @@ private fun PermissionGrant(
 
 
 /**
+ * Rootfs选择界面组件
+ * 支持以下功能：
+ * 1. 从App内置提取rootfs
+ * 2. 下载Ubuntu/Debian rootfs
+ * 3. 选择本地已有的rootfs压缩包
+ * 
  * @param getAvailableUsers 传入rootfs名，返回该rootfs可选择的用户列表
  * @param onChangeUser 参考 [SettingViewModel.onChangeRootfsLoginUser]
  * @param onRootfsNameChange 参考 [SettingViewModel.onChangeRootfsName]
