@@ -202,6 +202,30 @@ class ControlsEditorActivity : AppCompatActivity(), View.OnClickListener {
         llIconList.visibility = if (element.type == ControlElement.Type.BUTTON) View.VISIBLE else View.GONE
         loadIcons(llIconList, element.iconId)
 
+        // Columns 数量配置
+        val tvColumns = view.findViewById<TextView>(R.id.TVColumns)
+        val btColumnsMinus = view.findViewById<Button>(R.id.BTColumnsMinus)
+        val btColumnsPlus = view.findViewById<Button>(R.id.BTColumnsPlus)
+        tvColumns.text = element.getBindingCount().toString()
+        btColumnsMinus.setOnClickListener {
+            val currentCount = element.getBindingCount()
+            if (currentCount > 3) {
+                element.setBindingCount(currentCount - 1)
+                tvColumns.text = element.getBindingCount().toString()
+                profile?.save()
+                inputControlsView.invalidate()
+            }
+        }
+        btColumnsPlus.setOnClickListener {
+            val currentCount = element.getBindingCount()
+            if (currentCount < 8) {
+                element.setBindingCount(currentCount + 1)
+                tvColumns.text = element.getBindingCount().toString()
+                profile?.save()
+                inputControlsView.invalidate()
+            }
+        }
+
         updateLayout.run()
 
         // Use custom showPopupWindow method instead of showAsDropDown
