@@ -9,9 +9,9 @@ import kotlin.math.*
 /**
  * Represents a single control element (button, d-pad, stick, etc.)
  * 
- * 修改内容:
- * 1. 添加虚拟按键按压效果 - FLAG_PRESSED 状态标志用于绘制按下状态
- * 2. 修复范围按钮初始化和刷新问题
+ * 修复内容:
+ * 1. 改进RangeButton设置功能
+ * 2. 修复D-pad按键的持续输出功能（WASD等键盘按键作为D-pad时）
  * 3. 性能优化：减少不必要的 invalidate() 调用
  */
 class ControlElement(
@@ -887,15 +887,23 @@ class ControlElement(
                         val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
                         val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                        // 对于键盘绑定（WASD等），直接使用handleInputEvent发送状态
-                        // 不使用updateKeyState，因为它会触发按键重复机制导致游戏移动时出现停顿
+                        
+                        // 关键修复：对于键盘绑定（WASD等），确保持续发送状态
+                        // 只有状态发生变化时才发送按下事件，抬起时才发送释放事件
+                        // 这样可以保持按键持续输出，解决游戏移动卡顿问题
                         if (binding.isKeyboard) {
-                            inputControlsView.handleInputEvent(binding, state)
+                            // 如果状态从 false 变成 true，发送按下事件
+                            if (state && !states[i]) {
+                                inputControlsView.handleInputEvent(binding, true)
+                            }
+                            // 如果状态从 true 变成 false，发送释放事件
+                            // （这会在 handleTouchUp 中处理）
                         } else {
                             inputControlsView.handleInputEvent(binding, state, value)
                         }
                         states[i] = state
                     }
+                    // 不要在这里 invalidate()，频繁刷新会影响性能
                 }
                 else -> {}
             }
@@ -941,20 +949,35 @@ class ControlElement(
                     setFlag(FLAG_PRESSED, false)
                     inputControlsView.invalidate()
                 }
-                Type.RANGE_BUTTON, Type.D_PAD, Type.STICK, Type.TRACKPAD -> {
+                Type.RANGE_BUTTON -> {
                     for (i in states.indices) {
                         if (states[i]) inputControlsView.handleInputEvent(getBindingAt(i), false)
                         states[i] = false
                     }
-
-                    if (type == Type.RANGE_BUTTON) {
-                        scroller?.handleTouchUp()
-                        setFlag(FLAG_PRESSED, false)
-                        inputControlsView.invalidate()
-                    } else if (type == Type.STICK) {
-                        inputControlsView.invalidate()
+                    scroller?.handleTouchUp()
+                    setFlag(FLAG_PRESSED, false)
+                    inputControlsView.invalidate()
+                }
+                Type.D_PAD, Type.STICK -> {
+                    // 抬起时，释放所有当前按下的按键
+                    for (i in states.indices) {
+                        if (states[i]) {
+                            val binding = getBindingAt(i)
+                            // 对于键盘按键，确保发送释放事件
+                            inputControlsView.handleInputEvent(binding, false)
+                            states[i] = false
+                        }
                     }
-
+                    currentPosition = null
+                    setFlag(FLAG_PRESSED, false)
+                    // 刷新视图以显示按键抬起状态
+                    inputControlsView.invalidate()
+                }
+                Type.TRACKPAD -> {
+                    for (i in states.indices) {
+                        if (states[i]) inputControlsView.handleInputEvent(getBindingAt(i), false)
+                        states[i] = false
+                    }
                     currentPosition = null
                     setFlag(FLAG_PRESSED, false)
                 }
