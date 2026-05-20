@@ -328,6 +328,14 @@ class InputControlsView(
         return PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
     }
 
+    /**
+     * 获取深色滤镜（按下状态时使用）
+     * 使图标变暗以表示按键按下状态
+     */
+    fun getDarkColorFilter(): ColorFilter {
+        return PorterDuffColorFilter(0x80000000.toInt(), PorterDuff.Mode.SRC_IN)
+    }
+
     fun getPrimaryColor(): Int = Color.argb((overlayOpacity * 255).toInt(), 255, 255, 255)
 
     fun getSecondaryColor(): Int = Color.argb((overlayOpacity * 255).toInt(), 2, 119, 189)

@@ -8,6 +8,11 @@ import kotlin.math.*
 
 /**
  * Represents a single control element (button, d-pad, stick, etc.)
+ * 
+ * 修改内容:
+ * 1. 添加虚拟按键按压效果 - FLAG_PRESSED 状态标志用于绘制按下状态
+ * 2. 修复范围按钮初始化和刷新问题
+ * 3. 性能优化：减少不必要的 invalidate() 调用
  */
 class ControlElement(
     private val inputControlsView: InputControlsView
@@ -20,6 +25,13 @@ class ControlElement(
         const val TRACKPAD_MAX_SPEED = 20.0f
         const val TRACKPAD_ACCELERATION_THRESHOLD: Byte = 4
         const val BUTTON_MIN_TIME_TO_KEEP_PRESSED: Short = 300
+
+        // 属性标志位
+        const val FLAG_SELECTED = 1 shl 0
+        const val FLAG_PRESSED = 1 shl 1
+        const val FLAG_VISIBLE = 1 shl 2
+        const val FLAG_TOGGLE_SWITCH = 1 shl 3
+        const val FLAG_BOUNDING_BOX_NEEDS_UPDATE = 1 shl 4
     }
 
     enum class Type {
@@ -87,6 +99,7 @@ class ControlElement(
             if (field != value) {
                 field = value
                 boundingBoxNeedsUpdate = true
+                inputControlsView.invalidate()  // 立即刷新以更新按键大小
             }
         }
     var x: Int = 0
@@ -116,6 +129,10 @@ class ControlElement(
     var range: Range? = null
         set(value) {
             field = value
+            // 重新初始化 scroller
+            scroller = RangeScroller(inputControlsView, this)
+            boundingBoxNeedsUpdate = true
+            inputControlsView.invalidate()
         }
     var orientation: Byte = 0 // 0 = horizontal, 1 = vertical
         set(value) {
@@ -128,6 +145,8 @@ class ControlElement(
     private var currentPointerId: Int = -1
     private val boundingBox: Rect = Rect()
     private var boundingBoxNeedsUpdate: Boolean = true
+    // 属性标志位
+    private var propertyFlags: Int = FLAG_BOUNDING_BOX_NEEDS_UPDATE
     private val states: BooleanArray = booleanArrayOf(false, false, false, false)
     private var currentPosition: PointF? = null
     private var touchTime: Long? = null
@@ -135,6 +154,12 @@ class ControlElement(
     // For range button scroller
     private var scroller: RangeScroller? = null
     private var interpolator: CubicBezierInterpolator? = null
+
+    // 属性标志位辅助方法
+    private fun isFlagSet(flag: Int): Boolean = (propertyFlags and flag) != 0
+    private fun setFlag(flag: Int, value: Boolean) {
+        propertyFlags = if (value) propertyFlags or flag else propertyFlags and flag.inv()
+    }
 
     private fun reset() {
         text = ""
@@ -259,6 +284,7 @@ class ControlElement(
 
     /**
      * Main draw method - renders the control element
+     * 修改内容: 添加按键按下时的视觉反馈效果
      */
     fun draw(canvas: Canvas) {
         val snappingSize = inputControlsView.snappingSize
@@ -283,6 +309,16 @@ class ControlElement(
     private fun drawButton(canvas: Canvas, paint: Paint, box: Rect, primaryColor: Int, strokeWidth: Float) {
         val cx = box.centerX().toFloat()
         val cy = box.centerY().toFloat()
+        val isPressed = isFlagSet(FLAG_PRESSED)
+
+        // 保存原始paint状态
+        val originalStyle = paint.style
+        val originalColor = paint.color
+
+        // 如果是按下状态，填充背景
+        if (isPressed) {
+            paint.style = Paint.Style.FILL
+        }
 
         when (shape) {
             Shape.CIRCLE -> {
@@ -310,6 +346,10 @@ class ControlElement(
             }
         }
 
+        // 恢复paint状态
+        paint.style = originalStyle
+        paint.color = originalColor
+
         // Draw icon if iconId > 0
         if (iconId > 0) {
             drawIcon(canvas, cx, cy, box.width().toFloat(), box.height().toFloat())
@@ -322,7 +362,8 @@ class ControlElement(
             )
             paint.textAlign = Paint.Align.CENTER
             paint.style = Paint.Style.FILL
-            paint.color = primaryColor
+            // 按下时使用深色，未按下使用主色
+            paint.color = if (isPressed) getDarkColor() else primaryColor
             canvas.drawText(
                 displayText, x.toFloat(),
                 y - (paint.descent() + paint.ascent()) * 0.5f,
@@ -335,7 +376,8 @@ class ControlElement(
         val paint = inputControlsView.getPaint()
         val icon = inputControlsView.getIcon(iconId) ?: return
 
-        paint.colorFilter = inputControlsView.getColorFilter()
+        // 按下时使用深色滤镜
+        paint.colorFilter = if (isFlagSet(FLAG_PRESSED)) inputControlsView.getDarkColorFilter() else inputControlsView.getColorFilter()
         val margin = (inputControlsView.snappingSize * (if (shape == Shape.CIRCLE || shape == Shape.SQUARE) 2.0f else 1.0f) * scale).toInt()
         val halfSize = ((minOf(width, height) - margin) * 0.5f).toInt()
 
@@ -411,6 +453,11 @@ class ControlElement(
         val snappingSize = inputControlsView.snappingSize
         val radius = snappingSize * 0.75f * scale
 
+        // 确保 scroller 已初始化
+        if (scroller == null) {
+            scroller = RangeScroller(inputControlsView, this)
+        }
+
         if (orientation == 0.toByte()) {
             // Horizontal
             val lineTop = box.top + strokeWidth * 0.5f
@@ -433,7 +480,6 @@ class ControlElement(
             canvas.clipPath(clipPath)
 
             // 使用 scroller 的 elementSize，确保与触摸逻辑一致
-            // 参考 winlator：elementSize = max(width, height) / bindingCount
             val elementSize = scroller?.getElementSize() ?: run {
                 val boxWidth = box.width().toFloat()
                 val boxHeight = box.height().toFloat()
@@ -514,7 +560,6 @@ class ControlElement(
             canvas.clipPath(clipPath)
 
             // 使用 scroller 的 elementSize，确保与触摸逻辑一致
-            // 参考 winlator：elementSize = max(width, height) / bindingCount
             val elementSize = scroller?.getElementSize() ?: run {
                 val boxWidth = box.width().toFloat()
                 val boxHeight = box.height().toFloat()
@@ -671,6 +716,10 @@ class ControlElement(
         }
     }
 
+    /**
+     * 处理触控按下事件
+     * 修改内容: 添加按下状态标志 FLAG_PRESSED
+     */
     fun handleTouchDown(pointerId: Int, px: Float, py: Float): Boolean {
         if (currentPointerId == -1 && containsPoint(px, py)) {
             currentPointerId = pointerId
@@ -680,10 +729,18 @@ class ControlElement(
                     if (isKeepButtonPressedAfterMinTime()) {
                         touchTime = System.currentTimeMillis()
                     }
-                    if (!isToggleSwitch || !isSelected) {
+                    // Toggle按钮的按下逻辑
+                    if (!isFlagSet(FLAG_TOGGLE_SWITCH)) {
+                        // 非Toggle按钮：直接发送按下事件
                         inputControlsView.handleInputEvent(getBindingAt(0), true)
                         inputControlsView.handleInputEvent(getBindingAt(1), true)
+                    } else if (!isFlagSet(FLAG_SELECTED)) {
+                        // Toggle按钮且未选中：发送按下事件
+                        inputControlsView.sendKeyDown(getBindingAt(0))
                     }
+                    // 设置按下状态标志
+                    setFlag(FLAG_PRESSED, true)
+                    inputControlsView.invalidate()
                     return true
                 }
                 Type.RANGE_BUTTON -> {
@@ -691,6 +748,8 @@ class ControlElement(
                         scroller = RangeScroller(inputControlsView, this)
                     }
                     scroller?.handleTouchDown(this, px, py)
+                    setFlag(FLAG_PRESSED, true)
+                    inputControlsView.invalidate()
                     return true
                 }
                 Type.TRACKPAD -> {
@@ -767,7 +826,13 @@ class ControlElement(
                             states[i] = true
                         } else {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            inputControlsView.handleInputEvent(binding, state, value)
+                            // 对于键盘绑定（WASD等），直接使用handleInputEvent发送状态
+                            // 不使用updateKeyState，因为它会触发按键重复机制导致游戏移动时出现停顿
+                            if (binding.isKeyboard) {
+                                inputControlsView.handleInputEvent(binding, state)
+                            } else {
+                                inputControlsView.handleInputEvent(binding, state, value)
+                            }
                             states[i] = state
                         }
                     }
@@ -822,7 +887,13 @@ class ControlElement(
                         val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
                         val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                        inputControlsView.handleInputEvent(binding, state, value)
+                        // 对于键盘绑定（WASD等），直接使用handleInputEvent发送状态
+                        // 不使用updateKeyState，因为它会触发按键重复机制导致游戏移动时出现停顿
+                        if (binding.isKeyboard) {
+                            inputControlsView.handleInputEvent(binding, state)
+                        } else {
+                            inputControlsView.handleInputEvent(binding, state, value)
+                        }
                         states[i] = state
                     }
                 }
@@ -831,7 +902,13 @@ class ControlElement(
             return true
         } else if (pointerId == currentPointerId && type == Type.RANGE_BUTTON) {
             scroller?.handleTouchMove(this, px, py)
-            inputControlsView.invalidate()  // 触发重绘以显示滚动效果
+            // 检查 scroller 的滚动状态
+            val currentScroller = scroller
+            val isCurrentlyScrolling = currentScroller != null && kotlin.math.abs(currentScroller.getScrollOffset()) > 0.1f
+            if (isCurrentlyScrolling) {
+                setFlag(FLAG_PRESSED, false)
+                inputControlsView.invalidate()
+            }
             return true
         }
         return false
@@ -841,23 +918,28 @@ class ControlElement(
         if (pointerId == currentPointerId) {
             when (type) {
                 Type.BUTTON -> {
+                    var selected = isFlagSet(FLAG_SELECTED)
                     if (isKeepButtonPressedAfterMinTime() && touchTime != null) {
-                        isSelected = (System.currentTimeMillis() - touchTime!!) > BUTTON_MIN_TIME_TO_KEEP_PRESSED
-                        if (!isSelected) {
+                        selected = (System.currentTimeMillis() - touchTime!!) > BUTTON_MIN_TIME_TO_KEEP_PRESSED
+                        if (!selected) {
                             inputControlsView.handleInputEvent(getBindingAt(0), false)
                             inputControlsView.handleInputEvent(getBindingAt(1), false)
                         }
+                        setFlag(FLAG_SELECTED, selected)
                         touchTime = null
-                        inputControlsView.invalidate()
-                    } else if (!isToggleSwitch || isSelected) {
+                    } else if (!isFlagSet(FLAG_TOGGLE_SWITCH)) {
+                        // 非Toggle按钮：抬起时发送释放事件
                         inputControlsView.handleInputEvent(getBindingAt(0), false)
                         inputControlsView.handleInputEvent(getBindingAt(1), false)
                     }
+                    // Toggle按钮：抬起时不发送释放事件（长按保持）
 
-                    if (isToggleSwitch) {
-                        isSelected = !isSelected
-                        inputControlsView.invalidate()
+                    if (isFlagSet(FLAG_TOGGLE_SWITCH)) {
+                        setFlag(FLAG_SELECTED, !selected)
                     }
+                    // 清除按下状态标志
+                    setFlag(FLAG_PRESSED, false)
+                    inputControlsView.invalidate()
                 }
                 Type.RANGE_BUTTON, Type.D_PAD, Type.STICK, Type.TRACKPAD -> {
                     for (i in states.indices) {
@@ -867,11 +949,14 @@ class ControlElement(
 
                     if (type == Type.RANGE_BUTTON) {
                         scroller?.handleTouchUp()
+                        setFlag(FLAG_PRESSED, false)
+                        inputControlsView.invalidate()
                     } else if (type == Type.STICK) {
                         inputControlsView.invalidate()
                     }
 
                     currentPosition = null
+                    setFlag(FLAG_PRESSED, false)
                 }
             }
             currentPointerId = -1
@@ -887,6 +972,11 @@ class ControlElement(
 
     private fun clamp(value: Float, min: Float, max: Float): Float {
         return maxOf(min, minOf(max, value))
+    }
+
+    private fun getDarkColor(): Int {
+        val opacity = if (inputControlsView.isEditMode()) maxOf(0.15f, 1.0f) else 1.0f
+        return Color.argb((opacity * inputControlsView.overlayOpacity * 255).toInt(), 0, 0, 0)
     }
 
     fun toJSONObject(): org.json.JSONObject {
