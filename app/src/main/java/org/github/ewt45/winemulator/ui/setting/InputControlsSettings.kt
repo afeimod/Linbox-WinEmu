@@ -537,6 +537,7 @@ fun ControlsEditorDialog(
 /**
  * Dialog for editing a single control element
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ElementSettingsDialog(
     element: org.github.ewt45.winemulator.inputcontrols.ControlElement,
@@ -675,7 +676,7 @@ fun ElementSettingsDialog(
                                 }
                             }
                         ) {
-                            Icon(Icons.Default.Remove, contentDescription = "减少")
+                            Text("-", style = MaterialTheme.typography.titleLarge)
                         }
                         Slider(
                             value = columns.toFloat(),
@@ -697,7 +698,7 @@ fun ElementSettingsDialog(
                                 }
                             }
                         ) {
-                            Icon(Icons.Default.Add, contentDescription = "增加")
+                            Text("+", style = MaterialTheme.typography.titleLarge)
                         }
                     }
                 }
