@@ -1,6 +1,6 @@
 package org.github.ewt45.winemulator.ui
 
-import org.github.ewt45.winemulator.R
+import a.io.github.ewt45.winemulator.R
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
