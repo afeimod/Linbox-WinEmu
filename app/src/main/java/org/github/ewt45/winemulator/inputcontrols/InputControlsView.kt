@@ -404,20 +404,19 @@ class InputControlsView(
                 val x = event.getX(actionIndex)
                 val y = event.getY(actionIndex)
 
-                // 重置触摸板左键功能（参考 termux）
-                touchpadView?.setPointerButtonLeftEnabled(true)
-
                 // 遍历所有元素，让每个都有机会处理这个触摸点
                 // 这是 termux 的核心逻辑：不是按位置查找，而是让所有元素尝试处理
                 var elementHandled = false
                 for (element in profile!!.getElements()) {
                     if (element.handleTouchDown(pointerId, x, y)) {
                         elementHandled = true
-                        // 如果绑定了鼠标左键，禁用触摸板的左键功能
-                        if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
-                            touchpadView?.setPointerButtonLeftEnabled(false)
-                        }
                     }
+                }
+
+                // 如果虚拟按键处理了这个触摸点，不重置触摸板左键功能
+                // 如果虚拟按键没有处理这个触摸点，重置触摸板左键功能
+                if (!elementHandled) {
+                    touchpadView?.setPointerButtonLeftEnabled(true)
                 }
                 
                 // 只有当虚拟按键处理了事件时才标记为 handled
