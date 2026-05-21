@@ -494,7 +494,7 @@ class InputControlsView(
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                     var handledByControl = false
                     for (element in profile!!.getElements()) {
-                        if (element.handleTouchUp(pointerId)) {
+                        if (element.handleTouchUp(pointerId, event.getX(actionIndex), event.getY(actionIndex))) {
                             handledByControl = true
                         }
                     }
