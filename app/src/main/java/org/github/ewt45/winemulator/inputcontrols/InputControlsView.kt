@@ -423,16 +423,15 @@ class InputControlsView(
                 // 只有当虚拟按键处理了事件时才标记为 handled
                 handled = elementHandled
 
-                // 如果没有虚拟按键处理这个触摸点，传递给触摸板
-                if (!elementHandled) {
-                    passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                }
+                // 关键修复：触摸板必须接收所有 DOWN 事件，以确保状态正确
+                // 触摸板会根据 isPointerButtonLeftEnabled 和 pointerCount 决定是否处理
+                touchpadView?.onTouchEvent(event)
 
                 if (handled) {
                     vibrator?.vibrate(vibrationEffect)
                 }
 
-                return handled || passthroughHandled
+                return true  // 始终返回 true，确保触摸事件不会穿透
             }
 
             MotionEvent.ACTION_MOVE -> {
@@ -451,12 +450,11 @@ class InputControlsView(
                     }
                 }
 
-                // 如果没有被虚拟按键处理，传递给触摸板
-                if (!handled) {
-                    passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                }
+                // 关键修复：触摸板必须接收所有 MOVE 事件以支持触摸板功能
+                // 触摸板会根据 isPointerButtonLeftEnabled 和 pointerCount 决定是否处理
+                touchpadView?.onTouchEvent(event)
 
-                return handled || passthroughHandled
+                return true  // 必须返回 true，确保触摸事件不会穿透到下层
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
@@ -473,15 +471,14 @@ class InputControlsView(
                     }
                 }
 
-                // 如果没有被虚拟按键处理，传递给触摸板
-                if (!handled) {
-                    passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                }
+                // 关键修复：触摸板必须接收 POINTER_UP 事件才能正确模拟鼠标左键抬起
+                // 无论虚拟按键是否处理了事件，都必须将抬起事件传递给触摸板
+                passthroughHandled = touchpadView?.onTouchEvent(event) == true
 
                 // 恢复触摸板的左键功能
                 touchpadView?.setPointerButtonLeftEnabled(true)
 
-                return handled || passthroughHandled
+                return true  // 必须返回 true，确保触摸事件不会穿透到下层
             }
         }
 
