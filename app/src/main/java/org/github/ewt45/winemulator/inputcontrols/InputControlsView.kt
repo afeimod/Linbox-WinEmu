@@ -17,10 +17,11 @@ import kotlin.math.*
  */
 @SuppressLint("ViewConstructor")
 class InputControlsView(
-    context: Context
+    context: Context,
+    editMode: Boolean = false
 ) : View(context) {
 
-    private var _editMode: Boolean = false
+    private var _editMode: Boolean = editMode
     var editMode: Boolean
         get() = _editMode
         set(value) { _editMode = value }
