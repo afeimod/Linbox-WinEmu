@@ -826,17 +826,8 @@ class ControlElement(
                             states[i] = true
                         } else {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            // 对于键盘绑定（WASD等），只发送状态变化事件
-                            // 与D_PAD保持一致，避免重复发送导致的问题
-                            if (binding.isKeyboard) {
-                                // 状态从 false 变成 true 时发送按下事件
-                                if (state && !states[i]) {
-                                    inputControlsView.handleInputEvent(binding, true)
-                                }
-                                // 状态从 true 变成 false 在 handleTouchUp 中处理
-                            } else {
-                                inputControlsView.handleInputEvent(binding, state, value)
-                            }
+                            // 与 Termux 一致：直接发送所有状态变化
+                            inputControlsView.handleInputEvent(binding, state, value)
                             states[i] = state
                         }
                     }
@@ -879,7 +870,7 @@ class ControlElement(
                         inputControlsView.injectPointerMove(cursorDx, cursorDy)
                     }
                 }
-                Type.D_PAD -> {
+                Type.D_PAD, Type.STICK -> {
                     val newStates = booleanArrayOf(
                         deltaY <= -DPAD_DEAD_ZONE,
                         deltaX >= DPAD_DEAD_ZONE,
@@ -892,19 +883,8 @@ class ControlElement(
                         val binding = getBindingAt(i)
                         val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                         
-                        // 关键修复：对于键盘绑定（WASD等），确保持续发送状态
-                        // 只有状态发生变化时才发送按下事件，抬起时才发送释放事件
-                        // 这样可以保持按键持续输出，解决游戏移动卡顿问题
-                        if (binding.isKeyboard) {
-                            // 如果状态从 false 变成 true，发送按下事件
-                            if (state && !states[i]) {
-                                inputControlsView.handleInputEvent(binding, true)
-                            }
-                            // 如果状态从 true 变成 false，发送释放事件
-                            // （这会在 handleTouchUp 中处理）
-                        } else {
-                            inputControlsView.handleInputEvent(binding, state, value)
-                        }
+                        // 与 Termux 一致：直接发送所有状态变化
+                        inputControlsView.handleInputEvent(binding, state, value)
                         states[i] = state
                     }
                     // 不要在这里 invalidate()，频繁刷新会影响性能
