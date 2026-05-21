@@ -413,16 +413,13 @@ class InputControlsView(
                     }
                 }
 
-                // 如果虚拟按键处理了这个触摸点，不重置触摸板左键功能
-                // 如果虚拟按键没有处理这个触摸点，重置触摸板左键功能
-                if (!elementHandled) {
-                    touchpadView?.setPointerButtonLeftEnabled(true)
-                }
+                // 关键修复：必须始终启用触摸板左键功能
+                // 这样虚拟按键和触摸板可以同时工作
+                touchpadView?.setPointerButtonLeftEnabled(true)
                 
-                // 只有当虚拟按键处理了事件时才标记为 handled
                 handled = elementHandled
 
-                // 关键修复：触摸板必须接收所有 DOWN 事件，以确保状态正确
+                // 关键修复：触摸板必须接收所有 DOWN 事件
                 // 触摸板会根据 isPointerButtonLeftEnabled 和 pointerCount 决定是否处理
                 touchpadView?.onTouchEvent(event)
 
