@@ -381,12 +381,14 @@ class InputControlsView(
      * 
      * 核心逻辑（与 termux 完全一致）：
      * 1. ACTION_DOWN/POINTER_DOWN: 遍历所有元素尝试处理，如果有虚拟按键处理则禁用触摸板左键
-     * 2. ACTION_MOVE: 遍历所有元素调用 handleTouchMove，遍历所有元素调用 handleTouchUp
+     * 2. ACTION_MOVE: 遍历所有元素调用 handleTouchMove
      * 3. 如果没有虚拟按键处理，传递给触摸板处理
      * 
      * 这样虚拟按键和触摸板可以同时独立工作：
      * - 一个手指按在虚拟按键上输出按键
      * - 另一个手指在空白区域滑动触摸板移动鼠标
+     * 
+     * 关键：使用 pointerIdIndexMap 来跟踪哪些指针被虚拟按键捕获
      */
     fun handleTouchEvent(event: MotionEvent): Boolean {
         val actionIndex = event.actionIndex
@@ -396,7 +398,6 @@ class InputControlsView(
 
         var handled = false
         var passthroughHandled = false
-        var passthroughDispatched = false
 
         when (actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
@@ -408,20 +409,23 @@ class InputControlsView(
 
                 // 遍历所有元素，让每个都有机会处理这个触摸点
                 // 这是 termux 的核心逻辑：不是按位置查找，而是让所有元素尝试处理
+                var elementHandled = false
                 for (element in profile!!.getElements()) {
                     if (element.handleTouchDown(pointerId, x, y)) {
-                        handled = true
+                        elementHandled = true
                         // 如果绑定了鼠标左键，禁用触摸板的左键功能
                         if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON) {
                             touchpadView?.setPointerButtonLeftEnabled(false)
                         }
                     }
                 }
+                
+                // 只有当虚拟按键处理了事件时才标记为 handled
+                handled = elementHandled
 
                 // 如果没有虚拟按键处理这个触摸点，传递给触摸板
-                if (!handled) {
+                if (!elementHandled) {
                     passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                    passthroughDispatched = true
                 }
 
                 if (handled) {
@@ -433,41 +437,45 @@ class InputControlsView(
 
             MotionEvent.ACTION_MOVE -> {
                 // 对每个触摸点，遍历所有元素调用 handleTouchMove
-                // 这是 termux 的核心逻辑：按索引 i 调用，不是按 pointerId
+                // 关键：使用 pointerIdIndexMap 来跟踪哪些指针被虚拟按键捕获
                 for (i in 0 until pointerCount) {
+                    val pointerId = event.getPointerId(i)
                     val x = event.getX(i)
                     val y = event.getY(i)
 
                     // 遍历所有元素，让每个都有机会处理移动事件
                     for (element in profile!!.getElements()) {
-                        if (element.handleTouchMove(i, x, y)) {
+                        if (element.handleTouchMove(pointerId, x, y)) {
                             handled = true
                         }
                     }
                 }
 
                 // 如果没有被虚拟按键处理，传递给触摸板
-                if (!handled && !passthroughDispatched) {
+                if (!handled) {
                     passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                    passthroughDispatched = true
                 }
 
                 return handled || passthroughHandled
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                // 遍历所有元素调用 handleTouchUp
+                // 遍历所有指针调用 handleTouchUp
                 // 这是 termux 的核心逻辑：遍历所有元素，让每个都有机会处理抬起
-                for (element in profile!!.getElements()) {
-                    if (element.handleTouchUp(pointerId)) {
-                        handled = true
+                for (i in 0 until pointerCount) {
+                    val pointerId = event.getPointerId(i)
+                    val x = event.getX(i)
+                    val y = event.getY(i)
+                    for (element in profile!!.getElements()) {
+                        if (element.handleTouchUp(pointerId, x, y)) {
+                            handled = true
+                        }
                     }
                 }
 
                 // 如果没有被虚拟按键处理，传递给触摸板
-                if (!handled && !passthroughDispatched) {
+                if (!handled) {
                     passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                    passthroughDispatched = true
                 }
 
                 // 恢复触摸板的左键功能

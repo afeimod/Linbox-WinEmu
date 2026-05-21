@@ -150,6 +150,9 @@ class ControlElement(
     private val states: BooleanArray = booleanArrayOf(false, false, false, false)
     private var currentPosition: PointF? = null
     private var touchTime: Long? = null
+    
+    // 用于多指触摸跟踪：将 pointerId 映射到 ControlElement 实例
+    private val pointerToElementMap = mutableMapOf<Int, ControlElement>()
 
     // For range button scroller
     private var scroller: RangeScroller? = null
@@ -906,7 +909,7 @@ class ControlElement(
         return false
     }
 
-    fun handleTouchUp(pointerId: Int): Boolean {
+    fun handleTouchUp(pointerId: Int, x: Float, y: Float): Boolean {
         if (pointerId == currentPointerId) {
             when (type) {
                 Type.BUTTON -> {
