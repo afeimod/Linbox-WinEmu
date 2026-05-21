@@ -161,7 +161,7 @@ class InputControlsView(
         invalidate()
     }
 
-    fun setEditMode(mode: Boolean) {
+    fun setEditModeValue(mode: Boolean) {
         _editMode = mode
     }
 
