@@ -438,7 +438,7 @@ class InputControlsView(
                     val y = event.getY(i)
                     // 遍历所有元素，让每个都有机会处理移动事件
                     for (element in profile!!.getElements()) {
-                        if (element.handleTouchMove(pointerId, x, y)) {
+                        if (element.handleTouchMove(i, x, y)) {
                             handled = true
                         }
                     }
@@ -452,11 +452,10 @@ class InputControlsView(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                 // 遍历所有指针调用 handleTouchUp
                 for (i in 0 until pointerCount) {
-                    val pointerId = event.getPointerId(i)
                     val x = event.getX(i)
                     val y = event.getY(i)
                     for (element in profile!!.getElements()) {
-                        if (element.handleTouchUp(pointerId, x, y)) {
+                        if (element.handleTouchUp(i, x, y)) {
                             handled = true
                         }
                     }
@@ -532,6 +531,7 @@ class TouchpadView(context: Context) : View(context) {
 
         when (actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                // 始终更新 lastX/lastY 为当前按下手指的位置
                 lastX = event.getX(actionIndex)
                 lastY = event.getY(actionIndex)
 
@@ -545,7 +545,7 @@ class TouchpadView(context: Context) : View(context) {
             }
 
             MotionEvent.ACTION_MOVE -> {
-                // 使用第一个触摸点处理移动
+                // 使用第一个触摸点的位置处理移动
                 if (pointerCount > 0) {
                     val x = event.getX(0)
                     val y = event.getY(0)
