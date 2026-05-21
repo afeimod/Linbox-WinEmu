@@ -438,7 +438,7 @@ class InputControlsView(
                     val y = event.getY(i)
                     // 遍历所有元素，让每个都有机会处理移动事件
                     for (element in profile!!.getElements()) {
-                        if (element.handleTouchMove(i, x, y)) {
+                        if (element.handleTouchMove(pointerId, x, y)) {
                             handled = true
                         }
                     }
@@ -452,10 +452,11 @@ class InputControlsView(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                 // 遍历所有指针调用 handleTouchUp
                 for (i in 0 until pointerCount) {
+                    val pointerId = event.getPointerId(i)
                     val x = event.getX(i)
                     val y = event.getY(i)
                     for (element in profile!!.getElements()) {
-                        if (element.handleTouchUp(i, x, y)) {
+                        if (element.handleTouchUp(pointerId, x, y)) {
                             handled = true
                         }
                     }
