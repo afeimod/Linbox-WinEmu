@@ -382,11 +382,11 @@ class InputControlsView(
      * 核心逻辑（与 termux 完全一致）：
      * 1. ACTION_DOWN/POINTER_DOWN: 遍历所有元素尝试处理
      *    - 如果虚拟按键处理了事件且绑定的是鼠标左键，禁用触摸板左键功能
-     *    - 如果虚拟按键没有处理任何事件，将事件传递给触摸板（passthrough）
+     *    - 始终将事件传递给触摸板（passthrough），让触摸板能处理多点触控
      * 2. ACTION_MOVE: 遍历所有元素调用 handleTouchMove
-     *    - 只有当虚拟按键没有处理该指针的移动时，才将事件传递给触摸板
+     *    - 始终将事件传递给触摸板，让触摸板能处理其他指针的移动
      * 3. ACTION_UP/POINTER_UP: 遍历所有元素调用 handleTouchUp
-     *    - 只有当虚拟按键没有处理事件时，才将事件传递给触摸板
+     *    - 始终将事件传递给触摸板
      *
      * 这样虚拟按键和触摸板可以同时独立工作：
      * - 一个手指按在虚拟按键上输出按键
@@ -400,7 +400,6 @@ class InputControlsView(
 
         var handled = false
         var passthroughHandled = false
-        var passthroughDispatched = false
 
         when (actionMasked) {
             MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
@@ -421,11 +420,8 @@ class InputControlsView(
                     }
                 }
 
-                // 只有当虚拟按键没有处理事件时才传递给触摸板
-                if (!handled) {
-                    passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                    passthroughDispatched = true
-                }
+                // 始终将事件传递给触摸板，支持多点触控
+                passthroughHandled = touchpadView?.onTouchEvent(event) == true
 
                 if (handled) {
                     vibrator?.vibrate(vibrationEffect)
@@ -440,22 +436,15 @@ class InputControlsView(
                     val pointerId = event.getPointerId(i)
                     val x = event.getX(i)
                     val y = event.getY(i)
-
-                    var pointerHandled = false
                     // 遍历所有元素，让每个都有机会处理移动事件
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchMove(pointerId, x, y)) {
-                            pointerHandled = true
+                            handled = true
                         }
                     }
-                    handled = handled || pointerHandled
-
-                    // 只有当该指针没有被虚拟按键处理且还没有传递过 passthrough 事件时，才传递给触摸板
-                    if (!pointerHandled && !passthroughDispatched) {
-                        passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                        passthroughDispatched = true
-                    }
                 }
+                // 始终将事件传递给触摸板，支持多点触控
+                passthroughHandled = touchpadView?.onTouchEvent(event) == true
 
                 return handled || passthroughHandled
             }
@@ -463,6 +452,7 @@ class InputControlsView(
             MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                 // 遍历所有指针调用 handleTouchUp
                 for (i in 0 until pointerCount) {
+                    val pointerId = event.getPointerId(i)
                     val x = event.getX(i)
                     val y = event.getY(i)
                     for (element in profile!!.getElements()) {
@@ -470,14 +460,9 @@ class InputControlsView(
                             handled = true
                         }
                     }
-
-                    // 只有当虚拟按键没有处理事件时，才传递给触摸板
-                    if (!handled && !passthroughDispatched) {
-                        passthroughHandled = touchpadView?.onTouchEvent(event) == true
-                        passthroughDispatched = true
-                    }
                 }
-
+                // 始终将事件传递给触摸板
+                passthroughHandled = touchpadView?.onTouchEvent(event) == true
                 // 恢复触摸板的左键功能
                 touchpadView?.setPointerButtonLeftEnabled(true)
 
