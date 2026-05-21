@@ -18,7 +18,7 @@ import kotlin.math.*
 @SuppressLint("ViewConstructor")
 class InputControlsView(
     context: Context,
-    private var editMode: Boolean = false
+    var editMode: Boolean = false
 ) : View(context) {
 
     var inputEventHandler: InputEventHandler? = null
@@ -345,6 +345,10 @@ class InputControlsView(
 
     fun getColorFilter(): ColorFilter {
         return PorterDuffColorFilter(0xFFFFFFFF.toInt(), PorterDuff.Mode.SRC_IN)
+    }
+
+    fun getDarkColorFilter(): ColorFilter {
+        return PorterDuffColorFilter(0xFF888888.toInt(), PorterDuff.Mode.SRC_IN)
     }
 
     fun getPrimaryColor(): Int = Color.argb((overlayOpacity * 255).toInt(), 255, 255, 255)
