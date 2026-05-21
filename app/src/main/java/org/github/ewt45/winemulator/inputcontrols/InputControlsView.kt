@@ -18,7 +18,10 @@ import kotlin.math.*
 @SuppressLint("ViewConstructor")
 class InputControlsView(
     context: Context,
-    var editMode: Boolean = false
+    private var _editMode: Boolean = false
+    var editMode: Boolean
+        get() = _editMode
+        private set(value) { _editMode = value }
 ) : View(context) {
 
     var inputEventHandler: InputEventHandler? = null
@@ -157,7 +160,7 @@ class InputControlsView(
     }
 
     fun setEditMode(mode: Boolean) {
-        editMode = mode
+        _editMode = mode
     }
 
     fun setProfile(profile: ControlsProfile?) {
