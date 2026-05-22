@@ -37,17 +37,15 @@ class X11InputSender {
     fun sendKeyEvent(keycode: Int, isDown: Boolean) {
         val sender = inputEventSender ?: return
         
-        handler.post {
-            if (isDown) {
-                // Key down event - simple press, no repeat
-                val downEvent = KeyEvent(KeyEvent.ACTION_DOWN, keycode)
-                downEvent.startTracking()
-                sender.sendKeyEvent(downEvent)
-            } else {
-                // Key up event - simple release
-                val upEvent = KeyEvent(KeyEvent.ACTION_UP, keycode)
-                sender.sendKeyEvent(upEvent)
-            }
+        // 同步发送按键事件，确保事件顺序正确
+        // 使用 KeyEvent.CREATE_ALL_DEVICE_IDS 创建兼容所有设备的 event
+        if (isDown) {
+            val downEvent = KeyEvent(KeyEvent.ACTION_DOWN, keycode)
+            downEvent.startTracking()
+            sender.sendKeyEvent(downEvent)
+        } else {
+            val upEvent = KeyEvent(KeyEvent.ACTION_UP, keycode)
+            sender.sendKeyEvent(upEvent)
         }
     }
 
