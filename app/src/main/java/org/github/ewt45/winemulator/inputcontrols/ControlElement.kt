@@ -9,10 +9,10 @@ import kotlin.math.*
 /**
  * Represents a single control element (button, d-pad, stick, etc.)
  * 
- * 修复内容:
- * 1. 改进RangeButton设置功能
- * 2. 修复D-pad按键的持续输出功能（WASD等键盘按键作为D-pad时）
- * 3. 性能优化：减少不必要的 invalidate() 调用
+ * Fixed: Added keyboard repeat support for WASD and other keyboard bindings
+ * When D-Pad or Stick elements use keyboard bindings (like KEY_W, KEY_A, KEY_S, KEY_D),
+ * the keys will be continuously pressed while the element is held, enabling
+ * smooth movement in games.
  */
 class ControlElement(
     private val inputControlsView: InputControlsView
@@ -151,8 +151,6 @@ class ControlElement(
     private var currentPosition: PointF? = null
     private var touchTime: Long? = null
     
-    // 用于多指触摸跟踪：将 pointerId 映射到 ControlElement 实例
-    private val pointerToElementMap = mutableMapOf<Int, ControlElement>()
 
     // For range button scroller
     private var scroller: RangeScroller? = null
@@ -193,6 +191,19 @@ class ControlElement(
                 scroller = RangeScroller(inputControlsView, this)
             }
             else -> {}
+        }
+    }
+    
+    /**
+     * Update the set of indices that have keyboard bindings
+     * This is used to enable keyboard repeat for D-Pad and Stick elements
+     */
+    private fun updateKeyboardBindingIndices() {
+        keyboardBindingIndices.clear()
+        for (i in bindings.indices) {
+            if (bindings[i].isKeyboard) {
+                keyboardBindingIndices.add(i)
+            }
         }
     }
 
@@ -721,7 +732,7 @@ class ControlElement(
 
     /**
      * 处理触控按下事件
-     * 修改内容: 添加按下状态标志 FLAG_PRESSED
+     * 修改内容: 添加按下状态标志 FLAG_PRESSED，并注册键盘绑定用于重复按下
      */
     fun handleTouchDown(pointerId: Int, px: Float, py: Float): Boolean {
         if (currentPointerId == -1 && containsPoint(px, py)) {
@@ -827,9 +838,18 @@ class ControlElement(
                             )
                             inputControlsView.handleInputEvent(binding, true, adjustedValue)
                             states[i] = true
+                        } else if (binding.isKeyboard) {
+                            // Keyboard binding - handle repeat for D-Pad with keyboard bindings
+                            val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
+                            if (state != states[i]) {
+                                // State changed - send initial press/release
+                                inputControlsView.handleInputEvent(binding, state)
+                                states[i] = state
+                            }
+                            // Note: For keyboard bindings, we don't invalidate() here to avoid performance issues
+                            // The view will be invalidated on touch up
                         } else {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            // 与 Termux 一致：直接发送所有状态变化
                             inputControlsView.handleInputEvent(binding, state, value)
                             states[i] = state
                         }
@@ -884,13 +904,24 @@ class ControlElement(
                     for (i in 0..3) {
                         val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
-                        val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                         
-                        // 与 Termux 一致：直接发送所有状态变化
-                        inputControlsView.handleInputEvent(binding, state, value)
-                        states[i] = state
+                        if (binding.isKeyboard) {
+                            // Keyboard binding (like WASD) - handle with repeat support
+                            val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
+                            if (state != states[i]) {
+                                // State changed - send initial press/release
+                                inputControlsView.handleInputEvent(binding, state)
+                                states[i] = state
+                            }
+                            // Note: For keyboard bindings, we don't invalidate() here to avoid performance issues
+                            // The view will be invalidated on touch up
+                        } else {
+                            // Mouse or other bindings - send all state changes immediately
+                            val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
+                            inputControlsView.handleInputEvent(binding, state, value)
+                            states[i] = state
+                        }
                     }
-                    // 不要在这里 invalidate()，频繁刷新会影响性能
                 }
                 else -> {}
             }

@@ -14,6 +14,9 @@ import kotlin.math.*
 
 /**
  * View for rendering and interacting with input controls
+ * 
+ * Following termuxapp's approach: simple press/release events for keyboard,
+ * and separate handling for mouse movements (with timer)
  */
 @SuppressLint("ViewConstructor")
 class InputControlsView(
@@ -79,8 +82,6 @@ class InputControlsView(
         const val CLICK_MAX_TIME = 200L     // 点击的最长时间（毫秒）
     }
 
-
-
     // Icon cache
     private val icons = arrayOfNulls<Bitmap>(17)
 
@@ -118,7 +119,6 @@ class InputControlsView(
         // 刷新视图以更新绘制
         invalidate()
     }
-
 
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -221,6 +221,11 @@ class InputControlsView(
         invalidate()
     }
 
+    /**
+     * Handle input event - following termuxapp's simple approach
+     * Keyboard events: send press/release without custom repeat
+     * Mouse events: handle based on type
+     */
     fun handleInputEvent(binding: Binding, isDown: Boolean, value: Float = 0f) {
         when {
             binding.isGamepad -> {
@@ -253,6 +258,7 @@ class InputControlsView(
                 }
             }
             binding.isKeyboard -> {
+                // 键盘事件：简单的按下/抬起，与termuxapp一致
                 inputEventHandler?.onKeyEvent(binding.keycode, isDown)
             }
         }

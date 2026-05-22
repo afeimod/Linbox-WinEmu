@@ -1,27 +1,21 @@
 package org.github.ewt45.winemulator.inputcontrols
 
-import android.graphics.PointF
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
-import com.termux.x11.input.InputEventSender
-import com.termux.x11.input.InputStub
-import com.termux.x11.input.InputStub.*
-import com.termux.x11.input.RenderData
 
 /**
  * X11 Input Handler using InputEventSender
  * Sends keyboard and mouse events through Android's InputEvent system to LorieView
  * 
- * This is the corrected implementation that properly uses the InputEventSender API
- * from the master-x11 project to inject input events into the X11 session.
+ * Following termuxapp's approach: simple press/release events without custom key repeat
  */
 class X11InputSender {
-    private var inputEventSender: InputEventSender? = null
+    private var inputEventSender: com.termux.x11.input.InputEventSender? = null
     private val handler = Handler(Looper.getMainLooper())
     
     // RenderData for touch events - needs to be set from LorieView
-    var renderData: RenderData? = null
+    var renderData: com.termux.x11.input.RenderData? = null
     
     // Whether InputEventSender is initialized
     val isInitialized: Boolean
@@ -30,12 +24,13 @@ class X11InputSender {
     /**
      * Initialize with an InputStub (typically LorieView)
      */
-    fun initialize(inputStub: InputStub) {
-        inputEventSender = InputEventSender(inputStub)
+    fun initialize(inputStub: com.termux.x11.input.InputStub) {
+        inputEventSender = com.termux.x11.input.InputEventSender(inputStub)
     }
 
     /**
      * Send a key event using Android KeyEvent
+     * Following termuxapp's approach: simple press/release without custom repeat
      * @param keycode The Android keycode
      * @param isDown True if key is pressed, false if released
      */
@@ -43,11 +38,16 @@ class X11InputSender {
         val sender = inputEventSender ?: return
         
         handler.post {
-            val event = KeyEvent(
-                if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP,
-                keycode
-            )
-            sender.sendKeyEvent(event)
+            if (isDown) {
+                // Key down event - simple press, no repeat
+                val downEvent = KeyEvent(KeyEvent.ACTION_DOWN, keycode)
+                downEvent.startTracking()
+                sender.sendKeyEvent(downEvent)
+            } else {
+                // Key up event - simple release
+                val upEvent = KeyEvent(KeyEvent.ACTION_UP, keycode)
+                sender.sendKeyEvent(upEvent)
+            }
         }
     }
 
@@ -75,15 +75,15 @@ class X11InputSender {
             when (button) {
                 1 -> {
                     // Left button - send as button press/release
-                    sender.sendMouseEvent(null, BUTTON_LEFT, isDown, true)
+                    sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_LEFT, isDown, true)
                 }
                 2 -> {
                     // Middle button
-                    sender.sendMouseEvent(null, BUTTON_MIDDLE, isDown, true)
+                    sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_MIDDLE, isDown, true)
                 }
                 3 -> {
                     // Right button
-                    sender.sendMouseEvent(null, BUTTON_RIGHT, isDown, true)
+                    sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_RIGHT, isDown, true)
                 }
                 4 -> {
                     // Scroll up - use wheel event
