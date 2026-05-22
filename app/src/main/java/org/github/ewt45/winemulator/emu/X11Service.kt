@@ -19,6 +19,7 @@ import com.termux.x11.MainActivity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.MainEmuActivity
@@ -32,6 +33,7 @@ class X11Service : LifecycleService() {
     companion object {
         const val NOTIFICATION_ID = 1001
         const val CHANNEL_ID = "X11ServiceChannel"
+        const val DISPLAY_NUM = ":13"
     }
 
     override fun onCreate() {
@@ -100,7 +102,7 @@ class X11Service : LifecycleService() {
             started = true
             job = lifecycleScope.launch(Dispatchers.IO) {
                 Looper.prepare() //不知为何还要调用prepare()
-                CmdEntryPoint.main(arrayOf(":13")) //,"-xstartup", "touch ${Consts.getX11StartedValidateFile(timestamp)}" 不行，-xstartup执行完毕就会退出
+                CmdEntryPoint.main(arrayOf(DISPLAY_NUM)) //,"-xstartup", "touch ${Consts.getX11StartedValidateFile(timestamp)}" 不行，-xstartup执行完毕就会退出
                 Log.d(TAG, "onStartCommand: x11进程结束。停止service")
                 started = false
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -108,6 +110,34 @@ class X11Service : LifecycleService() {
             }
         }
         return START_STICKY
+    }
+
+    /**
+     * 启用 X11 服务器的键盘自动重复功能
+     * 根据 termuxapp 的实现，虚拟键盘只发送单个按下/释放事件，
+     * X11 服务器的内置自动重复功能负责处理持续按住的情况
+     *
+     * @param display X11 显示编号，默认为 :13
+     */
+    fun enableKeyRepeat(display: String = DISPLAY_NUM) {
+        lifecycleScope.launch(Dispatchers.IO) {
+            // 等待 X11 服务器完全启动
+            delay(500)
+            try {
+                // 使用 xset 命令启用键盘自动重复
+                // r rate: 设置重复速率为 30 字符/秒，延迟 200ms
+                // 这与 termuxapp 使用的默认 XKB 设置兼容
+                val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", "xset -display $display r rate 200 30"))
+                val exitCode = process.waitFor()
+                if (exitCode == 0) {
+                    Log.d(TAG, "X11 key repeat enabled successfully")
+                } else {
+                    Log.w(TAG, "Failed to enable X11 key repeat, exit code: $exitCode")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error enabling X11 key repeat", e)
+            }
+        }
     }
 
     override fun onDestroy() {
