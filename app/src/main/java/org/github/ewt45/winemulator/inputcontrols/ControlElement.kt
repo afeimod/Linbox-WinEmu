@@ -193,19 +193,6 @@ class ControlElement(
             else -> {}
         }
     }
-    
-    /**
-     * Update the set of indices that have keyboard bindings
-     * This is used to enable keyboard repeat for D-Pad and Stick elements
-     */
-    private fun updateKeyboardBindingIndices() {
-        keyboardBindingIndices.clear()
-        for (i in bindings.indices) {
-            if (bindings[i].isKeyboard) {
-                keyboardBindingIndices.add(i)
-            }
-        }
-    }
 
     fun getBindingCount(): Int = bindings.size
 
