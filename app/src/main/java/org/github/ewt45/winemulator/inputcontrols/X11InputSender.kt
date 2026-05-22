@@ -68,31 +68,30 @@ class X11InputSender {
     fun sendMouseButtonEvent(button: Int, isDown: Boolean) {
         val sender = inputEventSender ?: return
         
-        handler.post {
-            when (button) {
-                1 -> {
-                    // Left button - send as button press/release
-                    sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_LEFT, isDown, true)
+        // 同步发送鼠标按键事件，确保按下和拖动的事件顺序正确
+        when (button) {
+            1 -> {
+                // Left button - send as button press/release
+                sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_LEFT, isDown, true)
+            }
+            2 -> {
+                // Middle button
+                sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_MIDDLE, isDown, true)
+            }
+            3 -> {
+                // Right button
+                sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_RIGHT, isDown, true)
+            }
+            4 -> {
+                // Scroll up - use wheel event
+                if (isDown) {
+                    sender.sendMouseWheelEvent(0f, -1f)
                 }
-                2 -> {
-                    // Middle button
-                    sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_MIDDLE, isDown, true)
-                }
-                3 -> {
-                    // Right button
-                    sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_RIGHT, isDown, true)
-                }
-                4 -> {
-                    // Scroll up - use wheel event
-                    if (isDown) {
-                        sender.sendMouseWheelEvent(0f, -1f)
-                    }
-                }
-                5 -> {
-                    // Scroll down - use wheel event
-                    if (isDown) {
-                        sender.sendMouseWheelEvent(0f, 1f)
-                    }
+            }
+            5 -> {
+                // Scroll down - use wheel event
+                if (isDown) {
+                    sender.sendMouseWheelEvent(0f, 1f)
                 }
             }
         }
@@ -106,11 +105,8 @@ class X11InputSender {
     fun sendMouseMotionEvent(dx: Int, dy: Int) {
         val sender = inputEventSender ?: return
         
-        handler.post {
-            // Send cursor move with relative coordinates
-            // The last parameter 'true' means relative movement
-            sender.sendCursorMove(dx.toFloat(), dy.toFloat(), true)
-        }
+        // 同步发送鼠标移动事件，确保拖动时事件顺序正确
+        sender.sendCursorMove(dx.toFloat(), dy.toFloat(), true)
     }
 
     /**

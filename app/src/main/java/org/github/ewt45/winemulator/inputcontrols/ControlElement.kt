@@ -859,15 +859,10 @@ class ControlElement(
                             inputControlsView.handleInputEvent(binding, true, adjustedValue)
                             states[i] = true
                         } else if (binding.isKeyboard) {
-                            // Keyboard binding - handle repeat for D-Pad with keyboard bindings
+                            // Keyboard binding - 按照termux的方式，每次移动都发送事件以实现持续输入
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            if (state != states[i]) {
-                                // State changed - send initial press/release
-                                inputControlsView.handleInputEvent(binding, state)
-                                states[i] = state
-                            }
-                            // Note: For keyboard bindings, we don't invalidate() here to avoid performance issues
-                            // The view will be invalidated on touch up
+                            inputControlsView.handleInputEvent(binding, state)
+                            states[i] = state
                         } else {
                             val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
                             inputControlsView.handleInputEvent(binding, state, value)
