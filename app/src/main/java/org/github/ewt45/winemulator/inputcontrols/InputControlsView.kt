@@ -88,8 +88,7 @@ class InputControlsView(
         const val CURSOR_SPEED = 1.0f  // 默认光标速度
         
         // 键盘重复定时器相关常量
-        private const val KEY_REPEAT_INTERVAL_MS = 50L  // 键盘重复间隔，约50ms
-        private const val KEY_REPEAT_DELAY_MS = 200L  // 首次重复前的延迟
+        private const val KEY_REPEAT_RATE_MS = 50L  // 键盘重复速率，约20次/秒
     }
     
     // 鼠标移动定时器相关
@@ -102,8 +101,7 @@ class InputControlsView(
     // 键盘重复定时器相关
     private var keyRepeatHandler: Handler? = null
     private var keyRepeatRunnable: Runnable? = null
-    private var isKeyRepeatTimerRunning = false
-    private val activeKeyboardBindings = mutableSetOf<Binding>()  // 当前按下的键盘绑定
+    private val keyRepeatBindings = mutableSetOf<Binding>()  // 当前需要重复的键盘绑定
 
     // Icon cache
     private val icons = arrayOfNulls<Bitmap>(17)
@@ -191,36 +189,23 @@ class InputControlsView(
     }
 
     /**
-     * 创建并启动键盘重复定时器
-     * 当DPAD或其他控件使用键盘绑定时，持续发送按键事件以实现连续输入
+     * 启动键盘重复定时器
+     * 当DPAD映射键盘按键时，持续发送按下事件实现连续输入
      */
-    private fun createKeyRepeatTimer() {
-        if (keyRepeatHandler == null || isKeyRepeatTimerRunning) return
+    private fun startKeyRepeatTimer() {
+        if (keyRepeatHandler == null || keyRepeatRunnable != null) return
         
-        isKeyRepeatTimerRunning = true
-        keyRepeatRunnable = object : Runnable {
-            private var isFirstExecution = true
+        keyRepeatRunnable = Runnable {
+            // 发送所有活跃键盘绑定的按下事件
+            for (binding in keyRepeatBindings) {
+                inputEventHandler?.onKeyEvent(binding.keycode, true)
+            }
             
-            override fun run() {
-                if (!isKeyRepeatTimerRunning) return
-                
-                // 首次执行后切换到快速重复模式
-                val delay = if (isFirstExecution) {
-                    isFirstExecution = false
-                    KEY_REPEAT_DELAY_MS
-                } else {
-                    KEY_REPEAT_INTERVAL_MS
-                }
-                
-                // 发送所有当前按下的键盘绑定的按下事件
-                synchronized(activeKeyboardBindings) {
-                    for (binding in activeKeyboardBindings) {
-                        inputEventHandler?.onKeyEvent(binding.keycode, true)
-                    }
-                }
-                
-                // 继续调度下一次执行
-                keyRepeatHandler?.postDelayed(this, delay)
+            // 继续调度下一次
+            if (keyRepeatBindings.isNotEmpty()) {
+                keyRepeatHandler?.postDelayed(keyRepeatRunnable!!, KEY_REPEAT_RATE_MS)
+            } else {
+                keyRepeatRunnable = null
             }
         }
         
@@ -232,40 +217,12 @@ class InputControlsView(
      * 停止键盘重复定时器
      */
     private fun stopKeyRepeatTimer() {
-        isKeyRepeatTimerRunning = false
-        keyRepeatRunnable?.let {
-            keyRepeatHandler?.removeCallbacks(it)
-        }
         keyRepeatRunnable = null
-    }
-
-    /**
-     * 添加一个键盘绑定到活动列表
-     */
-    private fun addActiveKeyboardBinding(binding: Binding) {
-        synchronized(activeKeyboardBindings) {
-            val wasEmpty = activeKeyboardBindings.isEmpty()
-            activeKeyboardBindings.add(binding)
-            
-            // 如果这是第一个键盘绑定，启动重复定时器
-            if (wasEmpty && !isKeyRepeatTimerRunning) {
-                createKeyRepeatTimer()
-            }
+        // 清除所有活跃绑定的按下状态
+        for (binding in keyRepeatBindings) {
+            inputEventHandler?.onKeyEvent(binding.keycode, false)
         }
-    }
-
-    /**
-     * 从活动列表中移除一个键盘绑定
-     */
-    private fun removeActiveKeyboardBinding(binding: Binding) {
-        synchronized(activeKeyboardBindings) {
-            activeKeyboardBindings.remove(binding)
-            
-            // 如果没有更多键盘绑定，停止重复定时器
-            if (activeKeyboardBindings.isEmpty()) {
-                stopKeyRepeatTimer()
-            }
-        }
+        keyRepeatBindings.clear()
     }
 
     /**
@@ -451,17 +408,18 @@ class InputControlsView(
                 }
             }
             binding.isKeyboard -> {
-                // 键盘事件：使用重复定时器实现持续输出
+                // 键盘事件：按下时发送按下事件并添加到重复列表，抬起时移除
+                inputEventHandler?.onKeyEvent(binding.keycode, isDown)
                 if (isDown) {
-                    // 发送按下事件
-                    inputEventHandler?.onKeyEvent(binding.keycode, true)
-                    // 添加到活动列表以启动重复定时器
-                    addActiveKeyboardBinding(binding)
+                    keyRepeatBindings.add(binding)
+                    if (keyRepeatBindings.size == 1) {
+                        startKeyRepeatTimer()
+                    }
                 } else {
-                    // 发送释放事件
-                    inputEventHandler?.onKeyEvent(binding.keycode, false)
-                    // 从活动列表中移除
-                    removeActiveKeyboardBinding(binding)
+                    keyRepeatBindings.remove(binding)
+                    if (keyRepeatBindings.isEmpty()) {
+                        stopKeyRepeatTimer()
+                    }
                 }
             }
         }
