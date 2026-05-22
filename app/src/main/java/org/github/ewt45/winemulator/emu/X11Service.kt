@@ -108,6 +108,8 @@ class X11Service : LifecycleService() {
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 stopSelf()
             }
+            // 启动后启用 X11 服务器的键盘自动重复功能
+            enableKeyRepeat()
         }
         return START_STICKY
     }
