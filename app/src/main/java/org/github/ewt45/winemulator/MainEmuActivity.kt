@@ -37,6 +37,8 @@ import org.github.ewt45.winemulator.Utils.activityRecreate
 import org.github.ewt45.winemulator.Utils.getX11ServicePid
 import org.github.ewt45.winemulator.emu.X11Service
 import org.github.ewt45.winemulator.emu.manager.EmuManager
+import org.github.ewt45.winemulator.xenvironment.ImageFsEmuManager
+import org.github.ewt45.winemulator.xenvironment.ImageFsInstaller
 import org.github.ewt45.winemulator.terminal.SessionClientAImpl
 import org.github.ewt45.winemulator.terminal.ViewClientImpl
 import org.github.ewt45.winemulator.ui.Destination
@@ -58,6 +60,10 @@ class MainEmuActivity : MainActivity() {
     private var emuStarted: Boolean = false
     val sessionClient: SessionClientAImpl = SessionClientAImpl(this)
     val viewClient: ViewClientImpl = ViewClientImpl(this, sessionClient)
+    
+    // ImageFs Wine管理器
+    private var imageFsEmuManager: ImageFsEmuManager? = null
+    private var imageFsWineStarted: Boolean = false
 
     companion object {
         val instance get() = getInstance() as MainEmuActivity // val instance: MainEmuActivity by lazy { getInstance() as MainEmuActivity }
@@ -261,5 +267,93 @@ class MainEmuActivity : MainActivity() {
         return Intent(this, X11Service::class.java).apply {
             putExtra("timestamp", System.currentTimeMillis())
         }
+    }
+    
+    /**
+     * 启动ImageFS Wine环境
+     * 用于从设置界面触发
+     */
+    fun startImageFsWine() {
+        if (imageFsWineStarted) {
+            Utils.showToast(this, "ImageFS Wine 已经在运行")
+            return
+        }
+        
+        lifecycleScope.launch {
+            // 检查ImageFs是否已安装
+            if (!ImageFsInstaller.isImageFsValid(this@MainEmuActivity)) {
+                // 显示安装对话框
+                mainViewModel.showBlockDialog("正在安装ImageFS系统文件...") {
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        ImageFsInstaller.installFromAssets(this@MainEmuActivity) { success ->
+                            if (success) {
+                                lifecycleScope.launch(Dispatchers.Main) {
+                                    doStartImageFsWine()
+                                }
+                            } else {
+                                lifecycleScope.launch(Dispatchers.Main) {
+                                    Utils.showToast(this@MainEmuActivity, "ImageFS 安装失败")
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                doStartImageFsWine()
+            }
+        }
+    }
+    
+    /**
+     * 实际执行启动ImageFS Wine的逻辑
+     */
+    private suspend fun doStartImageFsWine() {
+        withContext(Dispatchers.Main) {
+            // 停止当前的proot模拟器（如果正在运行）
+            if (emuStarted) {
+                terminalViewModel.stopTerminal()
+                stopService(startX11Intent)
+                android.os.Process.killProcess(getX11ServicePid())
+                emuStarted = false
+            }
+            
+            // 创建ImageFsEmuManager
+            imageFsEmuManager = ImageFsEmuManager.Builder(lifecycleScope, this@MainEmuActivity)
+                .setWineVersion("wine-8.22")
+                .setStartCommand("wine64 explorer /desktop=winlator,1280x720")
+                .setWow64Mode(true)
+                .setOnWineStarted {
+                    imageFsWineStarted = true
+                    Utils.showToast(this@MainEmuActivity, "ImageFS Wine 已启动")
+                }
+                .setOnWineStopped { exitCode ->
+                    imageFsWineStarted = false
+                    Utils.showToast(this@MainEmuActivity, "ImageFS Wine 已退出，退出码: $exitCode")
+                }
+                .build()
+            
+            // 添加生命周期观察者
+            lifecycle.addObserver(imageFsEmuManager!!)
+            
+            // 启动X11服务
+            startService(startX11Intent)
+            waitForXStartedWithDialog()
+            
+            // 启动显示管理器
+            imageFsEmuManager?.display?.onResume()
+            
+            // 启动Wine
+            imageFsEmuManager?.startWine()
+        }
+    }
+    
+    /**
+     * 停止ImageFS Wine环境
+     */
+    fun stopImageFsWine() {
+        imageFsEmuManager?.stopWine()
+        lifecycle.removeObserver(imageFsEmuManager!!)
+        imageFsEmuManager = null
+        imageFsWineStarted = false
     }
 }

@@ -26,6 +26,8 @@ import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.MainEmuActivity
 import org.github.ewt45.winemulator.Utils.getX11ServicePid
@@ -59,6 +61,11 @@ fun DebugSettings(terminalVM: TerminalViewModel, navigateTo: (Destination) -> Un
         findSymlinkToTermux = { showFilterSymlink = true },
         startX11Service = { MainEmuActivity.instance.startService(Intent(MainEmuActivity.instance, X11Service::class.java)) },
         compareRootfsDir = { showCompareDir = true },
+        launchImageFsWine = { 
+            kotlinx.coroutines.MainScope().launch {
+                MainEmuActivity.instance.startImageFsWine()
+            }
+        },
     )
 }
 
@@ -70,6 +77,7 @@ fun DebugSettingsImpl(
     findSymlinkToTermux: () -> Unit = {},
     startX11Service: () -> Unit = {},
     compareRootfsDir: () -> Unit = {},
+    launchImageFsWine: () -> Unit = {},
 ) {
 
     var showNotImpl by rememberNotImplDialog()
@@ -82,6 +90,7 @@ fun DebugSettingsImpl(
         Button(onClick = sendSigCont) { Text("向终端和x11发送CONT信号") }
         Button(onClick = gotoSelectRootfs) { Text("进入选择rootfs界面") }
         Button(onClick = compareRootfsDir) { Text("对比文件夹内文件") }
+        Button(onClick = launchImageFsWine) { Text("启动ImageFS Wine") }
     }
 }
 
