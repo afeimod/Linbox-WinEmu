@@ -4,7 +4,10 @@ import android.content.Context
 import android.util.Log
 import androidx.preference.PreferenceManager
 import org.github.ewt45.winemulator.Consts
+import org.github.ewt45.winemulator.Utils
 import java.io.File
+import kotlin.reflect.full.declaredMemberProperties
+import kotlin.reflect.jvm.isAccessible
 
 /**
  * ProcessHelper - 进程执行辅助类
@@ -54,7 +57,7 @@ object ProcessHelper {
             }
             
             val process = processBuilder.start()
-            val pid = process.pid()
+            val pid = Utils.getPid(process)
             
             // 处理输出
             if (logFilePath != null) {
@@ -101,7 +104,7 @@ object ProcessHelper {
      */
     fun resumeProcess(pid: Int) {
         try {
-            android.os.Process.sendSignal(pid, android.os.Signal.CONTinue.signal)
+            android.os.Process.sendSignal(pid, android.os.Signal.CONTINUE.signal)
         } catch (e: Exception) {
             Log.e(TAG, "Error resuming process: ${e.message}")
         }

@@ -275,7 +275,7 @@ class MainEmuActivity : MainActivity() {
      */
     fun startImageFsWine() {
         if (imageFsWineStarted) {
-            Utils.showToast(this, "ImageFS Wine 已经在运行")
+            Toast.makeText(this, "ImageFS Wine 已经在运行", Toast.LENGTH_SHORT).show()
             return
         }
         
@@ -292,7 +292,7 @@ class MainEmuActivity : MainActivity() {
                                 }
                             } else {
                                 lifecycleScope.launch(Dispatchers.Main) {
-                                    Utils.showToast(this@MainEmuActivity, "ImageFS 安装失败")
+                                    Toast.makeText(this@MainEmuActivity, "ImageFS 安装失败", Toast.LENGTH_SHORT).show()
                                 }
                             }
                         }
@@ -324,11 +324,11 @@ class MainEmuActivity : MainActivity() {
                 .setWow64Mode(true)
                 .setOnWineStarted {
                     imageFsWineStarted = true
-                    Utils.showToast(this@MainEmuActivity, "ImageFS Wine 已启动")
+                    Toast.makeText(this@MainEmuActivity, "ImageFS Wine 已启动", Toast.LENGTH_SHORT).show()
                 }
                 .setOnWineStopped { exitCode ->
                     imageFsWineStarted = false
-                    Utils.showToast(this@MainEmuActivity, "ImageFS Wine 已退出，退出码: $exitCode")
+                    Toast.makeText(this@MainEmuActivity, "ImageFS Wine 已退出，退出码: $exitCode", Toast.LENGTH_SHORT).show()
                 }
                 .build()
             

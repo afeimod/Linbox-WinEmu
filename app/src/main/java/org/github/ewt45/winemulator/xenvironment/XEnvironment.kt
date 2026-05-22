@@ -1,6 +1,7 @@
 package org.github.ewt45.winemulator.xenvironment
 
 import android.content.Context
+import org.apache.commons.io.FileUtils
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.Utils
 import java.io.File
@@ -67,7 +68,15 @@ class XEnvironment(
      * 启动所有环境组件
      */
     fun startEnvironmentComponents() {
-        Utils.Files.clearDirectory(getTmpDir())
+        // 清空临时目录
+        try {
+            val tmp = getTmpDir()
+            if (tmp.exists()) {
+                FileUtils.cleanDirectory(tmp)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         for (component in this) {
             component.start()
         }

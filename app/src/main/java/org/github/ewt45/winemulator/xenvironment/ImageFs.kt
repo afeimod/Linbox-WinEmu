@@ -1,6 +1,7 @@
 package org.github.ewt45.winemulator.xenvironment
 
 import android.content.Context
+import org.apache.commons.io.FileUtils
 import org.github.ewt45.winemulator.Utils
 import java.io.File
 import java.io.IOException
@@ -51,7 +52,7 @@ class ImageFs private constructor(private val rootDir: File) {
         val imgVersionFile = getImgVersionFile()
         return if (imgVersionFile.exists()) {
             try {
-                Utils.Files.readStringFromFile(imgVersionFile).trim().toInt()
+                imgVersionFile.readText().trim().toInt()
             } catch (e: Exception) {
                 0
             }
@@ -75,7 +76,7 @@ class ImageFs private constructor(private val rootDir: File) {
         val file = getImgVersionFile()
         try {
             if (file.createNewFile()) {
-                Utils.Files.writeStringToFileWithLF(file, version.toString())
+                file.writeText(version.toString() + "\n")
             }
         } catch (e: IOException) {
             e.printStackTrace()
@@ -85,7 +86,18 @@ class ImageFs private constructor(private val rootDir: File) {
     fun getWinePath(): String = winePath
     
     fun setWinePath(winePath: String) {
-        this.winePath = Utils.Files.toRelativePath(rootDir.absolutePath, winePath)
+        this.winePath = toRelativePath(rootDir.absolutePath, winePath)
+    }
+    
+    /**
+     * 将绝对路径转换为相对于根目录的相对路径
+     */
+    private fun toRelativePath(rootPath: String, absolutePath: String): String {
+        return if (absolutePath.startsWith(rootPath)) {
+            absolutePath.substring(rootPath.length)
+        } else {
+            absolutePath
+        }
     }
     
     fun getConfigDir(): File = File(rootDir, ".winlator")

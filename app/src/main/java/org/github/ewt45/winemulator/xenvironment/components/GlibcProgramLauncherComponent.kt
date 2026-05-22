@@ -165,7 +165,7 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
                     pid = -1
                 }
                 if (terminationCallback != null) {
-                    terminationCallback!!.call(status)
+                    terminationCallback!!(status)
                 }
             },
             logFilePath = logFilePath

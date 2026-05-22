@@ -1,12 +1,16 @@
 package org.github.ewt45.winemulator.xenvironment
 
+import android.app.Activity
 import android.content.Context
 import android.util.Log
+import android.widget.Toast
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.apache.commons.io.FileUtils
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.Utils
 import java.io.File
+import java.io.FileInputStream
 
 /**
  * ImageFsInstaller - ImageFs安装和初始化管理
@@ -22,7 +26,7 @@ object ImageFsInstaller {
     /**
      * 检查是否需要安装或更新ImageFs
      */
-    fun installIfNeeded(activity: android.app.Activity, callback: (Boolean) -> Unit) {
+    fun installIfNeeded(activity: Activity, callback: (Boolean) -> Unit) {
         val imageFs = ImageFs.find(activity)
         if (!imageFs.isValid() || imageFs.getVersion() < LATEST_VERSION) {
             installFromAssets(activity, callback)
@@ -34,7 +38,7 @@ object ImageFsInstaller {
     /**
      * 从assets安装ImageFs
      */
-    fun installFromAssets(activity: android.app.Activity, callback: (Boolean) -> Unit) {
+    fun installFromAssets(activity: Activity, callback: (Boolean) -> Unit) {
         // 保持屏幕常亮
         activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         
@@ -77,7 +81,9 @@ object ImageFsInstaller {
                 }
                 
                 // 执行解压
-                Utils.Archive.decompressTarXz(imagefsFile, rootDir)
+                FileInputStream(imagefsFile).use { inputStream ->
+                    Utils.Archive.decompressTarXz(inputStream, rootDir)
+                }
                 
                 // 创建版本文件
                 imageFs.createImgVersionFile(LATEST_VERSION)
@@ -97,7 +103,7 @@ object ImageFsInstaller {
                 activity.runOnUiThread {
                     dialog.dismiss()
                     activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    Utils.showToast(activity, "无法安装系统文件")
+                    Toast.makeText(activity, "无法安装系统文件", Toast.LENGTH_SHORT).show()
                     callback(false)
                 }
             }
@@ -113,7 +119,11 @@ object ImageFsInstaller {
                 if (file.isDirectory) {
                     // 保留home目录
                     if (file.name != "home") {
-                        Utils.Files.delete(file)
+                        try {
+                            FileUtils.deleteDirectory(file)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
                     }
                 } else {
                     file.delete()

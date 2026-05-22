@@ -1,8 +1,10 @@
 package org.github.ewt45.winemulator.xenvironment.components
 
 import android.content.Context
+import org.apache.commons.io.FileUtils
 import org.github.ewt45.winemulator.Utils
 import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
 
 /**
@@ -42,7 +44,11 @@ object TarCompressorUtils {
             
             // 解压前清空目标目录
             if (destDir.exists()) {
-                Utils.Files.delete(destDir)
+                try {
+                    FileUtils.deleteDirectory(destDir)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
             destDir.mkdirs()
             
@@ -149,7 +155,9 @@ object TarCompressorUtils {
         progressCallback: ((String, Long) -> Long)?
     ): Boolean {
         try {
-            Utils.Archive.decompressTar(tarFile, destDir)
+            FileInputStream(tarFile).use { inputStream ->
+                Utils.Archive.decompressTarXz(inputStream, destDir)
+            }
             return true
         } catch (e: Exception) {
             e.printStackTrace()
