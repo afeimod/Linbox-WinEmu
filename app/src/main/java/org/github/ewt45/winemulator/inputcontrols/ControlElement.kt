@@ -4,6 +4,9 @@ import android.graphics.*
 import org.github.ewt45.winemulator.inputcontrols.ControlElement.Range
 import org.github.ewt45.winemulator.inputcontrols.ControlElement.Shape
 import org.github.ewt45.winemulator.inputcontrols.ControlElement.Type
+import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
+import java.util.concurrent.TimeUnit
 import kotlin.math.*
 
 /**
@@ -156,6 +159,18 @@ class ControlElement(
     private var scroller: RangeScroller? = null
     private var interpolator: CubicBezierInterpolator? = null
 
+    // Key repeat support - following termuxapp's TermuxExtraKeysView implementation
+    private var keyRepeatExecutor: ScheduledExecutorService? = null
+    private var keyRepeatCount: Int = 0
+    // Long press timeout before starting repeat (default 400ms, matching termuxapp)
+    private val longPressTimeout: Long = 400
+    // Repeat interval after timeout (default 80ms, matching termuxapp)
+    private val longPressRepeatDelay: Long = 80
+    // Currently repeating binding index (-1 if none)
+    private var repeatingBindingIndex: Int = -1
+    // Current binding that started the repeat
+    private var repeatingBinding: Binding? = null
+
     // 属性标志位辅助方法
     private fun isFlagSet(flag: Int): Boolean = (propertyFlags and flag) != 0
     private fun setFlag(flag: Int, value: Boolean) {
@@ -168,6 +183,52 @@ class ControlElement(
         range = null
         scroller = null
         boundingBoxNeedsUpdate = true
+        // Stop any running key repeat
+        stopKeyRepeat()
+    }
+
+    /**
+     * Start key repeat timer for a keyboard binding
+     * Following termuxapp's TermuxExtraKeysView implementation:
+     * - After longPressTimeout ms, start sending repeat events
+     * - Repeat events are sent every longPressRepeatDelay ms
+     * @param bindingIndex The binding index (0-3) to repeat
+     */
+    private fun startKeyRepeat(bindingIndex: Int) {
+        stopKeyRepeat()
+        keyRepeatCount = 0
+        repeatingBindingIndex = bindingIndex
+        repeatingBinding = getBindingAt(bindingIndex)
+        
+        // Only start repeat for keyboard bindings
+        if (repeatingBinding == null || !repeatingBinding!!.isKeyboard) {
+            return
+        }
+        
+        keyRepeatExecutor = Executors.newSingleThreadScheduledExecutor()
+        keyRepeatExecutor?.scheduleWithFixedDelay({
+            keyRepeatCount++
+            // Send repeat press event
+            repeatingBinding?.let { binding ->
+                inputControlsView.handleInputEvent(binding, true)
+            }
+        }, longPressTimeout, longPressRepeatDelay, TimeUnit.MILLISECONDS)
+    }
+
+    /**
+     * Stop the key repeat timer
+     * Following termuxapp's behavior: if mLongPressCount > 0 (repeat started),
+     * the normal click should NOT be triggered
+     * @return true if repeat was started (mLongPressCount > 0)
+     */
+    private fun stopKeyRepeat(): Boolean {
+        val repeatStarted = keyRepeatCount > 0
+        keyRepeatExecutor?.shutdownNow()
+        keyRepeatExecutor = null
+        keyRepeatCount = 0
+        repeatingBindingIndex = -1
+        repeatingBinding = null
+        return repeatStarted
     }
 
     /**
@@ -759,6 +820,15 @@ class ControlElement(
                     return handleTouchMove(pointerId, px, py)
                 }
                 Type.D_PAD, Type.STICK -> {
+                    // 启动键盘重复定时器（如果适用）
+                    for (i in 0..3) {
+                        val binding = getBindingAt(i)
+                        if (binding.isKeyboard) {
+                            // 对于键盘绑定，启动重复定时器
+                            startKeyRepeat(i)
+                            break  // 只为第一个键盘绑定启动定时器
+                        }
+                    }
                     return handleTouchMove(pointerId, px, py)
                 }
             }
@@ -964,6 +1034,9 @@ class ControlElement(
                     inputControlsView.invalidate()
                 }
                 Type.D_PAD, Type.STICK -> {
+                    // 停止键盘重复定时器
+                    val repeatStarted = stopKeyRepeat()
+                    
                     // 抬起时，释放所有当前按下的按键
                     for (i in states.indices) {
                         if (states[i]) {
