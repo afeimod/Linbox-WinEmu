@@ -925,22 +925,10 @@ class ControlElement(
                         val value = if (i == 1 || i == 3) deltaX else deltaY
                         val binding = getBindingAt(i)
                         
-                        if (binding.isKeyboard) {
-                            // Keyboard binding (like WASD) - handle with repeat support
-                            val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            if (state != states[i]) {
-                                // State changed - send initial press/release
-                                inputControlsView.handleInputEvent(binding, state)
-                                states[i] = state
-                            }
-                            // Note: For keyboard bindings, we don't invalidate() here to avoid performance issues
-                            // The view will be invalidated on touch up
-                        } else {
-                            // Mouse or other bindings - send all state changes immediately
-                            val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
-                            inputControlsView.handleInputEvent(binding, state, value)
-                            states[i] = state
-                        }
+                        // 按照termux的方式：所有绑定都持续发送事件，不管状态是否改变
+                        val state = if (binding.isMouseMove()) (newStates[i] || newStates[(i + 2) % 4]) else newStates[i]
+                        inputControlsView.handleInputEvent(binding, state, value)
+                        states[i] = state
                     }
                 }
                 else -> {}
