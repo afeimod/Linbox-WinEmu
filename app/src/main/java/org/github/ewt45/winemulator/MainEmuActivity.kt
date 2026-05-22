@@ -177,6 +177,10 @@ class MainEmuActivity : MainActivity() {
         if (Consts.rootfsCurrXkbDir.exists()) {
             startService(startX11Intent)
             waitForXStartedWithDialog() // 等待x11启动完成
+            // 启用 X11 服务器键盘自动重复功能
+            // 根据 termuxapp 的实现，虚拟键盘只发送单个按下/释放事件，
+            // X11 服务器内置的自动重复功能负责处理持续按住的情况
+            terminalViewModel.runCommand("xset -display ${X11Service.DISPLAY_NUM} r rate 200 30 2>/dev/null || true")
         } else {
             mainViewModel.showConfirmDialog("rootfs下缺少xkb文件夹，x11不会启动。可以安装类似 ' libxkbcommon-x11 ' 的软件包来补全。")
         }
