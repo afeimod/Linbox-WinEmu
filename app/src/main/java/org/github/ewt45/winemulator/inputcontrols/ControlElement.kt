@@ -759,6 +759,39 @@ class ControlElement(
                     return handleTouchMove(pointerId, px, py)
                 }
                 Type.D_PAD, Type.STICK -> {
+                    // 对于 D_PAD 和 STICK，立即根据按下位置发送按键事件
+                    // 计算触摸位置相对于中心的方向
+                    val box = getBoundingBox()
+                    val centerX = box.centerX().toFloat()
+                    val centerY = box.centerY().toFloat()
+                    
+                    // 计算触摸点相对于中心的偏移
+                    val offsetX = px - centerX
+                    val offsetY = py - centerY
+                    val distance = kotlin.math.sqrt(offsetX * offsetX + offsetY * offsetY)
+                    val boxRadius = box.width() * 0.5f
+                    
+                    // 如果触摸在有效范围内，根据方向发送初始按键
+                    if (distance <= boxRadius) {
+                        val angle = kotlin.math.atan2(offsetY, offsetX)
+                        
+                        // 判断主要方向（每个方向覆盖 90 度）
+                        val normalizedAngle = when {
+                            angle >= -Math.PI / 4 && angle < Math.PI / 4 -> 1  // 右 (D)
+                            angle >= Math.PI / 4 && angle < 3 * Math.PI / 4 -> 2  // 下 (S)
+                            angle >= -3 * Math.PI / 4 && angle < -Math.PI / 4 -> 0  // 上 (W)
+                            else -> 3  // 左 (A)
+                        }
+                        
+                        // 只发送主要方向的那个按键
+                        val binding = getBindingAt(normalizedAngle)
+                        if (binding != Binding.NONE) {
+                            inputControlsView.handleInputEvent(binding, true)
+                            states[normalizedAngle] = true
+                        }
+                    }
+                    
+                    // 继续处理移动事件
                     return handleTouchMove(pointerId, px, py)
                 }
             }
