@@ -3,6 +3,8 @@ package org.github.ewt45.winemulator.inputcontrols
 import android.annotation.SuppressLint
 import android.content.Context
 import android.graphics.*
+import android.os.Handler
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.view.MotionEvent
@@ -80,7 +82,18 @@ class InputControlsView(
     companion object {
         const val CLICK_MAX_DISTANCE = 10f  // 点击的最大移动距离（像素）
         const val CLICK_MAX_TIME = 200L     // 点击的最长时间（毫秒）
+        
+        // 鼠标移动定时器相关常量
+        private const val MOUSE_MOVE_INTERVAL_MS = 1000L / 60  // 60fps，约16.67ms
+        const val CURSOR_SPEED = 1.0f  // 默认光标速度
     }
+    
+    // 鼠标移动定时器相关
+    private var mouseMoveHandler: Handler? = null
+    private var mouseMoveRunnable: Runnable? = null
+    private var isMouseMoveTimerRunning = false
+    private val mouseMoveOffset = PointF(0f, 0f)
+    private var cursorSpeed = CURSOR_SPEED
 
     // Icon cache
     private val icons = arrayOfNulls<Bitmap>(17)
@@ -104,6 +117,9 @@ class InputControlsView(
         } catch (e: Exception) {
             vibrator = null
         }
+        
+        // 初始化鼠标移动处理器
+        mouseMoveHandler = Handler(Looper.getMainLooper())
     }
 
     /**
@@ -120,6 +136,58 @@ class InputControlsView(
         invalidate()
     }
 
+    /**
+     * 创建并启动鼠标移动定时器
+     * 按照termux-x11的方式，每16.67ms（约60fps）持续发送鼠标移动事件
+     */
+    private fun createMouseMoveTimer() {
+        if (mouseMoveHandler == null || isMouseMoveTimerRunning) return
+        
+        isMouseMoveTimerRunning = true
+        mouseMoveRunnable = object : Runnable {
+            override fun run() {
+                if (!isMouseMoveTimerRunning) return
+                
+                // 计算移动量：偏移量 * 10 * 光标速度
+                val dx = (mouseMoveOffset.x * 10 * cursorSpeed).toInt()
+                val dy = (mouseMoveOffset.y * 10 * cursorSpeed).toInt()
+                
+                // 只有在有偏移时才发送移动事件
+                if (dx != 0 || dy != 0) {
+                    inputEventHandler?.onPointerMove(dx, dy)
+                }
+                
+                // 继续调度下一次执行
+                mouseMoveHandler?.postDelayed(this, MOUSE_MOVE_INTERVAL_MS)
+            }
+        }
+        
+        // 立即开始，然后按固定间隔执行
+        mouseMoveHandler?.post(mouseMoveRunnable!!)
+    }
+
+    /**
+     * 停止鼠标移动定时器
+     */
+    private fun stopMouseMoveTimer() {
+        isMouseMoveTimerRunning = false
+        mouseMoveRunnable?.let {
+            mouseMoveHandler?.removeCallbacks(it)
+        }
+        mouseMoveRunnable = null
+    }
+
+    /**
+     * 设置光标速度
+     */
+    fun setCursorSpeed(speed: Float) {
+        cursorSpeed = speed.coerceIn(0.1f, 3.0f)
+    }
+
+    /**
+     * 获取光标速度
+     */
+    fun getCursorSpeed(): Float = cursorSpeed
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -157,6 +225,8 @@ class InputControlsView(
                 val newSelected = profile!!.getElements().find { it == selected }
                 selectElement(newSelected)
             }
+            // 更新光标速度
+            cursorSpeed = profile!!.cursorSpeed
         }
         invalidate()
     }
@@ -168,6 +238,10 @@ class InputControlsView(
     fun setProfile(profile: ControlsProfile?) {
         this.profile = profile
         deselectAllElements()
+        // 更新光标速度
+        profile?.let {
+            cursorSpeed = it.cursorSpeed
+        }
         // 立即加载元素，但可能视图尚未测量
         if (width > 0 && height > 0) {
             pendingProfileReload = false
@@ -222,9 +296,12 @@ class InputControlsView(
     }
 
     /**
-     * Handle input event - following termuxapp's simple approach
-     * Keyboard events: send press/release without custom repeat
-     * Mouse events: handle based on type
+     * Handle input event - 按照termux-x11的方式实现鼠标移动定时器持续输出
+     * 
+     * 修复说明：
+     * - 键盘事件：简单的按下/抬起，与termuxapp一致
+     * - 鼠标移动事件（MOUSE_MOVE_*）：使用定时器实现持续输出，按下时启动定时器，抬起时停止
+     * - 鼠标按钮事件：普通的按下/抬起
      */
     fun handleInputEvent(binding: Binding, isDown: Boolean, value: Float = 0f) {
         when {
@@ -234,19 +311,44 @@ class InputControlsView(
             binding.isMouse -> {
                 when {
                     binding.isMouseMove() -> {
-                        // 处理鼠标移动
-                        val dx = when (binding) {
-                            Binding.MOUSE_MOVE_LEFT -> -10
-                            Binding.MOUSE_MOVE_RIGHT -> 10
-                            else -> 0
+                        // 处理鼠标移动 - 使用定时器实现持续输出（按照termux-x11的方式）
+                        val direction = when (binding) {
+                            Binding.MOUSE_MOVE_LEFT -> -1f  // 左移
+                            Binding.MOUSE_MOVE_RIGHT -> 1f   // 右移
+                            Binding.MOUSE_MOVE_UP -> -1f    // 上移
+                            Binding.MOUSE_MOVE_DOWN -> 1f   // 下移
+                            else -> 0f
                         }
-                        val dy = when (binding) {
-                            Binding.MOUSE_MOVE_UP -> -10
-                            Binding.MOUSE_MOVE_DOWN -> 10
-                            else -> 0
-                        }
-                        if (isDown && (dx != 0 || dy != 0)) {
-                            inputEventHandler?.onPointerMove(dx, dy)
+                        
+                        // 判断是水平方向还是垂直方向
+                        val isHorizontal = binding == Binding.MOUSE_MOVE_LEFT || binding == Binding.MOUSE_MOVE_RIGHT
+                        
+                        if (isDown) {
+                            // 按下时设置偏移量并启动定时器
+                            if (isHorizontal) {
+                                // 水平移动：使用 value 如果提供，否则使用 direction
+                                mouseMoveOffset.x = if (value != 0f) value else direction
+                            } else {
+                                // 垂直移动：使用 value 如果提供，否则使用 direction
+                                mouseMoveOffset.y = if (value != 0f) value else direction
+                            }
+                            
+                            // 如果定时器尚未运行，启动它
+                            if (!isMouseMoveTimerRunning) {
+                                createMouseMoveTimer()
+                            }
+                        } else {
+                            // 抬起时清除对应方向的偏移量
+                            if (isHorizontal) {
+                                mouseMoveOffset.x = 0f
+                            } else {
+                                mouseMoveOffset.y = 0f
+                            }
+                            
+                            // 如果两个方向的偏移量都为0，停止定时器
+                            if (mouseMoveOffset.x == 0f && mouseMoveOffset.y == 0f) {
+                                stopMouseMoveTimer()
+                            }
                         }
                     }
                     else -> {
@@ -598,6 +700,14 @@ class InputControlsView(
             if (element.containsPoint(x, y)) return element
         }
         return null
+    }
+    
+    /**
+     * 释放资源，在视图销毁时调用
+     */
+    fun release() {
+        stopMouseMoveTimer()
+        mouseMoveHandler = null
     }
 }
 
