@@ -171,7 +171,7 @@ class ImageFsEmuManager(
      * 获取Wine可执行文件路径
      */
     fun getWineBinPath(): String {
-        return environment?.getImageFs()?.getWinePath() ?: ""
+        return environment?.getImageFs()?.winePath ?: ""
     }
     
     /**
