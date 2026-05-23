@@ -8,11 +8,11 @@ import java.util.TreeMap
  */
 class EnvVars : TreeMap<String, String>() {
     
-    constructor(envString: String) : this() {
+    constructor(envString: String) : super() {
         parseFromString(envString)
     }
     
-    constructor(map: Map<String, String>) : this() {
+    constructor(map: Map<String, String>) : super() {
         putAll(map)
     }
     
@@ -30,11 +30,6 @@ class EnvVars : TreeMap<String, String>() {
             }
         }
     }
-    
-    /**
-     * 获取环境变量值
-     */
-    fun get(name: String): String? = super.get(name)
     
     /**
      * 检查是否包含某个环境变量
@@ -70,7 +65,7 @@ class EnvVars : TreeMap<String, String>() {
                     escaped.append("\\ ")
                     escapedSpace = true
                 }
-                '"' -> escaped.append("\\\""")
+                '"' -> escaped.append("\\\"")
                 '\\' -> escaped.append("\\\\")
                 '\n' -> escaped.append("\\n")
                 '\t' -> escaped.append("\\t")

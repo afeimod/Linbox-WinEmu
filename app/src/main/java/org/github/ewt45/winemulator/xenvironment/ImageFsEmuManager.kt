@@ -3,16 +3,11 @@ package org.github.ewt45.winemulator.xenvironment
 import android.content.Context
 import android.util.Log
 import androidx.lifecycle.DefaultLifecycleObserver
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.LifecycleOwner
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import org.github.ewt45.winemulator.MainEmuActivity
-import org.github.ewt45.winemulator.emu.manager.DisplayManager
-import org.github.ewt45.winemulator.emu.manager.SoundManager
-import org.github.ewt45.winemulator.xenvironment.components.GlibcProgramLauncherComponent
+import org.github.ewt45.winemulator.emu.manager.ManagerComponent
 
 /**
  * ImageFsEmuManager - 使用ImageFs方式运行Wine的模拟器管理器
@@ -34,11 +29,11 @@ class ImageFsEmuManager(
     private var environment: XEnvironment? = null
     
     // Wine程序启动器组件
-    private var programLauncher: GlibcProgramLauncherComponent? = null
+    private var programLauncher: org.github.ewt45.winemulator.xenvironment.components.GlibcProgramLauncherComponent? = null
     
-    // 组件管理器
-    val sound: SoundManager = SoundManager(scope, this)
-    val display: DisplayManager = DisplayManager(scope, this)
+    // 组件管理器 - 使用简化版本，不依赖EmuManager
+    private var soundPid: Int = -1
+    private var soundStarted: Boolean = false
     
     // Wine配置
     var wineVersion: String = "wine-8.22"
@@ -71,7 +66,7 @@ class ImageFsEmuManager(
         environment = XEnvironment(context, imageFs)
         
         // 创建程序启动器组件
-        programLauncher = GlibcProgramLauncherComponent(wineVersion)
+        programLauncher = org.github.ewt45.winemulator.xenvironment.components.GlibcProgramLauncherComponent(wineVersion)
         programLauncher?.apply {
             setGuestExecutable(startCommand)
             setWoW64Mode(wow64Mode)
@@ -186,27 +181,34 @@ class ImageFsEmuManager(
     
     // 生命周期管理
     override fun onCreate(owner: LifecycleOwner) {
+        // 启动声音服务
         scope.launch {
-            display.onCreate()
-            sound.onCreate()
+            soundPid = org.github.ewt45.winemulator.emu.Pulseaudio.start()
+            soundStarted = true
+            Log.d(TAG, "Sound started with pid: $soundPid")
         }
     }
     
     override fun onDestroy(owner: LifecycleOwner) {
         stopWine()
-        display.onDestroy()
-        sound.onDestroy()
+        // 停止声音服务
+        if (soundStarted) {
+            org.github.ewt45.winemulator.emu.Pulseaudio.stop()
+            soundStarted = false
+        }
     }
     
     override fun onResume(owner: LifecycleOwner) {
-        display.onResume()
-        sound.onResume()
+        if (soundStarted) {
+            org.github.ewt45.winemulator.emu.Pulseaudio.resume()
+        }
         resumeWine()
     }
     
     override fun onPause(owner: LifecycleOwner) {
-        display.onPause()
-        sound.onPause()
+        if (soundStarted) {
+            org.github.ewt45.winemulator.emu.Pulseaudio.pause()
+        }
         pauseWine()
     }
     

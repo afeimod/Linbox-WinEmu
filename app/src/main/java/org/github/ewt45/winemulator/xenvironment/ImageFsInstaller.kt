@@ -1,6 +1,7 @@
 package org.github.ewt45.winemulator.xenvironment
 
 import android.app.Activity
+import android.app.ProgressDialog
 import android.content.Context
 import android.util.Log
 import android.widget.Toast
@@ -46,9 +47,9 @@ object ImageFsInstaller {
         val rootDir = imageFs.getRootDir()
         
         // 显示进度对话框
-        val dialog = android.app.ProgressDialog(activity)
-        dialog.setMessage(activity.getString(org.github.ewt45.winemulator.R.string.installing_system_files))
-        dialog.setProgressStyle(android.app.ProgressDialog.STYLE_HORIZONTAL)
+        val dialog = ProgressDialog(activity)
+        dialog.setMessage("正在安装系统文件...")
+        dialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
         dialog.max = 100
         dialog.setCancelable(false)
         dialog.show()

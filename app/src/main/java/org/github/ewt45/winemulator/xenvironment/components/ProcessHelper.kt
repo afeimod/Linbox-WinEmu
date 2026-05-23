@@ -1,13 +1,11 @@
 package org.github.ewt45.winemulator.xenvironment.components
 
 import android.content.Context
+import android.system.OsConstants
 import android.util.Log
 import androidx.preference.PreferenceManager
 import org.github.ewt45.winemulator.Consts
-import org.github.ewt45.winemulator.Utils
 import java.io.File
-import kotlin.reflect.full.declaredMemberProperties
-import kotlin.reflect.jvm.isAccessible
 
 /**
  * ProcessHelper - 进程执行辅助类
@@ -57,7 +55,7 @@ object ProcessHelper {
             }
             
             val process = processBuilder.start()
-            val pid = Utils.getPid(process)
+            val pid = process.pid
             
             // 处理输出
             if (logFilePath != null) {
@@ -93,7 +91,7 @@ object ProcessHelper {
      */
     fun suspendProcess(pid: Int) {
         try {
-            android.os.Process.sendSignal(pid, android.os.Signal.STOP.signal)
+            android.os.Process.sendSignal(pid, OsConstants.SIGSTOP)
         } catch (e: Exception) {
             Log.e(TAG, "Error suspending process: ${e.message}")
         }
@@ -104,7 +102,7 @@ object ProcessHelper {
      */
     fun resumeProcess(pid: Int) {
         try {
-            android.os.Process.sendSignal(pid, android.os.Signal.CONTINUE.signal)
+            android.os.Process.sendSignal(pid, OsConstants.SIGCONT)
         } catch (e: Exception) {
             Log.e(TAG, "Error resuming process: ${e.message}")
         }

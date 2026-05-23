@@ -5,7 +5,6 @@ import org.apache.commons.io.FileUtils
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.Utils
 import java.io.File
-import java.util.Iterator
 
 /**
  * XEnvironment - Wine运行环境管理器
@@ -48,7 +47,7 @@ class XEnvironment(
         return null
     }
     
-    override fun iterator(): Iterator<EnvironmentComponent> = components.iterator()
+    override fun iterator(): Iterator<EnvironmentComponent> = components.iterator() as Iterator<EnvironmentComponent>
     
     /**
      * 获取临时目录
@@ -77,7 +76,7 @@ class XEnvironment(
         } catch (e: Exception) {
             e.printStackTrace()
         }
-        for (component in this) {
+        for (component in components) {
             component.start()
         }
     }
@@ -86,7 +85,7 @@ class XEnvironment(
      * 停止所有环境组件
      */
     fun stopEnvironmentComponents() {
-        for (component in this) {
+        for (component in components) {
             component.stop()
         }
     }
@@ -95,15 +94,25 @@ class XEnvironment(
      * 暂停（生命周期回调）
      */
     fun onPause() {
-        val launcher = getComponent(GlibcProgramLauncherComponent::class.java)
-        launcher?.suspendProcess()
+        // 获取GlibcProgramLauncherComponent并暂停
+        for (component in components) {
+            if (component is org.github.ewt45.winemulator.xenvironment.components.GlibcProgramLauncherComponent) {
+                component.suspendProcess()
+                break
+            }
+        }
     }
     
     /**
      * 恢复（生命周期回调）
      */
     fun onResume() {
-        val launcher = getComponent(GlibcProgramLauncherComponent::class.java)
-        launcher?.resumeProcess()
+        // 获取GlibcProgramLauncherComponent并恢复
+        for (component in components) {
+            if (component is org.github.ewt45.winemulator.xenvironment.components.GlibcProgramLauncherComponent) {
+                component.resumeProcess()
+                break
+            }
+        }
     }
 }
