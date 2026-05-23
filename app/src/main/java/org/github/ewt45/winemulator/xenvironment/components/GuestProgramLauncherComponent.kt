@@ -154,7 +154,7 @@ abstract class GuestProgramLauncherComponent : EnvironmentComponent() {
         envVars["TMPDIR"] = "/tmp"
         envVars["LC_ALL"] = "en_US.utf8"
         envVars["DISPLAY"] = ":0"
-        envVars["PATH"] = imageFs.getWinePath() + "/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+        envVars["PATH"] = imageFs.winePath + "/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
         envVars["LD_LIBRARY_PATH"] = "/usr/lib/aarch64-linux-gnu:/usr/lib/arm-linux-gnueabihf"
         envVars["ANDROID_SYSVSHM_SERVER"] = "/data/data/" + context.packageName + "/files/sysvshm_socket"
         

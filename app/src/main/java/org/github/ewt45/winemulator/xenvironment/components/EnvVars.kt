@@ -9,7 +9,7 @@ import java.util.TreeMap
  */
 class EnvVars private constructor(
     private val map: TreeMap<String, String>
-) : Map<String, String> by map {
+) : MutableMap<String, String> by map {
     
     // 无参构造函数
     companion object {
