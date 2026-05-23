@@ -104,18 +104,11 @@ class EnvVars private constructor(
         map[key] = value
     }
     
-    // 实现 putAll 操作
-    fun putAll(map: Map<String, String>) {
-        this.map.putAll(map)
-    }
-    
     // 清空操作
     fun clear() {
         map.clear()
     }
     
     // 大小
-    
-    // 大小
-    fun size(): Int = map.size
+    fun getSize(): Int = map.size
 }
