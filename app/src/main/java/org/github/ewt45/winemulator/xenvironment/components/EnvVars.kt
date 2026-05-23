@@ -6,13 +6,13 @@ import java.util.TreeMap
  * EnvVars - 环境变量管理类
  * 对应Winlator的EnvVars类，用于构建和管理环境变量
  */
-class EnvVars : TreeMap<String, String>() {
+class EnvVars : TreeMap<String, String>(compareBy { it }) {
     
-    constructor(envString: String) : super() {
+    constructor(envString: String) : this() {
         parseFromString(envString)
     }
     
-    constructor(map: Map<String, String>) : super() {
+    constructor(map: Map<String, String>) : this() {
         putAll(map)
     }
     

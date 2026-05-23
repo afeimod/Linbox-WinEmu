@@ -24,8 +24,6 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
     var wineVersion: String = ""
     
     // Box86/64相关配置
-    override var box86Preset: String = COMPATIBILITY
-    override var box64Preset: String = COMPATIBILITY
     var enableBox86_64Logs: Boolean = false
     
     // Wine相关路径
@@ -71,9 +69,9 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
         
         // 设置Box64环境变量（非WoW64模式）
         if (!wow64Mode) {
-            addBox86EnvVars(envVars)
+            addBox86EnvVars(envVars, enableBox86_64Logs)
         }
-        addBox64EnvVars(envVars)
+        addBox64EnvVars(envVars, enableBox86_64Logs)
         
         // 设置基本环境变量
         envVars["HOME"] = imageFs.homePath
@@ -223,11 +221,11 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
     /**
      * 添加Box86环境变量
      */
-    override fun addBox86EnvVars(envVars: EnvVars) {
-        envVars["BOX86_NOBANNER"] = if (enableBox86_64Logs) "0" else "1"
+    override fun addBox86EnvVars(envVars: EnvVars, enableLogs: Boolean) {
+        envVars["BOX86_NOBANNER"] = if (enableLogs) "0" else "1"
         envVars["BOX86_DYNAREC"] = "1"
         
-        if (enableBox86_64Logs) {
+        if (enableLogs) {
             envVars["BOX86_LOG"] = "1"
             envVars["BOX86_DYNAREC_MISSING"] = "1"
         }
@@ -240,12 +238,12 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
     /**
      * 添加Box64环境变量
      */
-    override fun addBox64EnvVars(envVars: EnvVars) {
-        envVars["BOX64_NOBANNER"] = if (enableBox86_64Logs) "0" else "1"
+    override fun addBox64EnvVars(envVars: EnvVars, enableLogs: Boolean) {
+        envVars["BOX64_NOBANNER"] = if (enableLogs) "0" else "1"
         envVars["BOX64_DYNAREC"] = "1"
         if (wow64Mode) envVars["BOX64_MMAP32"] = "1"
         
-        if (enableBox86_64Logs) {
+        if (enableLogs) {
             envVars["BOX64_LOG"] = "1"
             envVars["BOX64_DYNAREC_MISSING"] = "1"
         }
@@ -271,24 +269,6 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
             BALANCED -> {
                 // 平衡预设
             }
-        }
-    }
-    
-    /**
-     * 暂停进程
-     */
-    override fun suspendProcess() {
-        synchronized(lock) {
-            if (pid != -1) ProcessHelper.suspendProcess(pid)
-        }
-    }
-    
-    /**
-     * 恢复进程
-     */
-    override fun resumeProcess() {
-        synchronized(lock) {
-            if (pid != -1) ProcessHelper.resumeProcess(pid)
         }
     }
     

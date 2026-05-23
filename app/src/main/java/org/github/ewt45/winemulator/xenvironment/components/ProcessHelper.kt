@@ -5,6 +5,7 @@ import android.system.OsConstants
 import android.util.Log
 import androidx.preference.PreferenceManager
 import org.github.ewt45.winemulator.Consts
+import org.github.ewt45.winemulator.Utils.getPid
 import java.io.File
 
 /**
@@ -55,7 +56,7 @@ object ProcessHelper {
             }
             
             val process = processBuilder.start()
-            val pid = process.pid
+            val pid = process.getPid()
             
             // 处理输出
             if (logFilePath != null) {

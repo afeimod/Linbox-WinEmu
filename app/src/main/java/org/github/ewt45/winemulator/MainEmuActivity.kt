@@ -340,7 +340,7 @@ class MainEmuActivity : MainActivity() {
             waitForXStartedWithDialog()
             
             // 启动显示管理器
-            imageFsEmuManager?.display?.onResume()
+            // 注意：ImageFsEmuManager 独立的显示管理，不需要调用 display.onResume()
             
             // 启动Wine
             imageFsEmuManager?.startWine()
