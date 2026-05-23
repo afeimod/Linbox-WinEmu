@@ -17,7 +17,7 @@ import org.github.ewt45.winemulator.xenvironment.components.GlibcProgramLauncher
 class ImageFsEmuManager(
     private val scope: CoroutineScope,
     private val context: Context
-) : DefaultLifecycleObserver() {
+) : DefaultLifecycleObserver {
     
     private val TAG = "ImageFsEmuManager"
     
