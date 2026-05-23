@@ -104,11 +104,6 @@ class EnvVars private constructor(
         map[key] = value
     }
     
-    // 清空操作
-    fun clear() {
-        map.clear()
-    }
-    
     // 大小
     fun getSize(): Int = map.size
 }
