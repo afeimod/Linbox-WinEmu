@@ -104,9 +104,6 @@ class EnvVars private constructor(
         map[key] = value
     }
     
-    // 实现 get 操作
-    operator fun get(key: String): String? = map[key]
-    
     // 实现 putAll 操作
     fun putAll(map: Map<String, String>) {
         this.map.putAll(map)
@@ -117,8 +114,7 @@ class EnvVars private constructor(
         map.clear()
     }
     
-    // 是否为空
-    fun isEmpty(): Boolean = map.isEmpty()
+    // 大小
     
     // 大小
     fun size(): Int = map.size
