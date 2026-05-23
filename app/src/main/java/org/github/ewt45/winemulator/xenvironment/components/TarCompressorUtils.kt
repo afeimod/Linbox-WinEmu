@@ -46,9 +46,9 @@ object TarCompressorUtils {
             
             // 根据类型选择解压方法
             val compType = when (type) {
-                Type.ZSTD -> Utils.Archive.CompressedType.TZST
-                Type.XZ -> Utils.Archive.CompressedType.XZ
-                Type.GZIP -> Utils.Archive.CompressedType.GZ
+                Type.ZSTD -> Utils.CompressedType.TZST
+                Type.XZ -> Utils.CompressedType.XZ
+                Type.GZIP -> Utils.CompressedType.GZ
             }
             
             // 使用项目自带的解压方法
