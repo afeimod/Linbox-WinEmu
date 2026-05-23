@@ -2,6 +2,7 @@ package org.github.ewt45.winemulator.xenvironment.components
 
 import android.content.Context
 import org.apache.commons.io.FileUtils
+import org.github.ewt45.winemulator.CompressedType
 import org.github.ewt45.winemulator.Utils
 import java.io.File
 import java.io.InputStream
@@ -46,9 +47,9 @@ object TarCompressorUtils {
             
             // 根据类型选择解压方法
             val compType = when (type) {
-                Type.ZSTD -> Utils.CompressedType.TZST
-                Type.XZ -> Utils.CompressedType.XZ
-                Type.GZIP -> Utils.CompressedType.GZ
+                Type.ZSTD -> CompressedType.TZST
+                Type.XZ -> CompressedType.XZ
+                Type.GZIP -> CompressedType.GZ
             }
             
             // 使用项目自带的解压方法

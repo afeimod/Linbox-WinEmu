@@ -9,6 +9,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.apache.commons.io.FileUtils
 import org.github.ewt45.winemulator.Consts
+import org.github.ewt45.winemulator.CompressedType
 import org.github.ewt45.winemulator.Utils
 import java.io.File
 import java.io.FileInputStream
@@ -90,9 +91,9 @@ object ImageFsInstaller {
             
             // 根据文件名确定压缩类型
             val compType = when {
-                foundFileName.endsWith(".xz") -> Utils.CompressedType.XZ
-                foundFileName.endsWith(".gz") -> Utils.CompressedType.GZ
-                foundFileName.endsWith(".zst") || foundFileName.endsWith(".tzst") -> Utils.CompressedType.TZST
+                foundFileName.endsWith(".xz") -> CompressedType.XZ
+                foundFileName.endsWith(".gz") -> CompressedType.GZ
+                foundFileName.endsWith(".zst") || foundFileName.endsWith(".tzst") -> CompressedType.TZST
                 else -> {
                     Log.e(TAG, "不支持的压缩格式: $foundFileName")
                     return@withContext false
@@ -181,9 +182,9 @@ object ImageFsInstaller {
                 
                 // 根据文件名确定压缩类型
                 val compType = when {
-                    foundFileName.endsWith(".xz") -> Utils.CompressedType.XZ
-                    foundFileName.endsWith(".gz") -> Utils.CompressedType.GZ
-                    foundFileName.endsWith(".zst") || foundFileName.endsWith(".tzst") -> Utils.CompressedType.TZST
+                    foundFileName.endsWith(".xz") -> CompressedType.XZ
+                    foundFileName.endsWith(".gz") -> CompressedType.GZ
+                    foundFileName.endsWith(".zst") || foundFileName.endsWith(".tzst") -> CompressedType.TZST
                     else -> throw RuntimeException("不支持的压缩格式: $foundFileName")
                 }
                 
