@@ -66,7 +66,7 @@ class MainEmuActivity : MainActivity() {
     private var imageFsWineStarted: Boolean = false
 
     companion object {
-        val instance get() = getInstance() as MainEmuActivity // val instance: MainEmuActivity by lazy { getInstance() as MainEmuActivity }
+        val instance get() = getInstance() as MainEmuActivity
     }
 
     fun getPref(): Prefs = prefs
@@ -86,47 +86,25 @@ class MainEmuActivity : MainActivity() {
             Log.e(TAG, "进入onCreate 本次为重启。或许应该特殊处理。")
         }
 
-        //设置包名
         MainActivity.HOST_PKG_NAME = packageName
         startX11Intent = createStartX11Intent()
         super.onCreate(savedInstanceState)
 
-        // 初始化X11设置SharedPreferences同步
         settingViewModel.initSharedPreferences(this)
-
-        // 启动时同步所有X11设置到SharedPreferences
         settingViewModel.syncX11SettingsToSharedPrefs()
         
         // 启动时检查并安装ImageFs（如果需要）
         ImageFsInstaller.installIfNeeded(this)
 
-        //偏好设置
         prefs.displayResolutionMode.put("custom")
         runBlocking { prefs.displayResolutionCustom.put(Consts.Pref.general_resolution.get()) }
-        prefs.showAdditionalKbd.put(false) // 不显示底部按键
-        // 全屏设置
+        prefs.showAdditionalKbd.put(false)
         runBlocking { prefs.fullscreen.put(Consts.Pref.x11_fullscreen.get()) }
-        // 刘海屏设置 - 使用刘海屏区域
         prefs.hideCutout.put(false)
 
-
-//        //将composeView添加到原视图布局中
-//        val composeView = ComposeView(this).apply {
-//            id = R.id.compose_view
-//            setContent {
-//                MainTheme {
-//                    MainScreen()
-//                }
-//            }
-//        }
-//        val frame = findViewById<FrameLayout>(com.termux.x11.R.id.frame)
-//        frame.addView(composeView, FrameLayout.LayoutParams(-2, -2))
-
-        // 将原视图放到compose中
         setContent {
-            // 获取主题设置并应用
             val themeMode by settingViewModel.themeState.collectAsState()
-            val isDarkTheme = themeMode != 0 // 0 = 跟随系统
+            val isDarkTheme = themeMode != 0
 
             MainTheme(darkTheme = isDarkTheme) {
                 MainScreen(
@@ -136,12 +114,9 @@ class MainEmuActivity : MainActivity() {
             }
         }
 
-        // 在准备完成时自动启动模拟器
         lifecycleScope.launch {
-            // 监听准备状态变化
             prepareViewModel.uiState.collect { state ->
                 if (state.isPrepareFinished && !emuStarted) {
-                    // 准备完成且模拟器未启动，自动启动
                     lifecycleScope.launch {
                         startEmu()
                     }
@@ -150,10 +125,6 @@ class MainEmuActivity : MainActivity() {
         }
 
         enableEdgeToEdge()
-
-//            startEmu()
-//
-//            //尝试termux终端
     }
 
     suspend fun startEmu() = withContext(Dispatchers.Default) {
@@ -161,66 +132,44 @@ class MainEmuActivity : MainActivity() {
             Log.w(TAG, "prepareAndStart: emuStarted为true, 模拟器已经启动。不再执行逻辑")
             return@withContext
         }
-        // TODO 这里launch切换到IO协程会不会好一点？
-//        lifecycleScope.launch {
-//            Log.d(TAG, "prepareAndStart: 测试process输出？${Utils.readLinesProcessOutput(Runtime.getRuntime().exec(arrayOf("sh",
-//                "-c",
-//                "umask 0022 ; ls /storage/emulated/0",//sh -c 之后应该用一个字符串 不应再分割了
-//                )))}")
 
         val selectedRootfs = Utils.Rootfs.getSelectedRootfs()!!
-        //rootfs处理（目前绑定外部存储路径在Proot里执行）
         Utils.Rootfs.makeCurrent(selectedRootfs)
 
         emuStarted = true
 
-        // 启动终端前，从设置中获取用户名并更新到TerminalViewModel
-        // 使用runBlocking确保在startTerminal之前获取用户名
         runBlocking {
             val userName = settingViewModel.getCurrentLoginUser()
             terminalViewModel.updatePromptFromSettings(userName)
             Log.d(TAG, "startEmu: 已从设置获取用户名: $userName")
         }
 
-        //启动xserver
         if (Consts.rootfsCurrXkbDir.exists()) {
             startService(startX11Intent)
-            waitForXStartedWithDialog() // 等待x11启动完成
-            // 启用 X11 服务器键盘自动重复功能
-            // 根据 termuxapp 的实现，虚拟键盘只发送单个按下/释放事件，
-            // X11 服务器内置的自动重复功能负责处理持续按住的情况
+            waitForXStartedWithDialog()
             terminalViewModel.runCommand("xset -display ${X11Service.DISPLAY_NUM} r rate 200 30 2>/dev/null || true")
         } else {
             mainViewModel.showConfirmDialog("rootfs下缺少xkb文件夹，x11不会启动。可以安装类似 ' libxkbcommon-x11 ' 的软件包来补全。")
         }
 
         terminalViewModel.startTerminal()
-        // TODO 全部移到emuManager后，改为在init添加观察者，但是onCreate不启动，而是在startEmu中手动启动
-        //添加observer时会立刻发送一遍从头到现在的状态，所以onCreate会触发
         withContext(Dispatchers.Main) {
             lifecycle.addObserver(EmuManager(lifecycleScope))
         }
         val LANG = general_rootfs_lang.get()
-        // 检查目标 locale 是否已生成，未生成则执行 locale-gen
-        val langBase = LANG.substringBefore('.')  // "zh_CN.utf8" -> "zh_CN"
+        val langBase = LANG.substringBefore('.')
         terminalViewModel.runCommand("""if ! locale -a | grep -qi "$langBase"; then locale-gen $LANG; fi; export LANG=$LANG""")
-        //这里还不能用state因为state第一次获取的是默认值而非datastore来的值
         proot_startup_cmd.get().takeIf { it.isNotBlank() }?.let {
             terminalViewModel.runCommand("$it &")
         }
-
-
-//        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         terminalViewModel.stopTerminal()
         stopService(startX11Intent)
-        // FIXME 目前release构建 finish 无法结束 service 进程 导致下次启动 xserver启动失败。需要手动强制结束进程
         android.os.Process.killProcess(getX11ServicePid())
 
-        // 删除通知 从onPause改到onDestroy
         val notificationManager = getSystemService(NotificationManager::class.java)
         val mNotificationId = 7892
         for (notification in notificationManager.activeNotifications)
@@ -228,9 +177,6 @@ class MainEmuActivity : MainActivity() {
                 notificationManager.cancel(mNotificationId)
     }
 
-    /**
-     * 等待xserver启动完成。最多等待5秒
-     */
     suspend fun waitForXStarted() {
         val startTime = System.currentTimeMillis()
         while (System.currentTimeMillis() - startTime < 5000) {
@@ -256,16 +202,9 @@ class MainEmuActivity : MainActivity() {
                 .setSmallIcon(R.mipmap.ic_launcher).setContentText("模拟器正在运行")
                 .setOngoing(true).setPriority(NotificationCompat.PRIORITY_MAX)
                 .setSilent(true).setShowWhen(false)
-//                .setContentIntent(PendingIntent.getActivity(this, 0, Intent.makeMainActivity(componentName), PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
-        //.setColor(-10453621)
         return builder.build()
     }
 
-    /**
-     * 创建一个intent用于启动X11Service. 在intent放入数据：
-     * timestamp：时间戳
-     *
-     */
     private fun createStartX11Intent(): Intent {
         return Intent(this, X11Service::class.java).apply {
             putExtra("timestamp", System.currentTimeMillis())
@@ -274,10 +213,10 @@ class MainEmuActivity : MainActivity() {
     
     /**
      * 启动ImageFS Wine环境
-     * 用于从设置界面触发
+     * 参考Winlator的XServerDisplayActivity启动逻辑
      */
     fun startImageFsWine() {
-        Log.d(TAG, "startImageFsWine called, current imageFsWineStarted: $imageFsWineStarted")
+        Log.d(TAG, "startImageFsWine called")
         
         if (imageFsWineStarted) {
             Toast.makeText(this, "ImageFS Wine 已经在运行", Toast.LENGTH_SHORT).show()
@@ -285,90 +224,68 @@ class MainEmuActivity : MainActivity() {
         }
         
         lifecycleScope.launch {
-            Log.d(TAG, "Starting ImageFs Wine launch sequence")
             try {
                 // 检查ImageFs是否已安装
                 if (!ImageFsInstaller.isImageFsValid(this@MainEmuActivity)) {
-                    Log.d(TAG, "ImageFs not valid, starting installation")
-                    // 显示阻塞对话框并执行安装
+                    Log.d(TAG, "ImageFs not valid, installing...")
                     val result = mainViewModel.showBlockDialog("正在安装ImageFS系统文件...") {
                         ImageFsInstaller.installFromAssetsAsync(this@MainEmuActivity)
                     }
                     
-                    Log.d(TAG, "Installation result: $result")
-                    
-                    if (result.isSuccess && result.getOrNull() == true) {
-                        Log.d(TAG, "Installation successful, starting wine")
-                        doStartImageFsWine()
-                    } else {
-                        Log.e(TAG, "Installation failed: $result")
+                    if (!result.isSuccess || result.getOrNull() != true) {
+                        Log.e(TAG, "Installation failed")
                         withContext(Dispatchers.Main) {
                             Toast.makeText(this@MainEmuActivity, "ImageFS 安装失败", Toast.LENGTH_SHORT).show()
                         }
+                        return@launch
                     }
-                } else {
-                    Log.d(TAG, "ImageFs is valid, directly starting wine")
-                    doStartImageFsWine()
                 }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error in startImageFsWine: ${e.message}", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@MainEmuActivity, "启动ImageFS Wine失败: ${e.message}", Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
-    
-    /**
-     * 实际执行启动ImageFS Wine的逻辑
-     */
-    private suspend fun doStartImageFsWine() {
-        withContext(Dispatchers.Main) {
-            try {
-                Log.d(TAG, "Starting doStartImageFsWine")
+                
+                Log.d(TAG, "Starting ImageFs Wine...")
                 
                 // 停止当前的proot模拟器（如果正在运行）
                 if (emuStarted) {
-                    Log.d(TAG, "Stopping existing emu")
                     terminalViewModel.stopTerminal()
                     stopService(startX11Intent)
                     android.os.Process.killProcess(getX11ServicePid())
                     emuStarted = false
                 }
                 
-                Log.d(TAG, "Creating ImageFsEmuManager")
-                // 创建ImageFsEmuManager
-                imageFsEmuManager = ImageFsEmuManager.Builder(lifecycleScope, this@MainEmuActivity)
-                    .setWineVersion("wine-8.22")
-                    .setStartCommand("wine64 explorer /desktop=winlator,1280x720")
-                    .setWow64Mode(true)
-                    .setOnWineStarted {
+                // 创建并配置 ImageFsEmuManager - 使用 this@MainEmuActivity 作为 context
+                imageFsEmuManager = ImageFsEmuManager(lifecycleScope, this@MainEmuActivity).apply {
+                    wineVersion = "wine-8.22"
+                    startCommand = "wine64 explorer /desktop=winlator,1280x720"
+                    wow64Mode = true
+                    onWineStarted = {
                         imageFsWineStarted = true
-                        Toast.makeText(this@MainEmuActivity, "ImageFS Wine 已启动", Toast.LENGTH_SHORT).show()
+                        lifecycleScope.launch(Dispatchers.Main) {
+                            Toast.makeText(this@MainEmuActivity, "ImageFS Wine 已启动", Toast.LENGTH_SHORT).show()
+                        }
                     }
-                    .setOnWineStopped { exitCode ->
+                    onWineStopped = { exitCode ->
                         imageFsWineStarted = false
-                        Toast.makeText(this@MainEmuActivity, "ImageFS Wine 已退出，退出码: $exitCode", Toast.LENGTH_SHORT).show()
+                        lifecycleScope.launch(Dispatchers.Main) {
+                            Toast.makeText(this@MainEmuActivity, "ImageFS Wine 已退出，退出码: $exitCode", Toast.LENGTH_SHORT).show()
+                        }
                     }
-                    .build()
+                }
                 
-                Log.d(TAG, "Adding lifecycle observer")
-                // 添加生命周期观察者
+                Log.d(TAG, "ImageFsEmuManager created, adding lifecycle observer")
+                // 在主线程添加 lifecycle observer
                 lifecycle.addObserver(imageFsEmuManager!!)
                 
-                Log.d(TAG, "Starting X11 service")
                 // 启动X11服务
                 startService(startX11Intent)
                 waitForXStartedWithDialog()
                 
-                Log.d(TAG, "Starting Wine via ImageFsEmuManager")
-                // 启动Wine
+                Log.d(TAG, "X11 started, starting Wine")
                 imageFsEmuManager?.startWine()
                 
-                Log.d(TAG, "doStartImageFsWine completed")
             } catch (e: Exception) {
-                Log.e(TAG, "Error in doStartImageFsWine: ${e.message}", e)
-                Toast.makeText(this@MainEmuActivity, "启动Wine失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                Log.e(TAG, "Error starting ImageFs Wine: ${e.message}", e)
+                withContext(Dispatchers.Main) {
+                    Toast.makeText(this@MainEmuActivity, "启动ImageFS Wine失败: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -378,7 +295,9 @@ class MainEmuActivity : MainActivity() {
      */
     fun stopImageFsWine() {
         imageFsEmuManager?.stopWine()
-        lifecycle.removeObserver(imageFsEmuManager!!)
+        if (imageFsEmuManager != null) {
+            lifecycle.removeObserver(imageFsEmuManager!!)
+        }
         imageFsEmuManager = null
         imageFsWineStarted = false
     }
