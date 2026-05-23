@@ -103,7 +103,4 @@ class EnvVars private constructor(
     operator fun set(key: String, value: String) {
         map[key] = value
     }
-    
-    // 大小
-    fun getSize(): Int = map.size
 }
