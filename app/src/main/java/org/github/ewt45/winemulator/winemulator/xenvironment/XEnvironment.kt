@@ -1,0 +1,118 @@
+package org.github.ewt45.winemulator.xenvironment
+
+import android.content.Context
+import org.apache.commons.io.FileUtils
+import org.github.ewt45.winemulator.Consts
+import org.github.ewt45.winemulator.Utils
+import java.io.File
+
+/**
+ * XEnvironment - Wine运行环境管理器
+ * 对应Winlator的XEnvironment类，管理环境组件的生命周期
+ */
+class XEnvironment(
+    private val context: Context,
+    private val imageFs: ImageFs
+) : Iterable<EnvironmentComponent> {
+    
+    private val components = ArrayList<EnvironmentComponent>()
+    private var tmpDir: File? = null
+    
+    /**
+     * 获取Context
+     */
+    fun getContext(): Context = context
+    
+    /**
+     * 获取ImageFs
+     */
+    fun getImageFs(): ImageFs = imageFs
+    
+    /**
+     * 添加环境组件
+     */
+    fun addComponent(component: EnvironmentComponent) {
+        component.environment = this
+        components.add(component)
+    }
+    
+    /**
+     * 获取指定类型的组件
+     */
+    @Suppress("UNCHECKED_CAST")
+    fun <T : EnvironmentComponent> getComponent(componentClass: Class<T>): T? {
+        for (component in components) {
+            if (component.javaClass == componentClass) return component as T
+        }
+        return null
+    }
+    
+    override fun iterator(): Iterator<EnvironmentComponent> = components.iterator() as Iterator<EnvironmentComponent>
+    
+    /**
+     * 获取临时目录
+     */
+    fun getTmpDir(): File {
+        if (tmpDir == null) {
+            tmpDir = File(context.filesDir, "tmp")
+            if (!tmpDir!!.isDirectory) {
+                tmpDir!!.mkdirs()
+                Utils.chmod(tmpDir!!, "0771")
+            }
+        }
+        return tmpDir!!
+    }
+    
+    /**
+     * 启动所有环境组件
+     */
+    fun startEnvironmentComponents() {
+        // 清空临时目录
+        try {
+            val tmp = getTmpDir()
+            if (tmp.exists()) {
+                FileUtils.cleanDirectory(tmp)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        for (component in components) {
+            component.start()
+        }
+    }
+    
+    /**
+     * 停止所有环境组件
+     */
+    fun stopEnvironmentComponents() {
+        for (component in components) {
+            component.stop()
+        }
+    }
+    
+    /**
+     * 暂停（生命周期回调）
+     */
+    fun onPause() {
+        // 获取GlibcProgramLauncherComponent并暂停
+        for (component in components) {
+            if (component is org.github.ewt45.winemulator.xenvironment.components.GlibcProgramLauncherComponent) {
+                component.suspendProcess()
+                break
+            }
+        }
+    }
+    
+    /**
+     * 恢复（生命周期回调）
+     */
+    fun onResume() {
+        // 获取GlibcProgramLauncherComponent并恢复
+        for (component in components) {
+            if (component is org.github.ewt45.winemulator.xenvironment.components.GlibcProgramLauncherComponent) {
+                component.resumeProcess()
+                break
+            }
+        }
+    }
+}
