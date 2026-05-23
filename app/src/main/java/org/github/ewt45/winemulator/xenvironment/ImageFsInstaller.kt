@@ -31,7 +31,9 @@ object ImageFsInstaller {
     fun installIfNeeded(activity: Activity) {
         val imageFs = ImageFs.find(activity)
         if (!imageFs.isValid() || imageFs.getVersion() < LATEST_VERSION) {
-            installFromAssets(activity) { }
+            installFromAssets(activity) { success ->
+                Log.d(TAG, "ImageFs install result: $success")
+            }
         }
     }
     
