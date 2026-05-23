@@ -37,7 +37,86 @@ object ImageFsInstaller {
     }
     
     /**
-     * 从assets安装ImageFs
+     * 从assets安装ImageFs（同步版本，返回Boolean）
+     */
+    suspend fun installFromAssetsAsync(activity: Activity): Boolean = withContext(Dispatchers.IO) {
+        val imageFs = ImageFs.find(activity)
+        val rootDir = imageFs.getRootDir()
+        
+        try {
+            // 清空目标目录
+            if (rootDir.exists()) {
+                rootDir.listFiles()?.forEach { file ->
+                    if (file.isDirectory) {
+                        if (file.name != "home") {
+                            try {
+                                FileUtils.deleteDirectory(file)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    } else {
+                        file.delete()
+                    }
+                }
+            } else {
+                rootDir.mkdirs()
+            }
+            
+            // 查找assets中的imagefs压缩包
+            val imagefsFileNames = listOf(
+                "imagefs.tar.xz", "imagefs.tar.gz", "imagefs.tar.zst",
+                "imagefs.tzst"
+            )
+            var foundFileName: String? = null
+            
+            for (fileName in imagefsFileNames) {
+                try {
+                    val inputStream = activity.assets.open(fileName)
+                    inputStream.close()
+                    foundFileName = fileName
+                    break
+                } catch (e: Exception) {
+                    // 文件不存在，继续尝试下一个
+                }
+            }
+            
+            if (foundFileName == null) {
+                Log.e(TAG, "未在assets中找到imagefs压缩包")
+                return@withContext false
+            }
+            
+            Log.d(TAG, "找到assets中的imagefs: $foundFileName")
+            
+            // 根据文件名确定压缩类型
+            val compType = when {
+                foundFileName.endsWith(".xz") -> Utils.Archive.CompressedType.XZ
+                foundFileName.endsWith(".gz") -> Utils.Archive.CompressedType.GZ
+                foundFileName.endsWith(".zst") || foundFileName.endsWith(".tzst") -> Utils.Archive.CompressedType.TZST
+                else -> {
+                    Log.e(TAG, "不支持的压缩格式: $foundFileName")
+                    return@withContext false
+                }
+            }
+            
+            // 使用项目自带的解压方法
+            val compressedTarInput = Utils.Archive.getCompressedInput(compType, activity.assets.open(foundFileName))
+            Utils.Archive.decompressCompressedTarStream(compressedTarInput, rootDir)
+            
+            // 创建版本文件
+            imageFs.createImgVersionFile(LATEST_VERSION)
+            
+            Log.d(TAG, "ImageFs 安装成功")
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            Log.e(TAG, "Failed to install ImageFs: ${e.message}")
+            false
+        }
+    }
+    
+    /**
+     * 从assets安装ImageFs（旧版本，使用回调）
      */
     fun installFromAssets(activity: Activity, callback: (Boolean) -> Unit) {
         // 保持屏幕常亮
@@ -49,90 +128,90 @@ object ImageFsInstaller {
         // 显示进度对话框
         val dialog = ProgressDialog(activity)
         dialog.setMessage("正在安装系统文件...")
-        dialog.setProgressStyle(ProgressDialog.STYLE_HORIZONTAL)
-        dialog.max = 100
+        dialog.setProgressStyle(ProgressDialog.STYLE_SPINNER)
         dialog.setCancelable(false)
         dialog.show()
         
         // 在后台线程执行解压
         Thread {
+            var success = false
             try {
                 // 清空目标目录
-                clearRootDir(rootDir)
-                
-                // 解压imagefs.tzst
-                val compressionRatio = 18
-                val imagefsFile = File(activity.cacheDir, "imagefs.tzst")
-                val totalSize = (activity.assets.open("imagefs.tzst").available() * (100.0f / compressionRatio)).toLong()
-                var extractedSize = 0L
-                
-                activity.assets.open("imagefs.tzst").use { inputStream ->
-                    imagefsFile.outputStream().use { outputStream ->
-                        val buffer = ByteArray(8192)
-                        var bytesRead: Int
-                        while (inputStream.read(buffer).also { bytesRead = it } != -1) {
-                            outputStream.write(buffer, 0, bytesRead)
-                            extractedSize += bytesRead
-                            val progress = ((extractedSize.toFloat() / totalSize) * 100).toInt()
-                            activity.runOnUiThread {
-                                dialog.progress = progress.coerceIn(0, 100)
+                if (rootDir.exists()) {
+                    rootDir.listFiles()?.forEach { file ->
+                        if (file.isDirectory) {
+                            if (file.name != "home") {
+                                try {
+                                    FileUtils.deleteDirectory(file)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
                             }
+                        } else {
+                            file.delete()
                         }
+                    }
+                } else {
+                    rootDir.mkdirs()
+                }
+                
+                // 查找assets中的imagefs压缩包
+                val imagefsFileNames = listOf(
+                    "imagefs.tar.xz", "imagefs.tar.gz", "imagefs.tar.zst",
+                    "imagefs.tzst"
+                )
+                var foundFileName: String? = null
+                
+                for (fileName in imagefsFileNames) {
+                    try {
+                        val inputStream = activity.assets.open(fileName)
+                        inputStream.close()
+                        foundFileName = fileName
+                        break
+                    } catch (e: Exception) {
+                        // 文件不存在，继续尝试下一个
                     }
                 }
                 
-                // 执行解压
-                FileInputStream(imagefsFile).use { inputStream ->
-                    Utils.Archive.decompressTarXz(inputStream, rootDir)
+                if (foundFileName == null) {
+                    throw Exception("未在assets中找到imagefs压缩包")
                 }
+                
+                Log.d(TAG, "找到assets中的imagefs: $foundFileName")
+                
+                // 根据文件名确定压缩类型
+                val compType = when {
+                    foundFileName.endsWith(".xz") -> Utils.Archive.CompressedType.XZ
+                    foundFileName.endsWith(".gz") -> Utils.Archive.CompressedType.GZ
+                    foundFileName.endsWith(".zst") || foundFileName.endsWith(".tzst") -> Utils.Archive.CompressedType.TZST
+                    else -> throw RuntimeException("不支持的压缩格式: $foundFileName")
+                }
+                
+                // 使用项目自带的解压方法
+                val compressedTarInput = Utils.Archive.getCompressedInput(compType, activity.assets.open(foundFileName))
+                Utils.Archive.decompressCompressedTarStream(compressedTarInput, rootDir)
                 
                 // 创建版本文件
                 imageFs.createImgVersionFile(LATEST_VERSION)
                 
-                // 删除临时文件
-                imagefsFile.delete()
-                
-                activity.runOnUiThread {
-                    dialog.dismiss()
-                    activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-                    callback(true)
-                }
+                success = true
+                Log.d(TAG, "ImageFs 安装成功")
             } catch (e: Exception) {
                 e.printStackTrace()
                 Log.e(TAG, "Failed to install ImageFs: ${e.message}")
-                
-                activity.runOnUiThread {
-                    dialog.dismiss()
-                    activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            
+            activity.runOnUiThread {
+                dialog.dismiss()
+                activity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+                if (success) {
+                    Toast.makeText(activity, "ImageFS 安装成功", Toast.LENGTH_SHORT).show()
+                } else {
                     Toast.makeText(activity, "无法安装系统文件", Toast.LENGTH_SHORT).show()
-                    callback(false)
                 }
+                callback(success)
             }
         }.start()
-    }
-    
-    /**
-     * 清空root目录（保留home目录）
-     */
-    private fun clearRootDir(rootDir: File) {
-        if (rootDir.isDirectory) {
-            rootDir.listFiles()?.forEach { file ->
-                if (file.isDirectory) {
-                    // 保留home目录
-                    if (file.name != "home") {
-                        try {
-                            FileUtils.deleteDirectory(file)
-                        } catch (e: Exception) {
-                            e.printStackTrace()
-                        }
-                    }
-                } else {
-                    file.delete()
-                }
-            }
-        } else {
-            rootDir.mkdirs()
-        }
     }
     
     /**

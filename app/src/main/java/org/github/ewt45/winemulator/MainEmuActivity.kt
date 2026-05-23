@@ -282,20 +282,16 @@ class MainEmuActivity : MainActivity() {
         lifecycleScope.launch {
             // 检查ImageFs是否已安装
             if (!ImageFsInstaller.isImageFsValid(this@MainEmuActivity)) {
-                // 显示安装对话框
-                mainViewModel.showBlockDialog("正在安装ImageFS系统文件...") {
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        ImageFsInstaller.installFromAssets(this@MainEmuActivity) { success ->
-                            if (success) {
-                                lifecycleScope.launch(Dispatchers.Main) {
-                                    doStartImageFsWine()
-                                }
-                            } else {
-                                lifecycleScope.launch(Dispatchers.Main) {
-                                    Toast.makeText(this@MainEmuActivity, "ImageFS 安装失败", Toast.LENGTH_SHORT).show()
-                                }
-                            }
-                        }
+                // 显示阻塞对话框并执行安装
+                val result = mainViewModel.showBlockDialog("正在安装ImageFS系统文件...") {
+                    ImageFsInstaller.installFromAssetsAsync(this@MainEmuActivity)
+                }
+                
+                if (result.isSuccess && result.getOrNull() == true) {
+                    doStartImageFsWine()
+                } else {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainEmuActivity, "ImageFS 安装失败", Toast.LENGTH_SHORT).show()
                     }
                 }
             } else {
