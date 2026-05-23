@@ -5,8 +5,11 @@ import android.app.ProgressDialog
 import android.content.Context
 import android.util.Log
 import android.widget.Toast
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import org.apache.commons.io.FileUtils
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.Utils
@@ -251,11 +254,24 @@ object ImageFsInstaller {
     }
     
     /**
+     * 从assets安装ImageFs（协程挂起版本）
+     */
+    suspend fun installFromAssetsAsync(activity: Activity): Boolean {
+        return withContext(Dispatchers.IO) {
+            suspendCancellableCoroutine { continuation ->
+                installFromAssets(activity) { success ->
+                    if (continuation.isActive) {
+                        continuation.resume(success) {}
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
      * 从assets安装ImageFs
      */
     fun installFromAssets(activity: Activity, callback: (Boolean) -> Unit) {
-        // 保持屏幕常亮
-        activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         
         val imageFs = ImageFs.find(activity)
         val rootDir = imageFs.getRootDir()
