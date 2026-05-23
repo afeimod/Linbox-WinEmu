@@ -67,7 +67,8 @@ object ProcessHelper {
             
             Log.d(TAG, "Starting process...")
             val process = processBuilder.start()
-            val pid = process.pid()
+            // Android Process 类没有 pid 属性，使用反射获取
+            val pid = getProcessId(process)
             Log.d(TAG, "Process started with PID: $pid")
             
             // 处理输出
@@ -122,6 +123,22 @@ object ProcessHelper {
             e.printStackTrace()
             callback?.invoke(-1)
             return -1
+        }
+    }
+    
+    /**
+     * 获取进程ID
+     * Android的Process类没有直接的pid属性，需要通过反射获取
+     */
+    private fun getProcessId(process: Process): Int {
+        return try {
+            val pidField = process.javaClass.getDeclaredMethod("getPid")
+            pidField.isAccessible = true
+            pidField.invoke(process) as Int
+        } catch (e: Exception) {
+            // 如果反射失败，返回一个随机值
+            Log.w(TAG, "Could not get PID via reflection, returning -1")
+            -1
         }
     }
     

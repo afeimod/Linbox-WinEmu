@@ -6,7 +6,11 @@ import java.util.TreeMap
  * EnvVars - 环境变量管理类
  * 对应Winlator的EnvVars类，用于构建和管理环境变量
  */
-class EnvVars : TreeMap<String, String>(compareBy { it }) {
+class EnvVars : TreeMap<String, String>() {
+    
+    init {
+        // 初始化空Map
+    }
     
     constructor(envString: String) : this() {
         parseFromString(envString)
@@ -84,4 +88,6 @@ class EnvVars : TreeMap<String, String>(compareBy { it }) {
     override fun toString(): String {
         return entries.joinToString(" ") { "${it.key}=${it.value}" }
     }
+    
+    fun toMap(): Map<String, String> = this
 }

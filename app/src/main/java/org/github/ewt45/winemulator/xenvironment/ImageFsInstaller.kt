@@ -33,14 +33,29 @@ object ImageFsInstaller {
             installFromAssets(activity, callback)
         } else {
             // 即使已安装，也执行初始化（确保目录存在）
-            initializeImageFs(activity, callback)
+            initializeImageFsInternal(activity, callback)
         }
     }
     
     /**
      * 初始化ImageFs环境（确保必要的目录和软链接存在）
+     * 公开方法，供外部调用
      */
-    private fun initializeImageFs(context: Context, callback: (Boolean) -> Unit) {
+    fun initializeImageFs(context: Context, callback: (Boolean) -> Unit) {
+        doInitializeImageFs(context, callback)
+    }
+    
+    /**
+     * 内部初始化方法
+     */
+    private fun initializeImageFsInternal(context: Context, callback: (Boolean) -> Unit) {
+        doInitializeImageFs(context, callback)
+    }
+    
+    /**
+     * 实际执行初始化的私有方法
+     */
+    private fun doInitializeImageFs(context: Context, callback: (Boolean) -> Unit) {
         Thread {
             try {
                 val imageFs = ImageFs.find(context)
