@@ -29,8 +29,15 @@ class ImageFs private constructor(private val rootDir: File) {
         }
     }
     
-    // Wine相关路径
-    var winePath: String = rootDir.absolutePath + "/opt/wine"
+    // Wine相关路径 - 使用内部字段避免与getter/setter冲突
+    private var _winePath: String = rootDir.absolutePath + "/opt/wine"
+    
+    var winePath: String
+        get() = _winePath
+        set(value) {
+            _winePath = toRelativePath(rootDir.absolutePath, value)
+        }
+    
     var homePath: String = rootDir.absolutePath + HOME_PATH
     var cachePath: String = rootDir.absolutePath + CACHE_PATH
     var configPath: String = rootDir.absolutePath + CONFIG_PATH
@@ -81,12 +88,6 @@ class ImageFs private constructor(private val rootDir: File) {
         } catch (e: IOException) {
             e.printStackTrace()
         }
-    }
-    
-    fun getWinePath(): String = winePath
-    
-    fun setWinePath(winePath: String) {
-        this.winePath = toRelativePath(rootDir.absolutePath, winePath)
     }
     
     /**
