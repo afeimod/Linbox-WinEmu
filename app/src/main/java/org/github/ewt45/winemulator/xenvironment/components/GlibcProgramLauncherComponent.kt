@@ -26,11 +26,6 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
     // Box86/64相关配置
     var enableBox86_64Logs: Boolean = false
     
-    // Wine相关路径
-    var wineDir: File? = null
-    var wineBinDir: File? = null
-    var wineLibDir: File? = null
-    
     constructor(wineVersion: String) {
         this.wineVersion = wineVersion
     }
@@ -60,6 +55,10 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
         val imageFs: ImageFs = environment!!.getImageFs()
         val rootDir: File = imageFs.getRootDir()
         
+        Log.d(TAG, "=== ImageFs Wine Starting ===")
+        Log.d(TAG, "RootDir: ${rootDir.absolutePath}")
+        Log.d(TAG, "Wine Path: ${imageFs.getWinePath()}")
+        
         // 获取配置
         val prefs = PreferenceManager.getDefaultSharedPreferences(context)
         enableBox86_64Logs = prefs.getBoolean("enable_box86_64_logs", false)
@@ -73,23 +72,29 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
         }
         addBox64EnvVars(envVars, enableBox86_64Logs)
         
-        // 设置基本环境变量
+        // 设置基本环境变量 - 使用ImageFs中的路径
         envVars["HOME"] = imageFs.homePath
         envVars["USER"] = ImageFs.USER
         envVars["TMPDIR"] = rootDir.absolutePath + "/tmp"
         envVars["DISPLAY"] = ":0"
         
-        // 设置Wine路径
-        val wineBinDirAbs = wineBinDir ?: File(rootDir, "opt/wine/bin")
-        val wineLibDirAbs = wineLibDir ?: File(rootDir, "opt/wine/lib")
+        // Wine路径 - 从ImageFs获取
+        val wineDirAbs = File(imageFs.getWinePath())
+        val wineBinDirAbs = File(wineDirAbs, "bin")
+        val wineLibDirAbs = File(wineDirAbs, "lib")
         
+        Log.d(TAG, "WineDir: ${wineDirAbs.absolutePath}")
+        Log.d(TAG, "WineBinDir: ${wineBinDirAbs.absolutePath}")
+        Log.d(TAG, "WineLibDir: ${wineLibDirAbs.absolutePath}")
+        
+        // 设置PATH
         envVars["PATH"] = wineBinDirAbs.absolutePath + ":" +
                 File(rootDir, "usr/bin").absolutePath + ":" +
                 File(rootDir, "usr/local/bin").absolutePath
         
         // 构建LD_LIBRARY_PATH
         var ldLibraryPath = File(rootDir, "usr/lib").absolutePath
-        val wineLib64Dir = File(wineDir ?: File(rootDir, "opt/wine"), "lib64")
+        val wineLib64Dir = File(wineDirAbs, "lib64")
         
         // 添加Wine库路径到LD_LIBRARY_PATH前端
         ldLibraryPath = wineLib64Dir.absolutePath + ":" + wineLibDirAbs.absolutePath + ":" + ldLibraryPath
@@ -134,24 +139,39 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
         var finalArgs = guestExecutable ?: ""
         finalArgs = finalArgs.trim()
         
-        // 移除wine64/wine前缀
+        // 移除wine64/wine前缀，但保留后面的参数
+        var wineExecutableName = "wine64"
         if (finalArgs.startsWith("wine64 ")) {
             finalArgs = finalArgs.substring(7).trim()
         } else if (finalArgs.startsWith("wine ")) {
             finalArgs = finalArgs.substring(5).trim()
         }
         
-        // 构建启动命令
-        val command: String
-        val wineExecutableName = getWineExecutableName()
+        // 构建启动命令: box64 /path/to/wine64 [args]
+        val wineBinPath = File(wineBinDirAbs, wineExecutableName)
         
-        // 使用box64启动wine64
-        val wineAbsPath = File(wineBinDirAbs, wineExecutableName)
-        command = File(rootDir, "usr/local/bin/box64").absolutePath + " " + wineAbsPath.absolutePath + " " + finalArgs
+        // 兜底检查：如果 wine64 不存在，尝试 wine
+        if (!wineBinPath.exists() && wineExecutableName == "wine64") {
+            val altWinePath = File(wineBinDirAbs, "wine")
+            if (altWinePath.exists()) {
+                Log.d(TAG, "wine64 not found, using wine instead")
+            }
+        }
+        
+        // box64 路径
+        val box64Path = File(rootDir, "usr/local/bin/box64")
+        
+        // 构建命令: /data/data/.../files/linbox/usr/local/bin/box64 /data/data/.../files/linbox/opt/wine/bin/wine64 explorer /desktop=winlator,1280x720
+        val command = box64Path.absolutePath + " " + wineBinPath.absolutePath + " " + finalArgs
         
         Log.d(TAG, "Executing command: $command")
         Log.d(TAG, "LD_LIBRARY_PATH: $ldLibraryPath")
         Log.d(TAG, "WINEDLLPATH: ${envVars["WINEDLLPATH"]}")
+        Log.d(TAG, "PATH: ${envVars["PATH"]}")
+        
+        // 检查关键文件是否存在
+        Log.d(TAG, "box64 exists: ${box64Path.exists()}")
+        Log.d(TAG, "wine64 exists: ${wineBinPath.exists()}")
         
         // 执行命令
         return ProcessHelper.exec(
@@ -171,50 +191,28 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
     }
     
     /**
-     * 获取Wine可执行文件名称
-     */
-    protected open fun getWineExecutableName(): String {
-        return if (wow64Mode) "wine64" else "wine64"
-    }
-    
-    /**
      * 从assets提取box86/64文件
      */
     override fun extractBox86_64Files() {
         val imageFs: ImageFs = environment!!.getImageFs()
         val context: Context = environment!!.getContext()
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
         val rootDir: File = imageFs.getRootDir()
         
-        // 获取当前版本
-        val currentBox86Version = prefs.getString("current_box86_version", "") ?: ""
-        val currentBox64Version = prefs.getString("current_box64_version", "") ?: ""
+        // box64 文件应该在 imagefs.tzst 中已有，或者需要单独提取
+        val box64File = File(rootDir, "usr/local/bin/box64")
+        Log.d(TAG, "Checking box64 at: ${box64File.absolutePath}")
+        Log.d(TAG, "box64 exists: ${box64File.exists()}")
         
-        // WoW64模式下删除box86
-        if (wow64Mode) {
-            val box86File = File(rootDir, "usr/local/bin/box86")
-            if (box86File.isFile) {
-                box86File.delete()
-                prefs.edit().putString("current_box86_version", "").apply()
-            }
-        } else if (!currentBox86Version.isEmpty()) {
-            // 提取box86
+        if (!box64File.exists()) {
+            // 尝试从assets提取
+            Log.d(TAG, "box64 not found, attempting to extract from assets")
             TarCompressorUtils.extract(
                 TarCompressorUtils.Type.ZSTD,
                 context,
-                "box86_64/box86-${prefs.getString("box86_version", "0.3.3")}.tzst",
+                "box86_64/box64-0.3.4.tzst",
                 rootDir
             )
-        }
-        
-        // 提取box64
-        if (!currentBox64Version.isEmpty() || !currentBox64Version.isEmpty()) {
-            TarCompressorUtils.extract(
-                TarCompressorUtils.Type.ZSTD,
-                context,
-                "box86_64/box64-${prefs.getString("box64_version", "0.3.3")}.tzst",
-                rootDir
-            )
+            Log.d(TAG, "box64 extraction attempted")
         }
     }
     
@@ -230,8 +228,6 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
             envVars["BOX86_DYNAREC_MISSING"] = "1"
         }
         
-        // 添加预设环境变量
-        addBox86_64PresetEnvVars("box86", envVars)
         envVars["BOX86_X11GLX"] = "1"
     }
     
@@ -248,28 +244,7 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
             envVars["BOX64_DYNAREC_MISSING"] = "1"
         }
         
-        // 添加预设环境变量
-        addBox86_64PresetEnvVars("box64", envVars)
         envVars["BOX64_X11GLX"] = "1"
-    }
-    
-    /**
-     * 添加Box86/64预设环境变量
-     */
-    private fun addBox86_64PresetEnvVars(prefix: String, envVars: EnvVars) {
-        // 预设配置，可根据需要扩展
-        when (if (prefix == "box86") box86Preset else box64Preset) {
-            COMPATIBILITY -> {
-                // 兼容性预设
-                envVars["${prefix.uppercase()}_EMULATED_LIB"] = "libasound.so.2"
-            }
-            PERFORMANCE -> {
-                // 性能预设
-            }
-            BALANCED -> {
-                // 平衡预设
-            }
-        }
     }
     
     companion object {
