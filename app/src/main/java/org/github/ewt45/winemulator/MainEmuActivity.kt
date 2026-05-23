@@ -96,6 +96,9 @@ class MainEmuActivity : MainActivity() {
 
         // 启动时同步所有X11设置到SharedPreferences
         settingViewModel.syncX11SettingsToSharedPrefs()
+        
+        // 启动时检查并安装ImageFs（如果需要）
+        ImageFsInstaller.installIfNeeded(this)
 
         //偏好设置
         prefs.displayResolutionMode.put("custom")

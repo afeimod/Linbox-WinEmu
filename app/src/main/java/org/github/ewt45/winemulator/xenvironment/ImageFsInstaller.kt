@@ -26,7 +26,17 @@ object ImageFsInstaller {
     const val LATEST_VERSION = 11
     
     /**
-     * 检查是否需要安装或更新ImageFs
+     * 检查是否需要安装或更新ImageFs（无回调版本，用于启动时自动检查）
+     */
+    fun installIfNeeded(activity: Activity) {
+        val imageFs = ImageFs.find(activity)
+        if (!imageFs.isValid() || imageFs.getVersion() < LATEST_VERSION) {
+            installFromAssets(activity) { }
+        }
+    }
+    
+    /**
+     * 检查是否需要安装或更新ImageFs（带回调版本）
      */
     fun installIfNeeded(activity: Activity, callback: (Boolean) -> Unit) {
         val imageFs = ImageFs.find(activity)
