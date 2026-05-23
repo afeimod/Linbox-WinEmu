@@ -221,8 +221,8 @@ open class GlibcProgramLauncherComponent : GuestProgramLauncherComponent {
         Log.d(TAG, "Final command: $command")
         Log.d(TAG, "Working directory: $rootDir")
         Log.d(TAG, "Environment variables:")
-        for ((key, value) in envVars.toMap()) {
-            Log.d(TAG, "  $key=$value")
+        for (entry in envVars.toMap().entries) {
+            Log.d(TAG, "  ${entry.key}=${entry.value}")
         }
         
         // 执行命令

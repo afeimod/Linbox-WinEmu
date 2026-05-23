@@ -171,7 +171,7 @@ abstract class GuestProgramLauncherComponent : EnvironmentComponent() {
         }
         
         // 检查是否启用WINEESYNC
-        val bindSHM = envVars["WINEESYNC"] == "1"
+        val bindSHM = envVars.get("WINEESYNC") == "1"
         
         // 构建proot命令
         val command = StringBuilder()
@@ -199,7 +199,7 @@ abstract class GuestProgramLauncherComponent : EnvironmentComponent() {
         
         // 添加要执行的程序
         command.append(" /usr/bin/env ")
-        command.append(envVars.toEscapedString())
+        command.append(envVars.toMap().entries.joinToString(" ") { "${it.key}=${escapeEnvValue(it.value)}" })
         command.append(" box64 ")
         command.append(guestExecutable)
         
@@ -257,6 +257,35 @@ abstract class GuestProgramLauncherComponent : EnvironmentComponent() {
     fun resumeProcess() {
         synchronized(lock) {
             if (pid != -1) ProcessHelper.resumeProcess(pid)
+        }
+    }
+    
+    /**
+     * 转义环境变量值
+     */
+    private fun escapeEnvValue(value: String): String {
+        val escaped = StringBuilder()
+        var escapedSpace = false
+        
+        for (char in value) {
+            when (char) {
+                ' ' -> {
+                    escaped.append("\\ ")
+                    escapedSpace = true
+                }
+                '"' -> escaped.append("\\\"")
+                '\\' -> escaped.append("\\\\")
+                '\n' -> escaped.append("\\n")
+                '\t' -> escaped.append("\\t")
+                else -> escaped.append(char)
+            }
+        }
+        
+        // 如果值包含空格或特殊字符，用引号包裹
+        return if (escapedSpace || escaped.contains("\"") || escaped.contains("$")) {
+            "\"$escaped\""
+        } else {
+            escaped.toString()
         }
     }
 }
