@@ -46,6 +46,18 @@ class ImageFs private constructor(private val rootDir: File) {
     fun getRootDir(): File = rootDir
     
     /**
+     * 获取Wine路径（兼容方法调用语法）
+     */
+    fun getWinePath(): String = winePath
+    
+    /**
+     * 设置Wine路径（兼容方法调用语法）
+     */
+    fun setWinePath(winePath: String) {
+        this.winePath = winePath
+    }
+    
+    /**
      * 检查ImageFs是否有效（目录存在且包含版本文件）
      */
     fun isValid(): Boolean {
