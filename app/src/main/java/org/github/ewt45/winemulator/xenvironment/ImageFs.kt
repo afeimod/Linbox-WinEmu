@@ -83,9 +83,9 @@ class ImageFs private constructor(private val rootDir: File) {
         }
     }
     
-    fun getWinePath(): String = winePath
+    fun getWinePathString(): String = winePath
     
-    fun setWinePath(winePath: String) {
+    fun setWinePathString(winePath: String) {
         this.winePath = toRelativePath(rootDir.absolutePath, winePath)
     }
     
