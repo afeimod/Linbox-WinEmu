@@ -94,7 +94,7 @@ class MainEmuActivity : MainActivity() {
         settingViewModel.syncX11SettingsToSharedPrefs()
         
         // 启动时检查并安装ImageFs（如果需要）
-        ImageFsInstaller.installIfNeeded(this)
+        ImageFsInstaller.installIfNeeded(this) { }
 
         prefs.displayResolutionMode.put("custom")
         runBlocking { prefs.displayResolutionCustom.put(Consts.Pref.general_resolution.get()) }
