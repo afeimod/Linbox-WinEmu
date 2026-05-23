@@ -5,7 +5,6 @@ import android.system.OsConstants
 import android.util.Log
 import androidx.preference.PreferenceManager
 import org.github.ewt45.winemulator.Consts
-import org.github.ewt45.winemulator.Utils.getPid
 import java.io.File
 
 /**
@@ -15,10 +14,12 @@ import java.io.File
 object ProcessHelper {
     
     private const val TAG = "ProcessHelper"
+    const val PRINT_DEBUG = true  // 是否打印调试信息
     
     /**
      * 执行命令
-     * @param command 要执行的完整命令字符串
+     * 使用 sh -c 执行完整命令字符串，支持包含空格和特殊字符的路径
+     * @param command 要执行的命令
      * @param envp 环境变量数组
      * @param workingDir 工作目录
      * @param callback 执行完成回调
@@ -32,75 +33,93 @@ object ProcessHelper {
         callback: ((Int) -> Unit)? = null,
         logFilePath: String? = null
     ): Int {
-        Log.d(TAG, "Executing command: $command")
+        Log.d(TAG, "=== ProcessHelper.exec START ===")
+        Log.d(TAG, "Full command: $command")
         Log.d(TAG, "Working directory: ${workingDir.absolutePath}")
         
         try {
-            // 使用 shell 执行完整命令，这样可以正确处理包含空格的参数
-            val shellCommand = "cd ${workingDir.absolutePath} && $command"
-            
-            // 创建进程
-            val processBuilder = ProcessBuilder("/bin/sh", "-c", shellCommand)
+            // 使用 sh -c 执行完整命令，避免 split(" ") 导致的路径分割问题
+            val processBuilder = ProcessBuilder("/system/bin/sh", "-c", command)
             processBuilder.directory(workingDir)
             
             // 设置环境变量
             val environment = processBuilder.environment()
+            environment.clear()  // 清空默认环境变量
+            
+            // 设置 PATH（最小配置）
+            environment["PATH"] = "/system/bin:/vendor/bin:/product/bin"
+            
+            // 设置用户指定的环境变量
             for (env in envp) {
                 val parts = env.split("=", limit = 2)
                 if (parts.size == 2) {
                     environment[parts[0]] = parts[1]
-                    Log.v(TAG, "  ENV: ${parts[0]} = ${parts[1]}")
+                    if (PRINT_DEBUG) {
+                        Log.d(TAG, "  ENV: ${parts[0]}=${parts[1]}")
+                    }
                 }
             }
             
-            val process = processBuilder.start()
-            val pid = process.getPid()
+            // 重定向错误流到日志文件
+            if (logFilePath != null) {
+                processBuilder.redirectErrorStream(true)
+            }
             
+            Log.d(TAG, "Starting process...")
+            val process = processBuilder.start()
+            val pid = process.pid()
             Log.d(TAG, "Process started with PID: $pid")
             
             // 处理输出
-            if (logFilePath != null || Log.isLoggable(TAG, Log.DEBUG)) {
+            if (logFilePath != null) {
+                Thread {
+                    try {
+                        val logFile = File(logFilePath)
+                        logFile.parentFile?.mkdirs()
+                        
+                        val reader = process.inputStream.bufferedReader()
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
+                            Log.d(TAG, "[stdout] $line")
+                            logFile.appendText("$line\n")
+                        }
+                        reader.close()
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error reading process output: ${e.message}")
+                    }
+                }.start()
+            } else {
+                // 即使没有日志文件，也读取输出避免管道阻塞
                 Thread {
                     try {
                         val reader = process.inputStream.bufferedReader()
-                        while (true) {
-                            val line = reader.readLine() ?: break
+                        var line: String?
+                        while (reader.readLine().also { line = it } != null) {
                             Log.d(TAG, "[stdout] $line")
-                            if (logFilePath != null) {
-                                File(logFilePath).appendText("$line\n")
-                            }
                         }
+                        reader.close()
                     } catch (e: Exception) {
-                        Log.e(TAG, "Error reading stdout: ${e.message}")
-                    }
-                }.start()
-                
-                Thread {
-                    try {
-                        val reader = process.errorStream.bufferedReader()
-                        while (true) {
-                            val line = reader.readLine() ?: break
-                            Log.e(TAG, "[stderr] $line")
-                            if (logFilePath != null) {
-                                File(logFilePath).appendText("$line\n")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error reading stderr: ${e.message}")
+                        // 忽略读取错误
                     }
                 }.start()
             }
             
             // 等待进程结束
             Thread {
-                val exitCode = process.waitFor()
-                Log.d(TAG, "Process $pid exited with code: $exitCode")
-                callback?.invoke(exitCode)
+                try {
+                    val exitCode = process.waitFor()
+                    Log.d(TAG, "Process exited with code: $exitCode")
+                    callback?.invoke(exitCode)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error waiting for process: ${e.message}")
+                    callback?.invoke(-1)
+                }
             }.start()
             
             return pid
         } catch (e: Exception) {
-            Log.e(TAG, "Error executing command: ${e.message}", e)
+            Log.e(TAG, "Error executing command: ${e.message}")
+            e.printStackTrace()
             callback?.invoke(-1)
             return -1
         }
@@ -137,22 +156,5 @@ object ProcessHelper {
         } catch (e: Exception) {
             Log.e(TAG, "Error killing process: ${e.message}")
         }
-    }
-    
-    /**
-     * 获取进程亲和性掩码
-     */
-    fun getAffinityMask(cpuList: String?): Int {
-        if (cpuList == null || cpuList.isEmpty()) return 0
-        var mask = 0
-        try {
-            for (cpu in cpuList.split(",")) {
-                val cpuIndex = cpu.trim().toInt()
-                mask = mask or (1 shl cpuIndex)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing CPU list: $cpuList")
-        }
-        return mask
     }
 }

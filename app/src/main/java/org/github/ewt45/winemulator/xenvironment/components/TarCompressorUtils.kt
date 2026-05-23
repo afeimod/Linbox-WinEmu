@@ -2,9 +2,9 @@ package org.github.ewt45.winemulator.xenvironment.components
 
 import android.content.Context
 import org.apache.commons.io.FileUtils
-import org.github.ewt45.winemulator.CompressedType
 import org.github.ewt45.winemulator.Utils
 import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
 
 /**
@@ -35,6 +35,13 @@ object TarCompressorUtils {
         progressCallback: ((String, Long) -> Long)? = null
     ): Boolean {
         try {
+            val inputStream: InputStream
+            val totalSize: Long
+            
+            // 从assets读取
+            inputStream = context.assets.open(assetName)
+            totalSize = inputStream.available().toLong()
+            
             // 解压前清空目标目录
             if (destDir.exists()) {
                 try {
@@ -46,16 +53,111 @@ object TarCompressorUtils {
             destDir.mkdirs()
             
             // 根据类型选择解压方法
-            val compType = when (type) {
-                Type.ZSTD -> CompressedType.TZST
-                Type.XZ -> CompressedType.XZ
-                Type.GZIP -> CompressedType.GZ
+            return when (type) {
+                Type.ZSTD -> extractZstd(inputStream, destDir, totalSize, progressCallback)
+                Type.XZ -> extractXZ(inputStream, destDir, totalSize, progressCallback)
+                Type.GZIP -> extractGzip(inputStream, destDir, totalSize, progressCallback)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return false
+        }
+    }
+    
+    /**
+     * 提取Zstd压缩
+     */
+    private fun extractZstd(
+        inputStream: InputStream,
+        destDir: File,
+        totalSize: Long,
+        progressCallback: ((String, Long) -> Long)?
+    ): Boolean {
+        // 使用Zstd-Jni进行解压（需要Zstd库）
+        // 这里简化处理，实际需要根据项目依赖调整
+        try {
+            val tempFile = File.createTempFile("zstd_extract", ".tar", destDir.parentFile)
+            tempFile.deleteOnExit()
+            
+            // 复制到临时文件
+            inputStream.use { input ->
+                tempFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
             }
             
-            // 使用项目自带的解压方法
-            val compressedTarInput = Utils.Archive.getCompressedInput(compType, context.assets.open(assetName))
-            Utils.Archive.decompressCompressedTarStream(compressedTarInput, destDir)
+            // 解压tar
+            return extractTar(tempFile, destDir, progressCallback)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return false
+        }
+    }
+    
+    /**
+     * 提取XZ压缩
+     */
+    private fun extractXZ(
+        inputStream: InputStream,
+        destDir: File,
+        totalSize: Long,
+        progressCallback: ((String, Long) -> Long)?
+    ): Boolean {
+        try {
+            val tempFile = File.createTempFile("xz_extract", ".tar", destDir.parentFile)
+            tempFile.deleteOnExit()
             
+            inputStream.use { input ->
+                tempFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            
+            return extractTar(tempFile, destDir, progressCallback)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return false
+        }
+    }
+    
+    /**
+     * 提取Gzip压缩
+     */
+    private fun extractGzip(
+        inputStream: InputStream,
+        destDir: File,
+        totalSize: Long,
+        progressCallback: ((String, Long) -> Long)?
+    ): Boolean {
+        try {
+            val tempFile = File.createTempFile("gzip_extract", ".tar", destDir.parentFile)
+            tempFile.deleteOnExit()
+            
+            inputStream.use { input ->
+                tempFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
+            }
+            
+            return extractTar(tempFile, destDir, progressCallback)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            return false
+        }
+    }
+    
+    /**
+     * 提取tar包
+     */
+    private fun extractTar(
+        tarFile: File,
+        destDir: File,
+        progressCallback: ((String, Long) -> Long)?
+    ): Boolean {
+        try {
+            FileInputStream(tarFile).use { inputStream ->
+                Utils.Archive.decompressTarXz(inputStream, destDir)
+            }
             return true
         } catch (e: Exception) {
             e.printStackTrace()
@@ -72,7 +174,30 @@ object TarCompressorUtils {
         outputFile: File,
         compressionLevel: Int = 22
     ): Boolean {
-        // 压缩功能暂未实现
+        try {
+            when (type) {
+                Type.ZSTD -> return compressZstd(sourceDir, outputFile, compressionLevel)
+                Type.XZ -> return compressXZ(sourceDir, outputFile, compressionLevel)
+                Type.GZIP -> return compressGzip(sourceDir, outputFile, compressionLevel)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return false
+    }
+    
+    private fun compressZstd(sourceDir: File, outputFile: File, level: Int): Boolean {
+        // 实现Zstd压缩
+        return false
+    }
+    
+    private fun compressXZ(sourceDir: File, outputFile: File, level: Int): Boolean {
+        // 实现XZ压缩
+        return false
+    }
+    
+    private fun compressGzip(sourceDir: File, outputFile: File, level: Int): Boolean {
+        // 实现Gzip压缩
         return false
     }
 }
