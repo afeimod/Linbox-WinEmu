@@ -732,20 +732,20 @@ public class InputControlsView extends View {
                 mouseMoveOffset.y = isActionDown ? (offset != 0 ? offset : (binding == Binding.MOUSE_MOVE_UP ? -1 : 1)) : 0;
                 if (isActionDown) createMouseMoveTimer();
             } else {
-                LorieView.Pointer.Button pointerButton = binding.getPointerButton();
+                Pointer.Button pointerButton = binding.getPointerButton();
                 if (isActionDown) {
 //                    Log.d("handleInputEvent","<isActionDown> "+binding.toString());
                     if (pointerButton != null) {
                         xServer.injectPointerButtonPress(pointerButton);
                     } else {
-                        xServer.injectKeyPress(XKeycode.fromCode(binding.keycode));
+                        xServer.injectKeyPress(XKeycode.fromId(binding.keycode));
                     }
                 } else {
 //                    Log.d("handleInputEvent","<isActionUp> "+binding.toString());
                     if (pointerButton != null) {
                         xServer.injectPointerButtonRelease(pointerButton);
                     } else {
-                        xServer.injectKeyRelease(XKeycode.fromCode(binding.keycode));
+                        xServer.injectKeyRelease(XKeycode.fromId(binding.keycode));
                     }
                 }
             }
