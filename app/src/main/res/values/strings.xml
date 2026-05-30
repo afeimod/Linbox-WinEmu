@@ -170,5 +170,4 @@
 
     <!-- Download Progress Dialog -->
     <string name="downloading">Downloading…</string>
-    <string name="downloading_file">Downloading file…</string>
 </resources>
