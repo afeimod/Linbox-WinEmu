@@ -8,35 +8,33 @@ import android.content.SharedPreferences;
  * Provides type-safe access to preferences with get/put methods.
  */
 public class Prefs {
-    private final SharedPreferences sharedPreferences;
-    private final PrefsProto prefsProto;
+    public final PrefsProto prefsProto;
 
     public Prefs(Context context) {
-        this.sharedPreferences = context.getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE);
-        this.prefsProto = new PrefsProto(this);
+        SharedPreferences sp = context.getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE);
+        this.prefsProto = new PrefsProto(sp);
     }
 
     public Prefs(SharedPreferences sharedPreferences) {
-        this.sharedPreferences = sharedPreferences;
-        this.prefsProto = new PrefsProto(this);
+        this.prefsProto = new PrefsProto(sharedPreferences);
     }
 
     public SharedPreferences getSharedPreferences() {
-        return sharedPreferences;
-    }
-
-    public PrefsProto getPrefsProto() {
-        return prefsProto;
+        return prefsProto.sharedPreferences;
     }
 
     /**
      * Inner class containing preference definitions
      */
     public static class PrefsProto {
-        private final Prefs prefs;
+        private final SharedPreferences sharedPreferences;
 
-        public PrefsProto(Prefs prefs) {
-            this.prefs = prefs;
+        public PrefsProto(SharedPreferences sp) {
+            this.sharedPreferences = sp;
+        }
+
+        public SharedPreferences getSharedPreferences() {
+            return sharedPreferences;
         }
 
         /**
@@ -155,16 +153,16 @@ public class Prefs {
         }
 
         // Display preferences
-        public StringPreference displayResolutionMode = new StringPreference(prefs.sharedPreferences, "display_resolution_mode", "auto");
-        public StringPreference displayResolutionCustom = new StringPreference(prefs.sharedPreferences, "display_resolution_custom", "");
+        public StringPreference displayResolutionMode = new StringPreference(sharedPreferences, "display_resolution_mode", "auto");
+        public StringPreference displayResolutionCustom = new StringPreference(sharedPreferences, "display_resolution_custom", "");
 
         // UI preferences
-        public BooleanPreference showAdditionalKbd = new BooleanPreference(prefs.sharedPreferences, "show_additional_kbd", false);
-        public BooleanPreference fullscreen = new BooleanPreference(prefs.sharedPreferences, "fullscreen", false);
-        public BooleanPreference hideCutout = new BooleanPreference(prefs.sharedPreferences, "hide_cutout", false);
+        public BooleanPreference showAdditionalKbd = new BooleanPreference(sharedPreferences, "show_additional_kbd", false);
+        public BooleanPreference fullscreen = new BooleanPreference(sharedPreferences, "fullscreen", false);
+        public BooleanPreference hideCutout = new BooleanPreference(sharedPreferences, "hide_cutout", false);
 
         // Other preferences
-        public IntPreference clipboardMode = new IntPreference(prefs.sharedPreferences, "clipboard_mode", 0);
-        public StringPreference desktopMode = new StringPreference(prefs.sharedPreferences, "desktop_mode", "default");
+        public IntPreference clipboardMode = new IntPreference(sharedPreferences, "clipboard_mode", 0);
+        public StringPreference desktopMode = new StringPreference(sharedPreferences, "desktop_mode", "default");
     }
 }
