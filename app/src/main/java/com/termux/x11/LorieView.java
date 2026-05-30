@@ -2,12 +2,14 @@ package com.termux.x11;
 
 import com.termux.x11.controller.xserver.XKeycode;
 import com.termux.x11.controller.winhandler.WinHandler;
+import com.termux.x11.input.RenderData;
 
 /**
  * Runtime API interface for LorieView (XServer) that provides
  * all the methods and properties needed by the input controls system.
+ * Also serves as InputStub for compatibility with input handling.
  */
-public interface LorieView {
+public interface LorieView extends com.termux.x11.input.InputStub {
     /**
      * Interface for pointer operations
      */
@@ -63,4 +65,60 @@ public interface LorieView {
 
     // Window handler
     WinHandler getWinHandler();
+
+    // Default implementations for InputStub methods
+    @Override
+    default void initialize(LorieView view) {
+        // Default implementation - can be overridden
+    }
+
+    @Override
+    default boolean isReady() {
+        return true;
+    }
+
+    @Override
+    default void setRenderData(RenderData renderData) {
+        // Default implementation - can be overridden
+    }
+
+    @Override
+    default void forceResetMouseButtons() {
+        // Default implementation - can be overridden
+    }
+
+    @Override
+    default void sendEvdevKeyEvent(int keycode, boolean isDown) {
+        // Default implementation - can be overridden
+        XKeycode xKeycode = XKeycode.fromEvdev(keycode);
+        if (isDown) {
+            injectKeyPress(xKeycode);
+        } else {
+            injectKeyRelease(xKeycode);
+        }
+    }
+
+    @Override
+    default void sendMouseMotionEvent(int dx, int dy) {
+        // Default implementation - can be overridden
+        injectPointerMoveDelta(dx, dy);
+    }
+
+    @Override
+    default void sendMouseButtonEvent(int button, boolean isDown) {
+        // Default implementation - can be overridden
+        Pointer.Button btn = switch (button) {
+            case 1 -> Pointer.Button.BUTTON_LEFT;
+            case 2 -> Pointer.Button.BUTTON_MIDDLE;
+            case 3 -> Pointer.Button.BUTTON_RIGHT;
+            case 4 -> Pointer.Button.BUTTON_SCROLL_UP;
+            case 5 -> Pointer.Button.BUTTON_SCROLL_DOWN;
+            default -> Pointer.Button.BUTTON_LEFT;
+        };
+        if (isDown) {
+            injectPointerButtonPress(btn);
+        } else {
+            injectPointerButtonRelease(btn);
+        }
+    }
 }
