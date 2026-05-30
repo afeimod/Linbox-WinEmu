@@ -1,7 +1,6 @@
 package com.termux.x11.controller.winhandler;
 
 import com.termux.x11.LorieViewRuntimeApi;
-import com.termux.x11.controller.widget.InputControlsView;
 
 import android.util.Log;
 import android.view.KeyEvent;

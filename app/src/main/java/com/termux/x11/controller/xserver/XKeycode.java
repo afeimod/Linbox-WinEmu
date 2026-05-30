@@ -1,120 +1,111 @@
 package com.termux.x11.controller.xserver;
 
-/** The {@link Class} that defines X11 keycodes. */
-public class XKeycode {
-    public static final int KEY_UNKNOWN = 0;
-    public static final int KEY_ESCAPE = 1;
-    public static final int KEY_1 = 2;
-    public static final int KEY_2 = 3;
-    public static final int KEY_3 = 4;
-    public static final int KEY_4 = 5;
-    public static final int KEY_5 = 6;
-    public static final int KEY_6 = 7;
-    public static final int KEY_7 = 8;
-    public static final int KEY_8 = 9;
-    public static final int KEY_9 = 10;
-    public static final int KEY_0 = 11;
-    public static final int KEY_MINUS = 12;
-    public static final int KEY_EQUAL = 13;
-    public static final int KEY_BACKSPACE = 14;
-    public static final int KEY_TAB = 15;
-    public static final int KEY_Q = 16;
-    public static final int KEY_W = 17;
-    public static final int KEY_E = 18;
-    public static final int KEY_R = 19;
-    public static final int KEY_T = 20;
-    public static final int KEY_Y = 21;
-    public static final int KEY_U = 22;
-    public static final int KEY_I = 23;
-    public static final int KEY_O = 24;
-    public static final int KEY_P = 25;
-    public static final int KEY_BRACKET_LEFT = 26;
-    public static final int KEY_BRACKET_RIGHT = 27;
-    public static final int KEY_ENTER = 28;
-    public static final int KEY_LEFTCTRL = 29;
-    public static final int KEY_A = 30;
-    public static final int KEY_S = 31;
-    public static final int KEY_D = 32;
-    public static final int KEY_F = 33;
-    public static final int KEY_G = 34;
-    public static final int KEY_H = 35;
-    public static final int KEY_J = 36;
-    public static final int KEY_K = 37;
-    public static final int KEY_L = 38;
-    public static final int KEY_SEMICOLON = 39;
-    public static final int KEY_APOSTROPHE = 40;
-    public static final int KEY_GRAVE = 41;
-    public static final int KEY_LEFTSHIFT = 42;
-    public static final int KEY_BACKSLASH = 43;
-    public static final int KEY_Z = 44;
-    public static final int KEY_X = 45;
-    public static final int KEY_C = 46;
-    public static final int KEY_V = 47;
-    public static final int KEY_B = 48;
-    public static final int KEY_N = 49;
-    public static final int KEY_M = 50;
-    public static final int KEY_COMMA = 51;
-    public static final int KEY_PERIOD = 52;
-    public static final int KEY_SLASH = 53;
-    public static final int KEY_RIGHTSHIFT = 54;
-    public static final int KEY_KP_MULTIPLY = 55;
-    public static final int KEY_LEFTALT = 56;
-    public static final int KEY_SPACE = 57;
-    public static final int KEY_CAPSLOCK = 58;
-    public static final int KEY_F1 = 59;
-    public static final int KEY_F2 = 60;
-    public static final int KEY_F3 = 61;
-    public static final int KEY_F4 = 62;
-    public static final int KEY_F5 = 63;
-    public static final int KEY_F6 = 64;
-    public static final int KEY_F7 = 65;
-    public static final int KEY_F8 = 66;
-    public static final int KEY_F9 = 67;
-    public static final int KEY_F10 = 68;
-    public static final int KEY_NUMLOCK = 69;
-    public static final int KEY_SCROLLLOCK = 70;
-    public static final int KEY_KP_7 = 71;
-    public static final int KEY_KP_8 = 72;
-    public static final int KEY_KP_9 = 73;
-    public static final int KEY_KP_MINUS = 74;
-    public static final int KEY_KP_4 = 75;
-    public static final int KEY_KP_5 = 76;
-    public static final int KEY_KP_6 = 77;
-    public static final int KEY_KP_PLUS = 78;
-    public static final int KEY_KP_1 = 79;
-    public static final int KEY_KP_2 = 80;
-    public static final int KEY_KP_3 = 81;
-    public static final int KEY_KP_0 = 82;
-    public static final int KEY_KP_DECIMAL = 83;
-    public static final int KEY_84 = 84;
-    public static final int KEY_85 = 85;
-    public static final int KEY_86 = 86;
-    public static final int KEY_F11 = 87;
-    public static final int KEY_F12 = 88;
-    public static final int KEY_89 = 89;
-    public static final int KEY_90 = 90;
-    public static final int KEY_HOME = 91;
-    public static final int KEY_UP = 92;
-    public static final int KEY_PAGE_UP = 93;
-    public static final int KEY_LEFT = 94;
-    public static final int KEY_RIGHT = 95;
-    public static final int KEY_END = 96;
-    public static final int KEY_DOWN = 97;
-    public static final int KEY_PAGE_DOWN = 98;
-    public static final int KEY_INSERT = 99;
-    public static final int KEY_DELETE = 100;
-    public static final int KEY_101 = 101;
-    public static final int KEY_102 = 102;
-    public static final int KEY_103 = 103;
-    public static final int KEY_104 = 104;
-    public static final int KEY_105 = 105;
-    public static final int KEY_106 = 106;
-    public static final int KEY_107 = 107;
-    public static final int KEY_108 = 108;
-    public static final int KEY_109 = 109;
-    public static final int KEY_LEFTMETA = 110;
-    public static final int KEY_RIGHTMETA = 111;
-    public static final int KEY_COMPOSE = 112;
-    public static final int KEY_PAUSE = 113;
-    public static final int KEY_PRINT = 114;
+public enum XKeycode {
+    KEY_NONE(0),
+    KEY_ESC(9),
+    KEY_1(10),
+    KEY_2(11),
+    KEY_3(12),
+    KEY_4(13),
+    KEY_5(14),
+    KEY_6(15),
+    KEY_7(16),
+    KEY_8(17),
+    KEY_9(18),
+    KEY_0(19),
+    KEY_MINUS(20),
+    KEY_EQUAL(21),
+    KEY_BKSP(22),
+    KEY_TAB(23),
+    KEY_Q(24),
+    KEY_W(25),
+    KEY_E(26),
+    KEY_R(27),
+    KEY_T(28),
+    KEY_Y(29),
+    KEY_U(30),
+    KEY_I(31),
+    KEY_O(32),
+    KEY_P(33),
+    KEY_BRACKET_LEFT(34),
+    KEY_BRACKET_RIGHT(35),
+    KEY_ENTER(36),
+    KEY_CTRL_L(37),
+    KEY_A(38),
+    KEY_S(39),
+    KEY_D(40),
+    KEY_F(41),
+    KEY_G(42),
+    KEY_H(43),
+    KEY_J(44),
+    KEY_K(45),
+    KEY_L(46),
+    KEY_SEMICOLON(47),
+    KEY_APOSTROPHE(48),
+    KEY_GRAVE(49),
+    KEY_SHIFT_L(50),
+    KEY_BACKSLASH(51),
+    KEY_Z(52),
+    KEY_X(53),
+    KEY_C(54),
+    KEY_V(55),
+    KEY_B(56),
+    KEY_N(57),
+    KEY_M(58),
+    KEY_COMMA(59),
+    KEY_PERIOD(60),
+    KEY_SLASH(61),
+    KEY_SHIFT_R(62),
+    KEY_KP_MULTIPLY(63),
+    KEY_ALT_L(64),
+    KEY_SPACE(65),
+    KEY_CAPS_LOCK(66),
+    KEY_F1(67),
+    KEY_F2(68),
+    KEY_F3(69),
+    KEY_F4(70),
+    KEY_F5(71),
+    KEY_F6(72),
+    KEY_F7(73),
+    KEY_F8(74),
+    KEY_F9(75),
+    KEY_F10(76),
+    KEY_NUM_LOCK(77),
+    KEY_SCROLL_LOCK(78),
+    KEY_KP_7(79),
+    KEY_KP_8(80),
+    KEY_KP_9(81),
+    KEY_KP_SUBTRACT(82),
+    KEY_KP_4(83),
+    KEY_KP_5(84),
+    KEY_KP_6(85),
+    KEY_KP_ADD(86),
+    KEY_KP_1(87),
+    KEY_KP_2(88),
+    KEY_KP_3(89),
+    KEY_KP_0(90),
+    KEY_KP_DEL(91),
+    KEY_F11(95),
+    KEY_F12(96),
+    KEY_KP_ENTER(104),
+    KEY_CTRL_R(105),
+    KEY_KP_DIVIDE(106),
+    KEY_PRTSCN(107),
+    KEY_ALT_R(108),
+    KEY_HOME(110),
+    KEY_UP(111),
+    KEY_PRIOR(112),
+    KEY_LEFT(113),
+    KEY_RIGHT(114),
+    KEY_END(115),
+    KEY_DOWN(116),
+    KEY_NEXT(117),
+    KEY_INSERT(118),
+    KEY_DEL(119),
+    KEY_MAX(KEY_DEL.id);
+    public final byte id;
+
+    XKeycode(int id) {
+        this.id = (byte)id;
+    }
 }

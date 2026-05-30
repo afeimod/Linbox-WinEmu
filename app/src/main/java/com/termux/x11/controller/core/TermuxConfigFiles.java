@@ -4,15 +4,11 @@ import android.content.Context;
 
 import java.io.File;
 
-public class TermuxConfigFiles {
-    public static File buttonIconsDir(Context context) {
-        File dir = new File(context.getFilesDir(), "home/.buttonIcons");
-        if (!dir.isDirectory()) dir.mkdirs();
-        return dir;
-    }
+public final class TermuxConfigFiles {
+    private TermuxConfigFiles() {}
 
-    public static File getConfigFile(Context context, String name) {
-        File dir = context.getFilesDir();
-        return new File(dir, name);
+    public static File buttonIconsDir(Context context) {
+        File homeDir = new File(context.getFilesDir(), "home");
+        return new File(homeDir, ".termux/buttonIcons");
     }
 }
