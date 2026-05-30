@@ -443,7 +443,7 @@ fun VirtualKeysSettingsPopup(
                             onClick = {
                                 selectedProfile?.let { profile ->
                                     val intent = Intent(context, ControlsEditorActivity::class.java)
-                                    intent.putExtra(ControlsEditorActivity.EXTRA_PROFILE_ID, profile.getId())
+                                    intent.putExtra(ControlsEditorActivity.EXTRA_PROFILE_ID, profile.id)
                                     controlsEditorLauncher.launch(intent)
                                 }
                             },
