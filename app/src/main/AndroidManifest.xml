@@ -50,7 +50,7 @@
         </activity>
 
         <activity
-            android:name="org.github.ewt45.winemulator.ui.ControlsEditorActivity"
+            android:name="com.termux.x11.controller.ControlsEditorActivity"
             android:exported="false"
             android:configChanges="orientation|screenSize|keyboardHidden"
             android:screenOrientation="fullSensor"

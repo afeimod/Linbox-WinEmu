@@ -48,13 +48,6 @@ public class InputControlsView extends View {
         boolean dispatchTouchEvent(MotionEvent event);
     }
 
-    public interface InputEventHandler {
-        void onKeyEvent(int keycode, boolean pressed);
-        void onPointerMove(int dx, int dy);
-        void onPointerButton(int button, boolean pressed);
-        void onText(String text);
-    }
-
     public static final float DEFAULT_OVERLAY_OPACITY = 0.4f;
     public static final byte MAX_TAP_TRAVEL_DISTANCE = 10;
     public static final short MAX_TAP_MILLISECONDS = 200;
@@ -80,7 +73,6 @@ public class InputControlsView extends View {
     private float overlayOpacity = DEFAULT_OVERLAY_OPACITY;
     private TouchpadView touchpadView;
     private LorieView xServer;
-    private InputEventHandler inputEventHandler;
     private PassthroughTouchDispatcher passthroughTouchDispatcher;
     private final Bitmap[] icons = new Bitmap[17];
     private Timer mouseMoveTimer;
@@ -124,17 +116,6 @@ public class InputControlsView extends View {
         setFocusableInTouchMode(true);
         setBackgroundColor(0x00000000);
         setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
-    }
-
-    public void setInputEventHandler(InputEventHandler handler) {
-        this.inputEventHandler = handler;
-        if (touchpadView != null) {
-            touchpadView.setInputEventHandler(handler);
-        }
-    }
-
-    public InputEventHandler getInputEventHandler() {
-        return inputEventHandler;
     }
 
     public void setEditMode(boolean editMode) {
@@ -541,11 +522,7 @@ public class InputControlsView extends View {
             mouseMoveTimer.schedule(new TimerTask() {
                 @Override
                 public void run() {
-                    if (xServer != null) {
-                        xServer.injectPointerMoveDelta((int) (mouseMoveOffset.x * 10 * cursorSpeed), (int) (mouseMoveOffset.y * 10 * cursorSpeed));
-                    } else if (inputEventHandler != null) {
-                        inputEventHandler.onPointerMove((int) (mouseMoveOffset.x * 10 * cursorSpeed), (int) (mouseMoveOffset.y * 10 * cursorSpeed));
-                    }
+                    xServer.injectPointerMoveDelta((int) (mouseMoveOffset.x * 10 * cursorSpeed), (int) (mouseMoveOffset.y * 10 * cursorSpeed));
                 }
             }, 0, 1000 / 60);
         }
@@ -760,32 +737,16 @@ public class InputControlsView extends View {
                 if (isActionDown) {
 //                    Log.d("handleInputEvent","<isActionDown> "+binding.toString());
                     if (pointerButton != null) {
-                        if (xServer != null) {
-                            xServer.injectPointerButtonPress(pointerButton);
-                        } else if (inputEventHandler != null) {
-                            inputEventHandler.onPointerButton(pointerButton.ordinal(), true);
-                        }
+                        xServer.injectPointerButtonPress(pointerButton);
                     } else {
-                        if (xServer != null) {
-                            xServer.injectKeyPress(binding.keycode);
-                        } else if (inputEventHandler != null) {
-                            inputEventHandler.onKeyEvent(binding.keycode.ordinal(), true);
-                        }
+                        xServer.injectKeyPress(binding.keycode);
                     }
                 } else {
 //                    Log.d("handleInputEvent","<isActionUp> "+binding.toString());
                     if (pointerButton != null) {
-                        if (xServer != null) {
-                            xServer.injectPointerButtonRelease(pointerButton);
-                        } else if (inputEventHandler != null) {
-                            inputEventHandler.onPointerButton(pointerButton.ordinal(), false);
-                        }
+                        xServer.injectPointerButtonRelease(pointerButton);
                     } else {
-                        if (xServer != null) {
-                            xServer.injectKeyRelease(binding.keycode);
-                        } else if (inputEventHandler != null) {
-                            inputEventHandler.onKeyEvent(binding.keycode.ordinal(), false);
-                        }
+                        xServer.injectKeyRelease(binding.keycode);
                     }
                 }
             }
@@ -793,13 +754,9 @@ public class InputControlsView extends View {
     }
 
     public void sendText(String text) {
-        if (xServer != null) {
-            xServer.injectText(text);
-            xServer.injectKeyPress(XKeycode.KEY_ENTER);
-            xServer.injectKeyRelease(XKeycode.KEY_ENTER);
-        } else if (inputEventHandler != null) {
-            inputEventHandler.onText(text);
-        }
+        xServer.injectText(text);
+        xServer.injectKeyPress(XKeycode.KEY_ENTER);
+        xServer.injectKeyRelease(XKeycode.KEY_ENTER);
     }
 
     public Bitmap getIcon(byte id) {
