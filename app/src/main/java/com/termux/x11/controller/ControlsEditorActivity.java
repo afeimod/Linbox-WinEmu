@@ -45,6 +45,8 @@ import java.io.InputStream;
 import java.util.Arrays;
 
 public class ControlsEditorActivity extends AppCompatActivity implements View.OnClickListener {
+    public static final String EXTRA_PROFILE_ID = "profile_id";
+
     public interface LoadCallBack<T> {
         String call(T t);
     }
@@ -67,7 +69,7 @@ public class ControlsEditorActivity extends AppCompatActivity implements View.On
         inputControlsView.setEditMode(true);
         inputControlsView.setOverlayOpacity(0.6f);
 
-        profile = InputControlsManager.loadProfile(this, ControlsProfile.getProfileFile(this, getIntent().getIntExtra("profile_id", 0)));
+        profile = InputControlsManager.loadProfile(this, ControlsProfile.getProfileFile(this, getIntent().getIntExtra(EXTRA_PROFILE_ID, 0)));
         ((TextView) findViewById(R.id.TVProfileName)).setText(profile.getName());
         inputControlsView.setProfile(profile);
 
