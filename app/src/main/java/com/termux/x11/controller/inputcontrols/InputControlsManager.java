@@ -244,4 +244,9 @@ public class InputControlsManager {
         for (ControlsProfile profile : getProfiles()) if (profile.id == id) return profile;
         return null;
     }
+
+    public void forceReloadProfiles() {
+        profilesLoaded = false;
+        profiles = null;
+    }
 }
