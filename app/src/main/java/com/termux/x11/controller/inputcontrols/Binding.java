@@ -25,9 +25,8 @@ public enum Binding {
     private static XKeycode mapToXKeycode(String bindingName) {
         // Map Binding names to XKeycode names
         switch (bindingName) {
-            case "KEY_KP_ADD": return XKeycode.KEY_KP_ADD;
-            case "KEY_CAPS_LOCK": return XKeycode.KEY_CAPSLOCK;
-            case "KEY_NUM_LOCK": return XKeycode.KEY_NUMLOCK;
+            case "KEY_CAPS_LOCK": return XKeycode.KEY_CAPS_LOCK;
+            case "KEY_NUM_LOCK": return XKeycode.KEY_NUM_LOCK;
             case "KEY_PRTSCN": return XKeycode.KEY_PRTSCN;
             case "KEY_PG_UP": return XKeycode.KEY_PRIOR;
             case "KEY_PG_DOWN": return XKeycode.KEY_NEXT;
@@ -36,6 +35,7 @@ public enum Binding {
             case "KEY_KP_DIVIDE": return XKeycode.KEY_KP_DIVIDE;
             case "KEY_KP_MULTIPLY": return XKeycode.KEY_KP_MULTIPLY;
             case "KEY_KP_SUBTRACT": return XKeycode.KEY_KP_SUBTRACT;
+            case "KEY_KP_ADD": return XKeycode.KEY_KP_ADD;
             case "KEY_KP_0": case "KEY_KP_1": case "KEY_KP_2": case "KEY_KP_3":
             case "KEY_KP_4": case "KEY_KP_5": case "KEY_KP_6": case "KEY_KP_7":
             case "KEY_KP_8": case "KEY_KP_9": return XKeycode.valueOf(bindingName);
