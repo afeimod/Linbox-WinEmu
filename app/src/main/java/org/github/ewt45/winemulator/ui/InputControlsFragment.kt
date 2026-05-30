@@ -121,7 +121,7 @@ class InputControlsFragment : Fragment() {
         view.findViewById<Button>(R.id.BTAddProfile).setOnClickListener {
             showInputDialog(R.string.profile_name, null) { name ->
                 currentProfile = manager.createProfile(name)
-                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.getId()).apply()
+                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.id).apply()
                 loadProfileSpinner(sProfile)
                 updateLayout!!.run()
             }
@@ -144,7 +144,7 @@ class InputControlsFragment : Fragment() {
         view.findViewById<Button>(R.id.BTDuplicateProfile).setOnClickListener {
             if (currentProfile != null) {
                 currentProfile = manager.duplicateProfile(currentProfile!!)
-                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.getId()).apply()
+                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.id).apply()
                 loadProfileSpinner(sProfile)
                 updateLayout!!.run()
             } else {
@@ -159,7 +159,7 @@ class InputControlsFragment : Fragment() {
                 preferences.edit().remove(SELECTED_PROFILE_ID).apply()
                 currentProfile = manager.getProfiles().firstOrNull()
                 if (currentProfile != null) {
-                    preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.getId()).apply()
+                    preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.id).apply()
                 }
                 loadProfileSpinner(sProfile)
                 updateLayout!!.run()
@@ -176,7 +176,7 @@ class InputControlsFragment : Fragment() {
             }
             importProfileCallback = { profile ->
                 currentProfile = profile
-                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.getId()).apply()
+                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.id).apply()
                 loadProfileSpinner(sProfile)
                 updateLayout!!.run()
             }
@@ -251,7 +251,7 @@ class InputControlsFragment : Fragment() {
         }
 
         AlertDialog.Builder(requireContext())
-            .setTitle(titleResId)
+            .setTitle(getString(titleResId))
             .setView(editText)
             .setPositiveButton(R.string.ok) { _, _ ->
                 val value = editText.text.toString().trim()
