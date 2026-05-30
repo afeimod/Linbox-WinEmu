@@ -35,6 +35,11 @@ public class PreloaderDialogImpl implements PreloaderDialog {
     }
 
     @Override
+    public void close() {
+        dismiss();
+    }
+
+    @Override
     public void dismiss() {
         handler.post(() -> {
             if (dialog != null && dialog.isShowing()) {

@@ -5,6 +5,7 @@ package com.termux.x11.controller.core;
  */
 public interface PreloaderDialog {
     void show(int messageResId);
+    void close();
     void dismiss();
     boolean isShowing();
 }

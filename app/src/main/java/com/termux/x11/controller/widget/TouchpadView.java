@@ -227,7 +227,7 @@ public class TouchpadView extends View {
 
         Finger finger2 = numFingers == 2 ? findSecondFinger(finger1) : null;
         if (finger2 != null) {
-            final float resolutionScale = 1000.0f / Math.min(xServer.screenInfo.screenWidth, xServer.screenInfo.screenHeight);
+            final float resolutionScale = 1000.0f / Math.min(xServer.getScreenInfo().screenWidth, xServer.getScreenInfo().screenHeight);
             float currDistance = (float) Math.hypot(finger1.x - finger2.x, finger1.y - finger2.y) * resolutionScale;
 
             if (currDistance < MAX_TWO_FINGERS_SCROLL_DISTANCE) {

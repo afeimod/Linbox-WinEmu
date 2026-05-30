@@ -10,8 +10,23 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 
 public class FileUtils {
+    public static List<String> readLines(File file) {
+        try {
+            return org.apache.commons.io.FileUtils.readLines(file, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return new ArrayList<>();
+        }
+    }
+
+    public static String getBasename(String path) {
+        int lastSep = path.lastIndexOf(File.separator);
+        return lastSep >= 0 ? path.substring(lastSep + 1) : path;
+    }
+
     public static String readString(Context context, Uri uri) {
         try {
             InputStream input = context.getContentResolver().openInputStream(uri);

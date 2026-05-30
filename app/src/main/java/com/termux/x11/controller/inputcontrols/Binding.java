@@ -13,19 +13,19 @@ public enum Binding {
     public final int keycode;
 
     Binding() {
-        int keycodeVal;
+        int keycodeVal = 0;
         try {
-            XKeycode keycode = XKeycode.valueOf(name());
-            keycodeVal = keycode.code;
+            XKeycode keycodeEnum = XKeycode.valueOf(name());
+            keycodeVal = keycodeEnum.getCode();
         }
         catch (IllegalArgumentException e) {
             keycodeVal = 0;
             String name = name();
             if (name.equals("KEY_PG_UP")) {
-                keycodeVal = XKeycode.KEY_PRIOR.code;
+                keycodeVal = XKeycode.KEY_PRIOR.getCode();
             }
             else if (name.equals("KEY_PG_DOWN")) {
-                keycodeVal = XKeycode.KEY_NEXT.code;
+                keycodeVal = XKeycode.KEY_NEXT.getCode();
             }
         }
         this.keycode = keycodeVal;
