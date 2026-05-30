@@ -1,4 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <item name="compose_view" type="id" />
+
+    <!-- Controls Editor Activity IDs -->
+    <item name="LLShape" type="id" />
+    <item name="CBToggleSwitch" type="id" />
+    <item name="LLCustomTextIcon" type="id" />
+    <item name="LLRangeOptions" type="id" />
+    <item name="SType" type="id" />
+    <item name="SShape" type="id" />
+    <item name="SRange" type="id" />
+    <item name="RBVertical" type="id" />
+    <item name="RBHorizontal" type="id" />
+    <item name="NPColumns" type="id" />
+    <item name="TVScale" type="id" />
+    <item name="SBScale" type="id" />
+    <item name="ETCustomText" type="id" />
+    <item name="LLIconList" type="id" />
+    <item name="SControllerIconType" type="id" />
+    <item name="CPVControllerBackgroundColor" type="id" />
+    <item name="IPVControllerBackgroundImage" type="id" />
+    <item name="LLBindings" type="id" />
+    <item name="TVTitle" type="id" />
+    <item name="SBindingType" type="id" />
+    <item name="SBinding" type="id" />
+    <item name="SCBBindingType" type="id" />
+    <item name="SCBBinding" type="id" />
+    <item name="IBTNDelKeyBinding" type="id" />
+    <item name="EDCCT" type="id" />
+    <item name="IBTNSET" type="id" />
+    <item name="RGOrientation" type="id" />
 </resources>
