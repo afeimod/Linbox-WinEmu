@@ -167,15 +167,4 @@
     <string name="do_you_want_to_remove_this_controller">Do you want to remove this controller?</string>
     <string name="controller">Controller</string>
     <string name="remove">Remove</string>
-    <string name="unable_to_import_profile">Unable to import profile</string>
-    <string name="no_profile_selected">No Profile Selected</string>
-    <string name="profile_name">Profile Name</string>
-    <string name="do_you_want_to_duplicate_this_profile">Do you want to duplicate this profile?</string>
-    <string name="do_you_want_to_remove_this_profile">Do you want to remove this profile?</string>
-    <string name="profile_exported_to">Profile exported to</string>
-    <string name="select_profile">Select Profile</string>
-    <string name="loading">Loading…</string>
-    <string name="import_profile">Import Profile</string>
-    <string name="do_you_want_to_download_the_selected_profiles">Do you want to download the selected profiles?</string>
-    <string name="unable_to_load_profile_list">Unable to load profile list</string>
-</resources>
+    </resources>
