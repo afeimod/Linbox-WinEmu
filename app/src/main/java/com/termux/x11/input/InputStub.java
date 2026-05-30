@@ -9,6 +9,9 @@ import com.termux.x11.controller.winhandler.WinHandler;
  * This is the input control interface that wraps the LorieView functionality.
  */
 public interface InputStub {
+    /** Undefined button for input mapping */
+    int BUTTON_UNDEFINED = 0;
+
     /**
      * Initialize the input stub with a LorieView instance
      */
