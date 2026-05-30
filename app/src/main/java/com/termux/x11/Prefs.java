@@ -6,163 +6,185 @@ import android.content.SharedPreferences;
 /**
  * Preferences interface that wraps SharedPreferences.
  * Provides type-safe access to preferences with get/put methods.
+ * All preference fields are directly accessible on the Prefs instance.
  */
 public class Prefs {
-    public final PrefsProto prefsProto;
-
-    public Prefs(Context context) {
-        SharedPreferences sp = context.getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE);
-        this.prefsProto = new PrefsProto(sp);
-    }
-
-    public Prefs(SharedPreferences sharedPreferences) {
-        this.prefsProto = new PrefsProto(sharedPreferences);
-    }
-
-    public SharedPreferences getSharedPreferences() {
-        return prefsProto.sharedPreferences;
-    }
+    private final SharedPreferences sharedPreferences;
 
     /**
-     * Inner class containing preference definitions
+     * String preference wrapper with get/put methods
      */
-    public static class PrefsProto {
-        private final SharedPreferences sharedPreferences;
+    public static class StringPreference {
+        private SharedPreferences sharedPreferences;
+        private final String key;
+        private final String defaultValue;
 
-        public PrefsProto(SharedPreferences sp) {
+        public StringPreference(String key, String defaultValue) {
+            this.key = key;
+            this.defaultValue = defaultValue;
+        }
+
+        public void setSharedPreferences(SharedPreferences sp) {
             this.sharedPreferences = sp;
         }
 
-        public SharedPreferences getSharedPreferences() {
-            return sharedPreferences;
+        public String get() {
+            return sharedPreferences != null ? sharedPreferences.getString(key, defaultValue) : defaultValue;
         }
 
-        /**
-         * String preference wrapper with get/put methods
-         */
-        public static class StringPreference {
-            private final SharedPreferences sharedPreferences;
-            private final String key;
-            private final String defaultValue;
-
-            public StringPreference(SharedPreferences sp, String key, String defaultValue) {
-                this.sharedPreferences = sp;
-                this.key = key;
-                this.defaultValue = defaultValue;
-            }
-
-            public String get() {
-                return sharedPreferences.getString(key, defaultValue);
-            }
-
-            public void put(String value) {
+        public void put(String value) {
+            if (sharedPreferences != null) {
                 sharedPreferences.edit().putString(key, value).apply();
             }
         }
+    }
 
-        /**
-         * Boolean preference wrapper with get/put methods
-         */
-        public static class BooleanPreference {
-            private final SharedPreferences sharedPreferences;
-            private final String key;
-            private final boolean defaultValue;
+    /**
+     * Boolean preference wrapper with get/put methods
+     */
+    public static class BooleanPreference {
+        private SharedPreferences sharedPreferences;
+        private final String key;
+        private final boolean defaultValue;
 
-            public BooleanPreference(SharedPreferences sp, String key, boolean defaultValue) {
-                this.sharedPreferences = sp;
-                this.key = key;
-                this.defaultValue = defaultValue;
-            }
+        public BooleanPreference(String key, boolean defaultValue) {
+            this.key = key;
+            this.defaultValue = defaultValue;
+        }
 
-            public boolean get() {
-                return sharedPreferences.getBoolean(key, defaultValue);
-            }
+        public void setSharedPreferences(SharedPreferences sp) {
+            this.sharedPreferences = sp;
+        }
 
-            public void put(boolean value) {
+        public boolean get() {
+            return sharedPreferences != null ? sharedPreferences.getBoolean(key, defaultValue) : defaultValue;
+        }
+
+        public void put(boolean value) {
+            if (sharedPreferences != null) {
                 sharedPreferences.edit().putBoolean(key, value).apply();
             }
         }
+    }
 
-        /**
-         * Integer preference wrapper with get/put methods
-         */
-        public static class IntPreference {
-            private final SharedPreferences sharedPreferences;
-            private final String key;
-            private final int defaultValue;
+    /**
+     * Integer preference wrapper with get/put methods
+     */
+    public static class IntPreference {
+        private SharedPreferences sharedPreferences;
+        private final String key;
+        private final int defaultValue;
 
-            public IntPreference(SharedPreferences sp, String key, int defaultValue) {
-                this.sharedPreferences = sp;
-                this.key = key;
-                this.defaultValue = defaultValue;
-            }
+        public IntPreference(String key, int defaultValue) {
+            this.key = key;
+            this.defaultValue = defaultValue;
+        }
 
-            public int get() {
-                return sharedPreferences.getInt(key, defaultValue);
-            }
+        public void setSharedPreferences(SharedPreferences sp) {
+            this.sharedPreferences = sp;
+        }
 
-            public void put(int value) {
+        public int get() {
+            return sharedPreferences != null ? sharedPreferences.getInt(key, defaultValue) : defaultValue;
+        }
+
+        public void put(int value) {
+            if (sharedPreferences != null) {
                 sharedPreferences.edit().putInt(key, value).apply();
             }
         }
+    }
 
-        /**
-         * Float preference wrapper with get/put methods
-         */
-        public static class FloatPreference {
-            private final SharedPreferences sharedPreferences;
-            private final String key;
-            private final float defaultValue;
+    /**
+     * Float preference wrapper with get/put methods
+     */
+    public static class FloatPreference {
+        private SharedPreferences sharedPreferences;
+        private final String key;
+        private final float defaultValue;
 
-            public FloatPreference(SharedPreferences sp, String key, float defaultValue) {
-                this.sharedPreferences = sp;
-                this.key = key;
-                this.defaultValue = defaultValue;
-            }
+        public FloatPreference(String key, float defaultValue) {
+            this.key = key;
+            this.defaultValue = defaultValue;
+        }
 
-            public float get() {
-                return sharedPreferences.getFloat(key, defaultValue);
-            }
+        public void setSharedPreferences(SharedPreferences sp) {
+            this.sharedPreferences = sp;
+        }
 
-            public void put(float value) {
+        public float get() {
+            return sharedPreferences != null ? sharedPreferences.getFloat(key, defaultValue) : defaultValue;
+        }
+
+        public void put(float value) {
+            if (sharedPreferences != null) {
                 sharedPreferences.edit().putFloat(key, value).apply();
             }
         }
+    }
 
-        /**
-         * List preference wrapper with get/put methods
-         */
-        public static class ListPreference {
-            private final SharedPreferences sharedPreferences;
-            private final String key;
-            private final String defaultValue;
+    /**
+     * List preference wrapper with get/put methods
+     */
+    public static class ListPreference {
+        private SharedPreferences sharedPreferences;
+        private final String key;
+        private final String defaultValue;
 
-            public ListPreference(SharedPreferences sp, String key, String defaultValue) {
-                this.sharedPreferences = sp;
-                this.key = key;
-                this.defaultValue = defaultValue;
-            }
+        public ListPreference(String key, String defaultValue) {
+            this.key = key;
+            this.defaultValue = defaultValue;
+        }
 
-            public String get() {
-                return sharedPreferences.getString(key, defaultValue);
-            }
+        public void setSharedPreferences(SharedPreferences sp) {
+            this.sharedPreferences = sp;
+        }
 
-            public void put(String value) {
+        public String get() {
+            return sharedPreferences != null ? sharedPreferences.getString(key, defaultValue) : defaultValue;
+        }
+
+        public void put(String value) {
+            if (sharedPreferences != null) {
                 sharedPreferences.edit().putString(key, value).apply();
             }
         }
+    }
 
-        // Display preferences
-        public StringPreference displayResolutionMode = new StringPreference(sharedPreferences, "display_resolution_mode", "auto");
-        public StringPreference displayResolutionCustom = new StringPreference(sharedPreferences, "display_resolution_custom", "");
+    // Display preferences - directly accessible on Prefs instance
+    public final StringPreference displayResolutionMode = new StringPreference("display_resolution_mode", "auto");
+    public final StringPreference displayResolutionCustom = new StringPreference("display_resolution_custom", "");
 
-        // UI preferences
-        public BooleanPreference showAdditionalKbd = new BooleanPreference(sharedPreferences, "show_additional_kbd", false);
-        public BooleanPreference fullscreen = new BooleanPreference(sharedPreferences, "fullscreen", false);
-        public BooleanPreference hideCutout = new BooleanPreference(sharedPreferences, "hide_cutout", false);
+    // UI preferences
+    public final BooleanPreference showAdditionalKbd = new BooleanPreference("show_additional_kbd", false);
+    public final BooleanPreference fullscreen = new BooleanPreference("fullscreen", false);
+    public final BooleanPreference hideCutout = new BooleanPreference("hide_cutout", false);
 
-        // Other preferences
-        public IntPreference clipboardMode = new IntPreference(sharedPreferences, "clipboard_mode", 0);
-        public StringPreference desktopMode = new StringPreference(sharedPreferences, "desktop_mode", "default");
+    // Other preferences
+    public final IntPreference clipboardMode = new IntPreference("clipboard_mode", 0);
+    public final StringPreference desktopMode = new StringPreference("desktop_mode", "default");
+
+    public Prefs(Context context) {
+        this.sharedPreferences = context.getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE);
+        initPreferences();
+    }
+
+    public Prefs(SharedPreferences sharedPreferences) {
+        this.sharedPreferences = sharedPreferences;
+        initPreferences();
+    }
+
+    private void initPreferences() {
+        displayResolutionMode.setSharedPreferences(sharedPreferences);
+        displayResolutionCustom.setSharedPreferences(sharedPreferences);
+        showAdditionalKbd.setSharedPreferences(sharedPreferences);
+        fullscreen.setSharedPreferences(sharedPreferences);
+        hideCutout.setSharedPreferences(sharedPreferences);
+        clipboardMode.setSharedPreferences(sharedPreferences);
+        desktopMode.setSharedPreferences(sharedPreferences);
+    }
+
+    public SharedPreferences getSharedPreferences() {
+        return sharedPreferences;
     }
 }
