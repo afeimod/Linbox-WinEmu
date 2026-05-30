@@ -90,11 +90,14 @@ public interface LorieView extends com.termux.x11.input.InputStub {
     @Override
     default void sendEvdevKeyEvent(int keycode, boolean isDown) {
         // Default implementation - can be overridden
-        XKeycode xKeycode = XKeycode.fromEvdev(keycode);
-        if (isDown) {
-            injectKeyPress(xKeycode);
-        } else {
-            injectKeyRelease(xKeycode);
+        // Convert evdev keycode to XKeycode using fromId
+        XKeycode xKeycode = XKeycode.fromId(keycode);
+        if (xKeycode != null) {
+            if (isDown) {
+                injectKeyPress(xKeycode);
+            } else {
+                injectKeyRelease(xKeycode);
+            }
         }
     }
 
