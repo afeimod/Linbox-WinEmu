@@ -14,8 +14,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceManager
 import a.io.github.ewt45.winemulator.R
-import org.github.ewt45.winemulator.inputcontrols.ControlsProfile
-import org.github.ewt45.winemulator.inputcontrols.InputControlsManager
+import com.termux.x11.controller.inputcontrols.ControlsProfile
+import com.termux.x11.controller.inputcontrols.InputControlsManager
 import org.json.JSONObject
 import java.util.ArrayList
 

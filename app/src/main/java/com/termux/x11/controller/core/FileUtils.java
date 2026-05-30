@@ -1,0 +1,74 @@
+package com.termux.x11.controller.core;
+
+import android.content.Context;
+
+import org.apache.commons.io.FileUtils;
+
+import java.io.File;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.nio.charset.StandardCharsets;
+
+public class FileUtils {
+    public static String readString(File file) {
+        try {
+            return org.apache.commons.io.FileUtils.readFileToString(file, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return "";
+        }
+    }
+
+    public static void writeString(File file, String content) {
+        try {
+            org.apache.commons.io.FileUtils.writeStringToFile(file, content, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void copy(Context context, String assetPath, File destFile) {
+        try {
+            InputStream input = context.getAssets().open(assetPath);
+            OutputStream output = java.nio.file.Files.newOutputStream(destFile.toPath());
+            org.apache.commons.io.IOUtils.copy(input, output);
+            input.close();
+            output.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void copy(File source, File dest) {
+        try {
+            if (source.isDirectory()) {
+                org.apache.commons.io.FileUtils.copyDirectory(source, dest);
+            } else {
+                org.apache.commons.io.FileUtils.copyFile(source, dest);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static void copyAssetsDir(Context context, String assetDir, File destDir) {
+        destDir.mkdirs();
+        try {
+            String[] files = context.getAssets().list(assetDir);
+            if (files != null) {
+                for (String file : files) {
+                    File destFile = new File(destDir, file);
+                    copy(context, assetDir + "/" + file, destFile);
+                }
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static boolean isEmpty(File dir) {
+        if (!dir.isDirectory()) return true;
+        String[] files = dir.list();
+        return files == null || files.length == 0;
+    }
+}
