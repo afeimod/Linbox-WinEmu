@@ -2,7 +2,7 @@ package com.termux.x11.controller.inputcontrols;
 
 import androidx.annotation.NonNull;
 
-import com.termux.x11.LorieView;
+import com.termux.x11.controller.xserver.Pointer;
 import com.termux.x11.controller.xserver.XKeycode;
 
 import java.util.ArrayList;
@@ -109,18 +109,18 @@ public enum Binding {
         }
     }
 
-    public LorieView.Pointer.Button getPointerButton() {
+    public Pointer.Button getPointerButton() {
         switch (this) {
             case MOUSE_LEFT_BUTTON:
-                return LorieView.Pointer.Button.BUTTON_LEFT;
+                return Pointer.Button.BUTTON_LEFT;
             case MOUSE_MIDDLE_BUTTON:
-                return LorieView.Pointer.Button.BUTTON_MIDDLE;
+                return Pointer.Button.BUTTON_MIDDLE;
             case MOUSE_RIGHT_BUTTON:
-                return LorieView.Pointer.Button.BUTTON_RIGHT;
+                return Pointer.Button.BUTTON_RIGHT;
             case MOUSE_SCROLL_UP:
-                return LorieView.Pointer.Button.BUTTON_SCROLL_UP;
+                return Pointer.Button.BUTTON_SCROLL_UP;
             case MOUSE_SCROLL_DOWN:
-                return LorieView.Pointer.Button.BUTTON_SCROLL_DOWN;
+                return Pointer.Button.BUTTON_SCROLL_DOWN;
             default:
                 return null;
         }
