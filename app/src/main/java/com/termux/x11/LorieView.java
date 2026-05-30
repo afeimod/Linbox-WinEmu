@@ -107,14 +107,15 @@ public interface LorieView extends com.termux.x11.input.InputStub {
     @Override
     default void sendMouseButtonEvent(int button, boolean isDown) {
         // Default implementation - can be overridden
-        Pointer.Button btn = switch (button) {
-            case 1 -> Pointer.Button.BUTTON_LEFT;
-            case 2 -> Pointer.Button.BUTTON_MIDDLE;
-            case 3 -> Pointer.Button.BUTTON_RIGHT;
-            case 4 -> Pointer.Button.BUTTON_SCROLL_UP;
-            case 5 -> Pointer.Button.BUTTON_SCROLL_DOWN;
-            default -> Pointer.Button.BUTTON_LEFT;
-        };
+        Pointer.Button btn;
+        switch (button) {
+            case 1: btn = Pointer.Button.BUTTON_LEFT; break;
+            case 2: btn = Pointer.Button.BUTTON_MIDDLE; break;
+            case 3: btn = Pointer.Button.BUTTON_RIGHT; break;
+            case 4: btn = Pointer.Button.BUTTON_SCROLL_UP; break;
+            case 5: btn = Pointer.Button.BUTTON_SCROLL_DOWN; break;
+            default: btn = Pointer.Button.BUTTON_LEFT;
+        }
         if (isDown) {
             injectPointerButtonPress(btn);
         } else {
