@@ -738,14 +738,14 @@ public class InputControlsView extends View {
                     if (pointerButton != null) {
                         xServer.injectPointerButtonPress(pointerButton);
                     } else {
-                        xServer.injectKeyPress(new XKeycode(binding.keycode));
+                        xServer.injectKeyPress(XKeycode.fromCode(binding.keycode));
                     }
                 } else {
 //                    Log.d("handleInputEvent","<isActionUp> "+binding.toString());
                     if (pointerButton != null) {
                         xServer.injectPointerButtonRelease(pointerButton);
                     } else {
-                        xServer.injectKeyRelease(new XKeycode(binding.keycode));
+                        xServer.injectKeyRelease(XKeycode.fromCode(binding.keycode));
                     }
                 }
             }
@@ -754,8 +754,8 @@ public class InputControlsView extends View {
 
     public void sendText(String text) {
         xServer.injectText(text);
-        xServer.injectKeyPress(XKeycode.KEY_ENTER_OBJ);
-        xServer.injectKeyRelease(XKeycode.KEY_ENTER_OBJ);
+        xServer.injectKeyPress(XKeycode.KEY_ENTER);
+        xServer.injectKeyRelease(XKeycode.KEY_ENTER);
     }
 
     public Bitmap getIcon(byte id) {

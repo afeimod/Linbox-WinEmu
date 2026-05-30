@@ -34,7 +34,7 @@ public enum Binding {
             case "KEY_NUM_LOCK": return XKeycode.KEY_NUMLOCK;
             case "KEY_PRTSCN": return XKeycode.KEY_PRTSCN;
             default:
-                return XKeycode.valueOf(bindingName);
+                return XKeycode.fromString(bindingName);
         }
     }
 

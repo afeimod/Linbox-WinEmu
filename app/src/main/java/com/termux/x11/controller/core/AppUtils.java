@@ -93,4 +93,23 @@ public class AppUtils {
             }
         }
     }
+
+    public static void setSpinnerSelectionFromValue(Spinner spinner, String value) {
+        AdapterView.AdapterContextMenuInfo info = (AdapterView.AdapterContextMenuInfo) spinner.getTag();
+        if (info != null) {
+            spinner.setSelection(info.position);
+        } else {
+            int count = spinner.getAdapter().getCount();
+            for (int i = 0; i < count; i++) {
+                Object item = spinner.getAdapter().getItem(i);
+                if (item instanceof android.content.res.XmlResourceParser) {
+                    continue;
+                }
+                if (item != null && item.toString().equals(value)) {
+                    spinner.setSelection(i);
+                    break;
+                }
+            }
+        }
+    }
 }
