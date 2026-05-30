@@ -14,8 +14,8 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
 
     public InputDeviceManager(LorieView xServer) {
         this.xServer = xServer;
-        xServer.pointer.addOnPointerMotionListener(this);
-        xServer.keyboard.addOnKeyboardListener(this);
+        xServer.getPointer().addOnPointerMotionListener(this);
+        xServer.getKeyboard().addOnKeyboardListener(this);
     }
 
     private static HashMap<Byte, Integer> createKeyMap() {
@@ -54,9 +54,9 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
     @Override
     public void onPointerMove(int x, int y) {
 //        Log.d("onPointerMove", "x:" + x + ", y:" + y);
-        if (xServer.pointer.getPointerButton() != null) {
+        if (xServer.getPointer().getPointerButton() != null) {
 //            Log.d("onPointerMove", "x:" + x + ", y:" + y);
-            xServer.sendMouseEvent(x, y, xServer.pointer.getPointerButton().code(), false, false);
+            xServer.sendMouseEvent(x, y, xServer.getPointer().getPointerButton().code(), false, false);
         } else {
             xServer.sendMouseEvent(x, y, BUTTON_UNDEFINED, false, false);
         }
@@ -80,7 +80,7 @@ public class InputDeviceManager implements Pointer.OnPointerMotionListener, Keyb
             realKeyCode = mkeyCode;
         }
 //        Log.d("onKeyPress",realKeyCode+"");
-        if (keysym != 0 && !xServer.keyboard.hasKeysym(keycode, keysym)) {
+        if (keysym != 0 && !xServer.getKeyboard().hasKeysym(keycode, keysym)) {
             xServer.sendKeyEvent(keysym, realKeyCode, true);
             return;
         }

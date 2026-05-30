@@ -89,8 +89,8 @@ public class Pointer {
             this.x = x;
             this.y = y;
 
-            int scaledX = clamp((int) ((x - xServer.screenInfo.offsetX) * xServer.screenInfo.scale.x), 0, xServer.screenInfo.screenWidth - 1);
-            int scaledY = clamp((int) ((y - xServer.screenInfo.offsetY) * xServer.screenInfo.scale.y), 0, xServer.screenInfo.screenHeight - 1);
+            int scaledX = clamp((int) ((x - xServer.screenInfo.offsetX) * xServer.screenInfo.scaleX), 0, xServer.screenInfo.screenWidth - 1);
+            int scaledY = clamp((int) ((y - xServer.screenInfo.offsetY) * xServer.screenInfo.scaleY), 0, xServer.screenInfo.screenHeight - 1);
             triggerOnPointerMove(scaledX, scaledY);
         }
     }
