@@ -23,6 +23,7 @@ import com.termux.x11.controller.inputcontrols.ControlsProfile
 import com.termux.x11.controller.inputcontrols.InputControlsManager
 import com.termux.x11.controller.ControlsEditorActivity
 import com.termux.x11.controller.inputcontrols.ControlElement
+import org.github.ewt45.winemulator.ui.components.ConfirmDialog
 import org.github.ewt45.winemulator.ui.components.rememberConfirmDialogState
 import org.github.ewt45.winemulator.ui.InputControlsFragment
 
@@ -46,7 +47,7 @@ fun InputControlsSettings(
 
     // 加载配置列表，并恢复上次选中的配置
     LaunchedEffect(Unit) {
-        manager.loadProfiles(ignoreTemplates = false)
+        manager.loadProfiles(false)
         profiles = manager.getProfiles()
         val savedId = prefs.getInt(InputControlsFragment.SELECTED_PROFILE_ID, 0)
         // 只有当savedId不为0时才尝试恢复配置，否则保持null状态
