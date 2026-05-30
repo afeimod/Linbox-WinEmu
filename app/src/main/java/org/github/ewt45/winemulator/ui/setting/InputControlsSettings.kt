@@ -19,9 +19,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.preference.PreferenceManager
-import org.github.ewt45.winemulator.inputcontrols.ControlsProfile
-import org.github.ewt45.winemulator.inputcontrols.InputControlsManager
-import org.github.ewt45.winemulator.ui.ControlsEditorActivity
+import com.termux.x11.controller.inputcontrols.ControlsProfile
+import com.termux.x11.controller.inputcontrols.InputControlsManager
+import com.termux.x11.controller.ControlsEditorActivity
 import org.github.ewt45.winemulator.ui.components.ConfirmDialog
 import org.github.ewt45.winemulator.ui.components.rememberConfirmDialogState
 import org.github.ewt45.winemulator.ui.InputControlsFragment
