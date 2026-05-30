@@ -13,7 +13,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceManager
-import org.github.ewt45.winemulator.R
+import a.io.github.ewt45.winemulator.R
 import com.termux.x11.controller.inputcontrols.ControlsProfile
 import com.termux.x11.controller.inputcontrols.InputControlsManager
 import com.termux.x11.controller.ControlsEditorActivity
@@ -250,17 +250,22 @@ class InputControlsFragment : Fragment() {
             hint = getString(titleResId)
         }
 
-        AlertDialog.Builder(requireContext())
+        val dialog = AlertDialog.Builder(requireContext())
             .setTitle(getString(titleResId))
             .setView(editText)
-            .setPositiveButton(R.string.ok) { _, _ ->
+            .setPositiveButton(R.string.ok, null)
+            .setNegativeButton(R.string.cancel, null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val value = editText.text.toString().trim()
                 if (value.isNotEmpty()) {
                     onResult(value)
+                    dialog.dismiss()
                 }
             }
-            .setNegativeButton(R.string.cancel, null)
-            .show()
+        }
+        dialog.show()
     }
 
     @Deprecated("Deprecated in Java")
