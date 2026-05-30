@@ -3,15 +3,13 @@ package com.termux.x11.controller.core;
 import android.app.Dialog;
 import android.content.Context;
 import android.os.Bundle;
-import android.view.LayoutInflater;
-import android.view.View;
+import android.widget.ProgressBar;
 import android.widget.TextView;
 
-import com.google.android.material.progressindicator.CircularProgressIndicator;
 import com.termux.x11.R;
 
 /**
- * Dialog showing download progress with a circular indicator.
+ * Dialog showing download progress with a progress indicator.
  */
 public class DownloadProgressDialog extends Dialog {
     private final String title;
@@ -31,12 +29,16 @@ public class DownloadProgressDialog extends Dialog {
 
         TextView tvTitle = findViewById(R.id.tv_dialog_title);
         TextView tvMessage = findViewById(R.id.tv_dialog_message);
+        ProgressBar progressBar = findViewById(R.id.progress_indicator);
 
         if (tvTitle != null) {
             tvTitle.setText(title);
         }
         if (tvMessage != null) {
             tvMessage.setText(message);
+        }
+        if (progressBar != null) {
+            progressBar.setIndeterminate(true);
         }
 
         setCancelable(false);
