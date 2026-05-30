@@ -213,7 +213,7 @@ fun InputControlsSettings(
                             text = { Text(profile.getName()) },
                             onClick = {
                                 selectedProfile = profile
-                                prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.getId()).apply()
+                                prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.id).apply()
                                 expanded = false
                             }
                         )
@@ -245,7 +245,7 @@ fun InputControlsSettings(
                                 profiles = manager.getProfiles()
                                 selectedProfile = profiles.firstOrNull()
                                 if (selectedProfile != null) {
-                                    prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.getId()).apply()
+                                    prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.id).apply()
                                 } else {
                                     prefs.edit().remove(InputControlsFragment.SELECTED_PROFILE_ID).apply()
                                 }
@@ -265,7 +265,7 @@ fun InputControlsSettings(
                     selectedProfile?.let { profile ->
                         selectedProfile = manager.duplicateProfile(profile)
                         profiles = manager.getProfiles()
-                        prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.getId()).apply()
+                        prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.id).apply()
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
