@@ -13,9 +13,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceManager
-import a.github.ewt45.winemulator.R
+import org.github.ewt45.winemulator.R
 import com.termux.x11.controller.inputcontrols.ControlsProfile
 import com.termux.x11.controller.inputcontrols.InputControlsManager
+import com.termux.x11.controller.ControlsEditorActivity
 import org.json.JSONObject
 import java.util.ArrayList
 

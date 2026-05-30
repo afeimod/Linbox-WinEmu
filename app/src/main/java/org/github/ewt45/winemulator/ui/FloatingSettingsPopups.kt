@@ -34,6 +34,7 @@ import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.FuncOnChangeAction
 import com.termux.x11.controller.inputcontrols.ControlsProfile
 import com.termux.x11.controller.inputcontrols.InputControlsManager
+import com.termux.x11.controller.ControlsEditorActivity
 import org.github.ewt45.winemulator.ui.components.*
 import org.github.ewt45.winemulator.ui.setting.*
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel
@@ -227,7 +228,7 @@ fun VirtualKeysSettingsPopup(
 
     // 加载配置
     LaunchedEffect(Unit) {
-        manager.loadProfiles(ignoreTemplates = false)
+        manager.loadProfiles(false)
         profiles = manager.getProfiles()
         val savedId = prefs.getInt(InputControlsFragment.SELECTED_PROFILE_ID, 0)
         selectedProfile = if (savedId != 0) manager.getProfile(savedId) else null
@@ -388,7 +389,7 @@ fun VirtualKeysSettingsPopup(
                                         text = { Text(profile.getName()) },
                                         onClick = {
                                             selectedProfile = profile
-                                            prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.getId()).apply()
+                                            prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.id).apply()
                                             expanded = false
                                             onSettingsChanged()  // 通知外部刷新
                                         }
@@ -421,7 +422,7 @@ fun VirtualKeysSettingsPopup(
                                             profiles = manager.getProfiles()
                                             selectedProfile = profiles.firstOrNull()
                                             if (selectedProfile != null) {
-                                                prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.getId()).apply()
+                                                prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.id).apply()
                                             } else {
                                                 prefs.edit().remove(InputControlsFragment.SELECTED_PROFILE_ID).apply()
                                             }
