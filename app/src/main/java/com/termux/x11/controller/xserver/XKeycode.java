@@ -3,7 +3,6 @@ package com.termux.x11.controller.xserver;
 import java.util.HashMap;
 import java.util.Map;
 
-/** The enum class that defines X11 keycodes. */
 public enum XKeycode {
     KEY_NONE(0),
     KEY_ESC(9),
@@ -26,12 +25,13 @@ public enum XKeycode {
     KEY_E(26),
     KEY_R(27),
     KEY_T(28),
-    KEY_U(29),
-    KEY_I(30),
-    KEY_O(31),
-    KEY_P(32),
-    KEY_BRACKET_LEFT(33),
-    KEY_BRACKET_RIGHT(34),
+    KEY_Y(29),
+    KEY_U(30),
+    KEY_I(31),
+    KEY_O(32),
+    KEY_P(33),
+    KEY_BRACKET_LEFT(34),
+    KEY_BRACKET_RIGHT(35),
     KEY_ENTER(36),
     KEY_CTRL_L(37),
     KEY_A(38),
@@ -62,7 +62,7 @@ public enum XKeycode {
     KEY_KP_MULTIPLY(63),
     KEY_ALT_L(64),
     KEY_SPACE(65),
-    KEY_CAPSLOCK(66),
+    KEY_CAPS_LOCK(66),
     KEY_F1(67),
     KEY_F2(68),
     KEY_F3(69),
@@ -73,7 +73,7 @@ public enum XKeycode {
     KEY_F8(74),
     KEY_F9(75),
     KEY_F10(76),
-    KEY_NUMLOCK(77),
+    KEY_NUM_LOCK(77),
     KEY_SCROLL_LOCK(78),
     KEY_KP_7(79),
     KEY_KP_8(80),
@@ -104,13 +104,12 @@ public enum XKeycode {
     KEY_DOWN(116),
     KEY_NEXT(117),
     KEY_INSERT(118),
-    KEY_DELETE(119),
-    KEY_PAUSE(127),
-    KEY_MAX(KEY_DELETE.id);
+    KEY_DEL(119),
+    KEY_MAX(KEY_DEL.id);
 
-    public final int id;
+    public final byte id;
 
-    private static final Map<Integer, XKeycode> BY_ID = new HashMap<>();
+    private static final Map<Byte, XKeycode> BY_ID = new HashMap<>();
     private static final Map<String, XKeycode> BY_NAME = new HashMap<>();
 
     static {
@@ -121,12 +120,12 @@ public enum XKeycode {
     }
 
     XKeycode(int id) {
-        this.id = id;
+        this.id = (byte)id;
     }
 
     /** Get XKeycode from id (keycode). Returns null if not found. */
     public static XKeycode fromId(int id) {
-        return BY_ID.get(id);
+        return BY_ID.get((byte)id);
     }
 
     /** Get XKeycode from name string. Returns null if not found. */
@@ -139,17 +138,5 @@ public enum XKeycode {
         } catch (IllegalArgumentException e) {
             return null;
         }
-    }
-
-    /** @deprecated Use fromId instead */
-    @Deprecated
-    public static XKeycode fromCode(int code) {
-        return fromId(code);
-    }
-
-    /** @deprecated Use id field directly */
-    @Deprecated
-    public int getId() {
-        return id;
     }
 }
