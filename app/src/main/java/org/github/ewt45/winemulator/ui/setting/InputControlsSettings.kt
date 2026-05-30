@@ -22,7 +22,7 @@ import androidx.preference.PreferenceManager
 import com.termux.x11.controller.inputcontrols.ControlsProfile
 import com.termux.x11.controller.inputcontrols.InputControlsManager
 import com.termux.x11.controller.ControlsEditorActivity
-import org.github.ewt45.winemulator.ui.components.ConfirmDialog
+import com.termux.x11.controller.inputcontrols.ControlElement
 import org.github.ewt45.winemulator.ui.components.rememberConfirmDialogState
 import org.github.ewt45.winemulator.ui.InputControlsFragment
 
@@ -194,7 +194,7 @@ fun InputControlsSettings(
                 onExpandedChange = { expanded = !expanded }
             ) {
                 OutlinedTextField(
-                    value = selectedProfile!!.name,
+                    value = selectedProfile!!.getName(),
                     onValueChange = {},
                     readOnly = true,
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
@@ -209,10 +209,10 @@ fun InputControlsSettings(
                 ) {
                     profiles.forEach { profile ->
                         DropdownMenuItem(
-                            text = { Text(profile.name) },
+                            text = { Text(profile.getName()) },
                             onClick = {
                                 selectedProfile = profile
-                                prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.id).apply()
+                                prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.getId()).apply()
                                 expanded = false
                             }
                         )
@@ -244,7 +244,7 @@ fun InputControlsSettings(
                                 profiles = manager.getProfiles()
                                 selectedProfile = profiles.firstOrNull()
                                 if (selectedProfile != null) {
-                                    prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.id).apply()
+                                    prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.getId()).apply()
                                 } else {
                                     prefs.edit().remove(InputControlsFragment.SELECTED_PROFILE_ID).apply()
                                 }
@@ -264,7 +264,7 @@ fun InputControlsSettings(
                     selectedProfile?.let { profile ->
                         selectedProfile = manager.duplicateProfile(profile)
                         profiles = manager.getProfiles()
-                        prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.id).apply()
+                        prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.getId()).apply()
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -411,7 +411,7 @@ fun ControlsEditorDialog(
     onDismiss: () -> Unit,
     onSave: () -> Unit
 ) {
-    var selectedElement by remember { mutableStateOf<org.github.ewt45.winemulator.inputcontrols.ControlElement?>(null) }
+    var selectedElement by remember { mutableStateOf<ControlElement?>(null) }
     var showElementSettings by remember { mutableStateOf(false) }
 
     AlertDialog(
@@ -437,18 +437,18 @@ fun ControlsEditorDialog(
                                 Text("${element.type.name} - ${element.getBindingAt(0).name}")
                             },
                             supportingContent = {
-                                Text("位置: (${element.x}, ${element.y})")
+                                Text("位置: (${element.getX()}, ${element.getY()})")
                             },
                             leadingContent = {
                                 Icon(
                                     imageVector = when (element.type) {
-                                        org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.BUTTON -> Icons.Default.Star
-                                        org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.D_PAD -> Icons.AutoMirrored.Filled.ArrowForward
-                                        org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.STICK -> Icons.Default.Info
-                                        org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.RANGE_BUTTON -> Icons.AutoMirrored.Filled.List
-                                        org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.TRACKPAD -> Icons.Default.Menu
-                                        org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.COMBINE_BUTTON -> Icons.Default.Add
-                                        org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.CHEAT_CODE_TEXT -> Icons.Default.Edit
+                                        ControlElement.Type.BUTTON -> Icons.Default.Star
+                                        ControlElement.Type.D_PAD -> Icons.AutoMirrored.Filled.ArrowForward
+                                        ControlElement.Type.STICK -> Icons.Default.Info
+                                        ControlElement.Type.RANGE_BUTTON -> Icons.AutoMirrored.Filled.List
+                                        ControlElement.Type.TRACKPAD -> Icons.Default.Menu
+                                        ControlElement.Type.COMBINE_BUTTON -> Icons.Default.Add
+                                        ControlElement.Type.CHEAT_CODE_TEXT -> Icons.Default.Edit
                                     },
                                     contentDescription = null
                                 )
@@ -541,7 +541,7 @@ fun ControlsEditorDialog(
  */
 @Composable
 fun ElementSettingsDialog(
-    element: org.github.ewt45.winemulator.inputcontrols.ControlElement,
+    element: ControlElement,
     onDismiss: () -> Unit,
     onSave: () -> Unit
 ) {
@@ -564,7 +564,7 @@ fun ElementSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
-                    org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.entries.forEach { type ->
+                    ControlElement.Type.entries.forEach { type ->
                         FilterChip(
                             selected = element.type == type,
                             onClick = {
@@ -577,13 +577,13 @@ fun ElementSettingsDialog(
                 }
 
                 // Shape selector (for buttons)
-                if (element.type == org.github.ewt45.winemulator.inputcontrols.ControlElement.Type.BUTTON) {
+                if (element.type == ControlElement.Type.BUTTON) {
                     Text("形状", style = MaterialTheme.typography.labelMedium)
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        org.github.ewt45.winemulator.inputcontrols.ControlElement.Shape.entries.forEach { shape ->
+                        ControlElement.Shape.entries.forEach { shape ->
                             FilterChip(
                                 selected = element.shape == shape,
                                 onClick = {
