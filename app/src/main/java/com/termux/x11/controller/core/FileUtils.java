@@ -3,8 +3,6 @@ package com.termux.x11.controller.core;
 import android.content.Context;
 import android.net.Uri;
 
-import org.apache.commons.io.FileUtils;
-
 import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
