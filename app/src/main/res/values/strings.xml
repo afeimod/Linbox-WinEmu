@@ -167,8 +167,6 @@
     <string name="do_you_want_to_remove_this_controller">Do you want to remove this controller?</string>
     <string name="controller">Controller</string>
     <string name="remove">Remove</string>
-    <string name="downloading">Downloading…</string>
-    <string name="downloading_file">Downloading file…</string>
     <string name="unable_to_import_profile">Unable to import profile</string>
     <string name="no_profile_selected">No Profile Selected</string>
     <string name="profile_name">Profile Name</string>
