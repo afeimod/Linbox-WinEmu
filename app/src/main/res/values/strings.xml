@@ -167,4 +167,8 @@
     <string name="do_you_want_to_remove_this_controller">Do you want to remove this controller?</string>
     <string name="controller">Controller</string>
     <string name="remove">Remove</string>
+
+    <!-- Download Progress Dialog -->
+    <string name="downloading">Downloading…</string>
+    <string name="downloading_file">Downloading file…</string>
 </resources>
