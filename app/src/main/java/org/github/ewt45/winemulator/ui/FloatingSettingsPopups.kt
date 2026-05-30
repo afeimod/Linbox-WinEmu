@@ -385,10 +385,10 @@ fun VirtualKeysSettingsPopup(
                             ) {
                                 profiles.forEach { profile ->
                                     DropdownMenuItem(
-                                        text = { Text(profile.name) },
+                                        text = { Text(profile.getName()) },
                                         onClick = {
                                             selectedProfile = profile
-                                            prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.id).apply()
+                                            prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.getId()).apply()
                                             expanded = false
                                             onSettingsChanged()  // 通知外部刷新
                                         }
@@ -421,7 +421,7 @@ fun VirtualKeysSettingsPopup(
                                             profiles = manager.getProfiles()
                                             selectedProfile = profiles.firstOrNull()
                                             if (selectedProfile != null) {
-                                                prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.id).apply()
+                                                prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.getId()).apply()
                                             } else {
                                                 prefs.edit().remove(InputControlsFragment.SELECTED_PROFILE_ID).apply()
                                             }
@@ -442,7 +442,7 @@ fun VirtualKeysSettingsPopup(
                             onClick = {
                                 selectedProfile?.let { profile ->
                                     val intent = Intent(context, ControlsEditorActivity::class.java)
-                                    intent.putExtra(ControlsEditorActivity.EXTRA_PROFILE_ID, profile.id)
+                                    intent.putExtra(ControlsEditorActivity.EXTRA_PROFILE_ID, profile.getId())
                                     controlsEditorLauncher.launch(intent)
                                 }
                             },

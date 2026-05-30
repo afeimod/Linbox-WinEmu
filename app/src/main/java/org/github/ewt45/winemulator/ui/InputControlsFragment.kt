@@ -83,7 +83,7 @@ class InputControlsFragment : Fragment() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 tvCursorSpeed.text = "$progress%"
                 if (currentProfile != null && fromUser) {
-                    currentProfile!!.cursorSpeed = progress / 100.0f
+                    currentProfile!!.setCursorSpeed(progress / 100.0f)
                     currentProfile!!.save()
                 }
             }
@@ -93,7 +93,7 @@ class InputControlsFragment : Fragment() {
 
         updateLayout = Runnable {
             if (currentProfile != null) {
-                sbCursorSpeed.progress = (currentProfile!!.cursorSpeed * 100).toInt()
+                sbCursorSpeed.progress = (currentProfile!!.getCursorSpeed() * 100).toInt()
             } else {
                 sbCursorSpeed.progress = 100
             }
@@ -120,7 +120,7 @@ class InputControlsFragment : Fragment() {
         view.findViewById<Button>(R.id.BTAddProfile).setOnClickListener {
             showInputDialog(R.string.profile_name, null) { name ->
                 currentProfile = manager.createProfile(name)
-                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.id).apply()
+                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.getId()).apply()
                 loadProfileSpinner(sProfile)
                 updateLayout!!.run()
             }
@@ -129,8 +129,8 @@ class InputControlsFragment : Fragment() {
         // 编辑配置名称
         view.findViewById<Button>(R.id.BTEditProfile).setOnClickListener {
             if (currentProfile != null) {
-                showInputDialog(R.string.profile_name, currentProfile!!.name) { name ->
-                    currentProfile!!.name = name
+                showInputDialog(R.string.profile_name, currentProfile!!.getName()) { name ->
+                    currentProfile!!.setName(name)
                     currentProfile!!.save()
                     loadProfileSpinner(sProfile)
                 }
@@ -143,7 +143,7 @@ class InputControlsFragment : Fragment() {
         view.findViewById<Button>(R.id.BTDuplicateProfile).setOnClickListener {
             if (currentProfile != null) {
                 currentProfile = manager.duplicateProfile(currentProfile!!)
-                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.id).apply()
+                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.getId()).apply()
                 loadProfileSpinner(sProfile)
                 updateLayout!!.run()
             } else {
@@ -158,7 +158,7 @@ class InputControlsFragment : Fragment() {
                 preferences.edit().remove(SELECTED_PROFILE_ID).apply()
                 currentProfile = manager.getProfiles().firstOrNull()
                 if (currentProfile != null) {
-                    preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.id).apply()
+                    preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.getId()).apply()
                 }
                 loadProfileSpinner(sProfile)
                 updateLayout!!.run()
@@ -175,7 +175,7 @@ class InputControlsFragment : Fragment() {
             }
             importProfileCallback = { profile ->
                 currentProfile = profile
-                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.id).apply()
+                preferences.edit().putInt(SELECTED_PROFILE_ID, currentProfile!!.getId()).apply()
                 loadProfileSpinner(sProfile)
                 updateLayout!!.run()
             }

@@ -20,7 +20,7 @@ import androidx.preference.PreferenceManager
 import com.termux.x11.input.InputStub
 import com.termux.x11.input.RenderData
 import com.termux.x11.controller.inputcontrols.InputControlsManager
-import com.termux.x11.controller.inputcontrols.InputControlsView
+import com.termux.x11.controller.widget.InputControlsView
 import com.termux.x11.controller.inputcontrols.X11InputSender
 import com.termux.x11.controller.inputcontrols.InputEventHandler
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel
@@ -40,7 +40,7 @@ import kotlinx.coroutines.delay
  *
  * Input events from virtual controls are routed through the X11InputSender
  * to the X11 session via the LorieView JNI bridge.
- * 
+ *
  * Touch events on the screen are also converted to mouse events for X11 control.
  */
 @Composable
@@ -97,14 +97,13 @@ fun X11Screen(
     // 只创建一次 InputControlsView，避免重建
     val inputControlsView = remember {
         InputControlsView(context).apply {
-            this.setEditMode(false)
-            this.inputEventHandler = inputEventHandler
+            setEditMode(false)
         }
     }
 
     // 监听显示开关变化并实时更新视图
     LaunchedEffect(showTouchscreenControls) {
-        inputControlsView.showTouchscreenControls = showTouchscreenControls
+        inputControlsView.setShowTouchscreenControls(showTouchscreenControls)
         Log.d("X11Screen", "Updated showTouchscreenControls: $showTouchscreenControls")
     }
 
@@ -135,7 +134,7 @@ fun X11Screen(
 
         // 无论状态是否变化，都立即刷新 InputControlsView
         // 这样可以确保新建配置后立即生效
-        inputControlsView.showTouchscreenControls = newShowControls
+        inputControlsView.setShowTouchscreenControls(newShowControls)
         val newProfile = if (newProfileId != 0) manager.getProfile(newProfileId) else manager.getProfiles().firstOrNull()
         inputControlsView.setProfile(newProfile)
         Log.d("X11Screen", "refreshControlsImmediately: show=$newShowControls, profile=${newProfile?.name}")
@@ -156,11 +155,10 @@ fun X11Screen(
                         x11InputSender.initialize(it)
                         // 在初始化后强制重置鼠标按钮状态，防止首次启动时鼠标卡在按下状态
                         x11InputSender.forceResetMouseButtons()
-                        renderData.scale = android.graphics.PointF(1f, 1f)
-                        x11InputSender.renderData = renderData
+                        x11InputSender.setRenderData(renderData)
                         onLorieViewReady?.invoke(it)
                         Log.d("X11Screen", "X11InputSender initialized with LorieView")
-                        
+
                         // 不再设置触摸监听器，因为 InputControlsView 会处理触摸事件
                         // 触摸监听器会导致重复发送鼠标按钮事件
                     } ?: run {
@@ -211,12 +209,12 @@ fun X11Screen(
 
 /**
  * Handle touch events and convert them to mouse events for X11 control
- * 
+ *
  * This implements touchpad-style control:
  * - Touch down: Send left mouse button press
  * - Touch move: Send relative mouse movement
  * - Touch up: Send left mouse button release
- * 
+ *
  * @param event The touch motion event
  * @param inputSender The X11 input sender to send events to
  * @param lastTouchX Last recorded touch X position
@@ -238,7 +236,7 @@ private fun handleX11TouchEvent(
     updateLeftButton: (Boolean) -> Unit
 ) {
     // 检查输入是否已初始化
-    if (!inputSender.isInitialized) {
+    if (!inputSender.isInitialized()) {
         Log.w("X11Touch", "InputSender not initialized, skipping touch event")
         return
     }
@@ -252,13 +250,13 @@ private fun handleX11TouchEvent(
             val actionIndex = event.actionIndex
             val x = event.getX(actionIndex)
             val y = event.getY(actionIndex)
-            
+
             Log.d("X11Touch", "Touch down at ($x, $y)")
-            
+
             // 记录初始触摸位置
             updateLastTouch(x, y)
             updateFirstTouch(false)
-            
+
             // 如果左键未按下，发送左键按下事件
             if (!leftButtonDown) {
                 inputSender.sendMouseButtonEvent(1, true)
@@ -266,27 +264,27 @@ private fun handleX11TouchEvent(
                 Log.d("X11Touch", "Left button pressed")
             }
         }
-        
+
         MotionEvent.ACTION_MOVE -> {
             // 处理所有指针的移动
             for (i in 0 until event.pointerCount) {
                 val pointerId = event.getPointerId(i)
                 val x = event.getX(i)
                 val y = event.getY(i)
-                
+
                 // 只处理主指针（actionIndex 对应的指针）
                 if (pointerId == event.getPointerId(event.actionIndex)) {
                     // 计算相对移动
                     val dx = x - lastTouch.first
                     val dy = y - lastTouch.second
-                    
+
                     // 只有当移动超过阈值时才发送移动事件（防止抖动）
                     if (kotlin.math.abs(dx) > 2 || kotlin.math.abs(dy) > 2) {
                         // 发送鼠标移动事件
                         val intDx = kotlin.math.round(dx).toInt()
                         val intDy = kotlin.math.round(dy).toInt()
                         inputSender.sendMouseMotionEvent(intDx, intDy)
-                        
+
                         // 更新位置
                         updateLastTouch(x, y)
                         Log.v("X11Touch", "Move: dx=$intDx, dy=$intDy")
@@ -295,17 +293,17 @@ private fun handleX11TouchEvent(
                 }
             }
         }
-        
+
         MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
             Log.d("X11Touch", "Touch up")
-            
+
             // 如果左键处于按下状态，发送左键释放事件
             if (leftButtonDown) {
                 inputSender.sendMouseButtonEvent(1, false)
                 updateLeftButton(false)
                 Log.d("X11Touch", "Left button released")
             }
-            
+
             updateFirstTouch(true)
         }
     }
