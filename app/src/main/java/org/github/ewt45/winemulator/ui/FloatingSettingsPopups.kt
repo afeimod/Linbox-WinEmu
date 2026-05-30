@@ -32,8 +32,8 @@ import androidx.preference.PreferenceManager
 import kotlinx.coroutines.launch
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.FuncOnChangeAction
-import org.github.ewt45.winemulator.inputcontrols.ControlsProfile
-import org.github.ewt45.winemulator.inputcontrols.InputControlsManager
+import com.termux.x11.controller.inputcontrols.ControlsProfile
+import com.termux.x11.controller.inputcontrols.InputControlsManager
 import org.github.ewt45.winemulator.ui.components.*
 import org.github.ewt45.winemulator.ui.setting.*
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel

@@ -19,10 +19,10 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.preference.PreferenceManager
 import com.termux.x11.input.InputStub
 import com.termux.x11.input.RenderData
-import org.github.ewt45.winemulator.inputcontrols.InputControlsManager
-import org.github.ewt45.winemulator.inputcontrols.InputControlsView
-import org.github.ewt45.winemulator.inputcontrols.X11InputSender
-import org.github.ewt45.winemulator.inputcontrols.InputEventHandler
+import com.termux.x11.controller.inputcontrols.InputControlsManager
+import com.termux.x11.controller.inputcontrols.InputControlsView
+import com.termux.x11.controller.inputcontrols.X11InputSender
+import com.termux.x11.controller.inputcontrols.InputEventHandler
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel
 import kotlinx.coroutines.delay
 
