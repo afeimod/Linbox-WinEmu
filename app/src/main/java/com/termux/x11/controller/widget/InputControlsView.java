@@ -31,7 +31,6 @@ import com.termux.x11.controller.inputcontrols.GamepadState;
 import com.termux.x11.controller.core.TermuxConfigFiles;
 import com.termux.x11.controller.math.Mathf;
 import com.termux.x11.controller.winhandler.WinHandler;
-import com.termux.x11.controller.xserver.Pointer;
 import com.termux.x11.LorieView;
 import com.termux.x11.controller.xserver.XKeycode;
 
@@ -733,20 +732,20 @@ public class InputControlsView extends View {
                 mouseMoveOffset.y = isActionDown ? (offset != 0 ? offset : (binding == Binding.MOUSE_MOVE_UP ? -1 : 1)) : 0;
                 if (isActionDown) createMouseMoveTimer();
             } else {
-                Pointer.Button pointerButton = binding.getPointerButton();
+                LorieView.Pointer.Button pointerButton = binding.getPointerButton();
                 if (isActionDown) {
 //                    Log.d("handleInputEvent","<isActionDown> "+binding.toString());
                     if (pointerButton != null) {
                         xServer.injectPointerButtonPress(pointerButton);
                     } else {
-                        xServer.injectKeyPress(binding.keycode);
+                        xServer.injectKeyPress(new XKeycode(binding.keycode));
                     }
                 } else {
 //                    Log.d("handleInputEvent","<isActionUp> "+binding.toString());
                     if (pointerButton != null) {
                         xServer.injectPointerButtonRelease(pointerButton);
                     } else {
-                        xServer.injectKeyRelease(binding.keycode);
+                        xServer.injectKeyRelease(new XKeycode(binding.keycode));
                     }
                 }
             }
@@ -755,8 +754,8 @@ public class InputControlsView extends View {
 
     public void sendText(String text) {
         xServer.injectText(text);
-        xServer.injectKeyPress(XKeycode.KEY_ENTER);
-        xServer.injectKeyRelease(XKeycode.KEY_ENTER);
+        xServer.injectKeyPress(XKeycode.KEY_ENTER_OBJ);
+        xServer.injectKeyRelease(XKeycode.KEY_ENTER_OBJ);
     }
 
     public Bitmap getIcon(byte id) {
