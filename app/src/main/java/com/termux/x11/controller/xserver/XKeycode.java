@@ -222,4 +222,16 @@ public class XKeycode {
     public static final int KEY_COMPOSE = 112;
     public static final int KEY_PAUSE = 113;
     public static final int KEY_PRINT = 114;
+
+    // Additional key aliases
+    public static final int KEY_ESC = 1;
+    public static final int KEY_BKSP = 14;
+    public static final int KEY_DEL = 100;
+    public static final int KEY_PRTSCN = 114;
+    public static final int KEY_PRIOR = 93;
+    public static final int KEY_NEXT = 98;
+
+    // Static XKeycode constant objects for common keys
+    public static final XKeycode KEY_NONE = new XKeycode(0);
+    public static final XKeycode KEY_ENTER_OBJ = new XKeycode(KEY_ENTER);
 }
