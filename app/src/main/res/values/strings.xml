@@ -161,10 +161,4 @@
     <string name="shortcut_not_available">This shortcut is no longer available. Please remove or recreate it.</string>
     <string name="toggle_orientation">Toggle Orientation</string>
     <string name="virtual_buttons_haptics">Virtual Buttons Haptics</string>
-    <string name="add_button">Add Button</string>
-    <string name="too_much_key">Too many keys</string>
-    <string name="cheat_code">Cheat Code</string>
-    <string name="do_you_want_to_remove_this_controller">Do you want to remove this controller?</string>
-    <string name="controller">Controller</string>
-    <string name="remove">Remove</string>
-    </resources>
+</resources>

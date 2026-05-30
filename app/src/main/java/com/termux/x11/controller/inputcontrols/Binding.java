@@ -14,21 +14,28 @@ public enum Binding {
 
     Binding() {
         int keycodeVal = 0;
+        String name = name();
         try {
-            XKeycode keycodeEnum = XKeycode.valueOf(name());
-            keycodeVal = keycodeEnum.getCode();
+            keycodeVal = mapToXKeycode(name).getCode();
         }
         catch (IllegalArgumentException e) {
-            keycodeVal = 0;
-            String name = name();
-            if (name.equals("KEY_PG_UP")) {
-                keycodeVal = XKeycode.KEY_PRIOR.getCode();
-            }
-            else if (name.equals("KEY_PG_DOWN")) {
-                keycodeVal = XKeycode.KEY_NEXT.getCode();
-            }
+            // Handle special mappings
         }
         this.keycode = keycodeVal;
+    }
+
+    private static XKeycode mapToXKeycode(String bindingName) {
+        // Map Binding names to XKeycode names
+        switch (bindingName) {
+            case "KEY_PG_UP": return XKeycode.KEY_PRIOR;
+            case "KEY_PG_DOWN": return XKeycode.KEY_NEXT;
+            case "KEY_KP_ADD": return XKeycode.KEY_KP_PLUS;
+            case "KEY_CAPS_LOCK": return XKeycode.KEY_CAPSLOCK;
+            case "KEY_NUM_LOCK": return XKeycode.KEY_NUMLOCK;
+            case "KEY_PRTSCN": return XKeycode.KEY_PRTSCN;
+            default:
+                return XKeycode.valueOf(bindingName);
+        }
     }
 
     @NonNull
