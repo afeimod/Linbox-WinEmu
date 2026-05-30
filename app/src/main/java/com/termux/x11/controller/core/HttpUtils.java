@@ -1,92 +1,57 @@
 package com.termux.x11.controller.core;
 
-import android.app.Activity;
+import android.os.Handler;
+import android.os.Looper;
 
-import java.io.BufferedInputStream;
-import java.io.File;
-import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
 import java.net.URL;
-import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.atomic.AtomicBoolean;
 
-public abstract class HttpUtils {
-    private static void downloadAsync(String url, Callback<String> onDownloadComplete) {
-        try {
-            HttpURLConnection connection = (HttpURLConnection)(new URL(url)).openConnection();
-            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                onDownloadComplete.call(null);
-                return;
-            }
+public class HttpUtils {
+    private static final ExecutorService executor = Executors.newCachedThreadPool();
+    private static final Handler handler = new Handler(Looper.getMainLooper());
 
-            byte[] bytes;
-            try (InputStream inStream = connection.getInputStream()) {
-                bytes = StreamUtils.copyToByteArray(inStream);
-            }
-            onDownloadComplete.call(new String(bytes, StandardCharsets.UTF_8));
-        }
-        catch (Exception e) {
-            onDownloadComplete.call(null);
-        }
+    public interface DownloadCallback {
+        void onComplete(String content);
     }
 
-    public static void download(final String url, final Callback<String> onDownloadComplete) {
-        Executors.newSingleThreadExecutor().execute(() -> downloadAsync(url, onDownloadComplete));
-    }
+    public static void download(String urlString, DownloadCallback callback) {
+        executor.execute(() -> {
+            HttpURLConnection connection = null;
+            BufferedReader reader = null;
+            StringBuilder content = new StringBuilder();
+            try {
+                URL url = new URL(urlString);
+                connection = (HttpURLConnection) url.openConnection();
+                connection.setRequestMethod("GET");
+                connection.setConnectTimeout(10000);
+                connection.setReadTimeout(10000);
+                connection.connect();
 
-    private static void downloadAsync(String url, File destination, AtomicBoolean interruptRef, Callback<Integer> onPublishProgress, Callback<Boolean> onDownloadComplete) {
-        try {
-            interruptRef.set(false);
-            HttpURLConnection connection = (HttpURLConnection)(new URL(url)).openConnection();
-            if (connection.getResponseCode() != HttpURLConnection.HTTP_OK) {
-                onDownloadComplete.call(false);
-                return;
-            }
-
-            int contentLength = connection.getContentLength();
-            try (InputStream inStream = new BufferedInputStream(connection.getInputStream(), StreamUtils.BUFFER_SIZE);
-                 OutputStream outStream = new FileOutputStream(destination)) {
-
-                byte[] buffer = new byte[1024];
-                int totalSize = 0;
-                int bytesRead;
-                while ((bytesRead = inStream.read(buffer)) != -1 && !interruptRef.get()) {
-                    totalSize += bytesRead;
-                    if (onPublishProgress != null) {
-                        int progress = (int)(((float)totalSize / contentLength) * 100);
-                        onPublishProgress.call(progress);
+                int responseCode = connection.getResponseCode();
+                if (responseCode == HttpURLConnection.HTTP_OK) {
+                    reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        content.append(line).append("\n");
                     }
-                    outStream.write(buffer, 0, bytesRead);
                 }
-
+            } catch (Exception e) {
+                e.printStackTrace();
+            } finally {
+                try {
+                    if (reader != null) reader.close();
+                    if (connection != null) connection.disconnect();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
             }
 
-            onDownloadComplete.call(!interruptRef.get());
-        }
-        catch (Exception e) {
-            onDownloadComplete.call(false);
-        }
-    }
-
-    public static void download(final Activity activity, final String url, final File destination, final Callback<Boolean> onDownloadComplete) {
-        final DownloadProgressDialog dialog = new DownloadProgressDialog(activity);
-        final AtomicBoolean interruptRef = new AtomicBoolean();
-        dialog.show(() -> interruptRef.set(true));
-        Executors.newSingleThreadExecutor().execute(() -> {
-            downloadAsync(url, destination, interruptRef, (progress) -> {
-                activity.runOnUiThread(() -> {
-                    dialog.setProgress(progress);
-                });
-            }, (success) -> {
-                if (!success && destination.isFile()) destination.delete();
-                activity.runOnUiThread(() -> {
-                    dialog.close();
-                    onDownloadComplete.call(success);
-                });
-            });
+            final String result = content.length() > 0 ? content.toString() : null;
+            handler.post(() -> callback.onComplete(result));
         });
     }
 }
