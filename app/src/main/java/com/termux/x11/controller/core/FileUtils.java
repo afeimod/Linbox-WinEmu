@@ -167,4 +167,21 @@ public class FileUtils {
             return 0;
         }
     }
+
+    /**
+     * Delete a file or directory.
+     * @param file the file or directory to delete
+     */
+    public static void delete(File file) {
+        if (file == null) return;
+        try {
+            if (file.isDirectory()) {
+                org.apache.commons.io.FileUtils.deleteDirectory(file);
+            } else {
+                org.apache.commons.io.FileUtils.forceDelete(file);
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
 }

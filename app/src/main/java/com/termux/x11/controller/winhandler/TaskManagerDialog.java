@@ -47,7 +47,7 @@ public class TaskManagerDialog extends ContentDialog implements OnGetProcessInfo
             ContentDialog.prompt(activity, R.string.new_task, "taskmgr.exe", (command) -> host.getWinHandler().exec(command));
         });
 
-        setOnDismissListener((dialog) -> {
+        setOnDismissListener(() -> {
             if (timer != null) {
                 timer.cancel();
                 timer = null;

@@ -33,4 +33,24 @@
 
     <!-- IDs for Compose View -->
     <item name="compose_view" type="id" />
+
+    <!-- IDs for ImagePickerView -->
+    <item name="ImageView" type="id" />
+    <item name="BTBrowse" type="id" />
+    <item name="BTRemove" type="id" />
+    <item name="LLBottomBar" type="id" />
+    <item name="TVBottomBarText" type="id" />
+    <item name="LLProcessList" type="id" />
+    <item name="TVEmptyText" type="id" />
+    <item name="BTCancel" type="id" />
+    <item name="TVName" type="id" />
+    <item name="TVPID" type="id" />
+    <item name="TVMemoryUsage" type="id" />
+    <item name="BTMenu" type="id" />
+    <item name="IVIcon" type="id" />
+    <item name="LLCPUInfo" type="id" />
+    <item name="TVCPUTitle" type="id" />
+    <item name="TVMemoryTitle" type="id" />
+    <item name="TVMemoryInfo" type="id" />
+    <item name="CPUListView" type="id" />
 </resources>

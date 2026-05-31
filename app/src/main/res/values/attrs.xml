@@ -10,5 +10,6 @@
         <attr name="minValue" format="integer" />
         <attr name="maxValue" format="integer" />
         <attr name="step" format="integer" />
+        <attr name="value" format="integer" />
     </declare-styleable>
 </resources>
