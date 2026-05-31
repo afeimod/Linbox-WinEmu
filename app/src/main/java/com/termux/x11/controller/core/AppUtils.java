@@ -64,7 +64,9 @@ public class AppUtils {
             WindowInsetsController controller = activity.getWindow().getInsetsController();
             if (controller != null) {
                 controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
-                controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE_GESTURE);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE_GESTURE);
+                }
             }
         } else {
             activity.getWindow().getDecorView().setSystemUiVisibility(

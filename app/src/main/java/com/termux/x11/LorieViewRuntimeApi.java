@@ -4,6 +4,7 @@ import android.app.Activity;
 import android.content.Context;
 
 import com.termux.x11.controller.core.PreloaderDialog;
+import com.termux.x11.controller.winhandler.ProcessInfo;
 import com.termux.x11.controller.winhandler.WinHandler;
 import com.termux.x11.controller.widget.InputControlsView;
 

@@ -3,6 +3,7 @@ package com.termux.x11.controller.core;
 import android.app.Dialog;
 import android.content.Context;
 import android.os.Bundle;
+import android.view.Window;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
@@ -24,7 +25,7 @@ public class DownloadProgressDialog extends Dialog {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        requestWindowFeature(STYLE_NO_TITLE);
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
         setContentView(R.layout.dialog_download_progress);
 
         TextView tvTitle = findViewById(R.id.tv_dialog_title);

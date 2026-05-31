@@ -1,38 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <item name="compose_view" type="id" />
-
-    <!-- InputControlsFragment IDs -->
-    <item name="SProfile" type="id" />
-    <item name="TVCursorSpeed" type="id" />
-    <item name="SBCursorSpeed" type="id" />
-    <item name="TVUiOpacity" type="id" />
-    <item name="SBOverlayOpacity" type="id" />
-    <item name="BTAddProfile" type="id" />
-    <item name="BTEditProfile" type="id" />
-    <item name="BTDuplicateProfile" type="id" />
-    <item name="BTRemoveProfile" type="id" />
-    <item name="BTImportProfile" type="id" />
-    <item name="BTExportProfile" type="id" />
-    <item name="BTControlsEditor" type="id" />
-    <item name="LLExternalControllers" type="id" />
-    <item name="TVEmptyText" type="id" />
-
-    <!-- ExternalControllerBindingsActivity IDs -->
-    <item name="Toolbar" type="id" />
-    <item name="RecyclerView" type="id" />
-
-    <!-- Controller list item IDs -->
-    <item name="TVTitle" type="id" />
-    <item name="TVSubtitle" type="id" />
-    <item name="ImageView" type="id" />
-    <item name="BTRemove" type="id" />
-
-    <!-- Binding list item IDs -->
-    <item name="SBindingType" type="id" />
-    <item name="SBinding" type="id" />
-
-    <!-- Menu IDs -->
-    <item name="open_file" type="id" />
-    <item name="download_file" type="id" />
+    <!-- IDs for InputControllerActivity -->
+    <item name="container" type="id" />
+    <item name="main_menu_containers" type="id" />
+    
+    <!-- IDs for ControlsEditorActivity -->
+    <item name="NPColumns" type="id" />
+    <item name="SControllerIconType" type="id" />
+    <item name="CPVControllerBackgroundColor" type="id" />
+    <item name="IPVControllerBackgroundImage" type="id" />
+    
+    <!-- IDs for binding fields -->
+    <item name="SCBBindingType" type="id" />
+    <item name="SCBBinding" type="id" />
+    <item name="IBTNDelKeyBinding" type="id" />
+    <item name="EDCCT" type="id" />
+    <item name="IBTNSET" type="id" />
+    
+    <!-- IDs for NumberPicker -->
+    <item name="EditText" type="id" />
+    <item name="BTDecrement" type="id" />
+    <item name="BTIncrement" type="id" />
+    
+    <!-- IDs for CPUListView -->
+    <item name="CheckBox" type="id" />
+    <item name="TextView" type="id" />
+    
+    <!-- IDs for process_popup_menu -->
+    <item name="process_affinity" type="id" />
+    <item name="bring_to_front" type="id" />
+    <item name="process_end" type="id" />
 </resources>

@@ -86,7 +86,7 @@ public class ContentDialog {
     }
 
     @SuppressWarnings("unchecked")
-    protected <T extends View> T findViewById(int id) {
+    public <T extends View> T findViewById(int id) {
         return (T) dialogView.findViewById(id);
     }
 
