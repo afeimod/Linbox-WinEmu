@@ -41,7 +41,7 @@ import com.termux.x11.controller.inputcontrols.ControlsProfile;
 import com.termux.x11.controller.inputcontrols.ExternalController;
 import com.termux.x11.controller.inputcontrols.InputControlsManager;
 import com.termux.x11.controller.math.Mathf;
-import com.termux.x11.controller.widget.InputControlsView;
+import com.termux.x11.controller.inputcontrols.InputControlsView;
 
 import org.json.JSONException;
 import org.json.JSONObject;

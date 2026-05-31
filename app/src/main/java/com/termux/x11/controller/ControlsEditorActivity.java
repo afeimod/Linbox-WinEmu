@@ -37,7 +37,7 @@ import com.termux.x11.controller.inputcontrols.InputControlsManager;
 import com.termux.x11.controller.math.Mathf;
 import com.termux.x11.controller.widget.ColorPickerView;
 import com.termux.x11.controller.widget.ImagePickerView;
-import com.termux.x11.controller.widget.InputControlsView;
+import com.termux.x11.controller.inputcontrols.InputControlsView;
 import com.termux.x11.controller.widget.NumberPicker;
 
 import java.io.IOException;
