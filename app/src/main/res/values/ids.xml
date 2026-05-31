@@ -30,4 +30,7 @@
     <item name="process_affinity" type="id" />
     <item name="bring_to_front" type="id" />
     <item name="process_end" type="id" />
+
+    <!-- IDs for Compose View -->
+    <item name="compose_view" type="id" />
 </resources>
