@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.toBitmap
 import org.github.ewt45.winemulator.Consts
+import org.github.ewt45.winemulator.R
 import kotlin.math.abs
 import kotlin.math.cos
 import kotlin.math.roundToInt
@@ -81,19 +82,19 @@ fun ExpandableFloatingMenu(
 
     // 加载自定义图标
     val moveIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_move)?.toBitmap()
+        ContextCompat.getDrawable(context, R.drawable.icon_move)?.toBitmap()
     }
     val homeIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_home)?.toBitmap()
+        ContextCompat.getDrawable(context, R.drawable.icon_home)?.toBitmap()
     }
     val settingsIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_settings)?.toBitmap()
+        ContextCompat.getDrawable(context, R.drawable.icon_settings)?.toBitmap()
     }
     val gamepadIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_gamepad)?.toBitmap()
+        ContextCompat.getDrawable(context, R.drawable.icon_gamepad)?.toBitmap()
     }
     val displaySettingsIconBitmap = remember {
-        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_display_settings)?.toBitmap()
+        ContextCompat.getDrawable(context, R.drawable.icon_display_settings)?.toBitmap()
     }
 
     LaunchedEffect(parentWidth, parentHeight, buttonSizePx) {
