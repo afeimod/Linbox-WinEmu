@@ -14,9 +14,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.fragment.app.Fragment
 import androidx.preference.PreferenceManager
 import org.github.ewt45.winemulator.R
-import com.termux.x11.controller.inputcontrols.ControlsProfile
-import com.termux.x11.controller.inputcontrols.InputControlsManager
-import com.termux.x11.controller.ControlsEditorActivity
+import org.github.ewt45.winemulator.inputcontrols.ControlsProfile
+import org.github.ewt45.winemulator.inputcontrols.InputControlsManager
 import org.json.JSONObject
 import java.util.ArrayList
 
@@ -84,7 +83,7 @@ class InputControlsFragment : Fragment() {
             override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
                 tvCursorSpeed.text = "$progress%"
                 if (currentProfile != null && fromUser) {
-                    currentProfile!!.setCursorSpeed(progress / 100.0f)
+                    currentProfile!!.cursorSpeed = progress / 100.0f
                     currentProfile!!.save()
                 }
             }
@@ -94,7 +93,7 @@ class InputControlsFragment : Fragment() {
 
         updateLayout = Runnable {
             if (currentProfile != null) {
-                sbCursorSpeed.progress = (currentProfile!!.getCursorSpeed() * 100).toInt()
+                sbCursorSpeed.progress = (currentProfile!!.cursorSpeed * 100).toInt()
             } else {
                 sbCursorSpeed.progress = 100
             }
@@ -130,8 +129,8 @@ class InputControlsFragment : Fragment() {
         // 编辑配置名称
         view.findViewById<Button>(R.id.BTEditProfile).setOnClickListener {
             if (currentProfile != null) {
-                showInputDialog(R.string.profile_name, currentProfile!!.getName()) { name ->
-                    currentProfile!!.setName(name)
+                showInputDialog(R.string.profile_name, currentProfile!!.name) { name ->
+                    currentProfile!!.name = name
                     currentProfile!!.save()
                     loadProfileSpinner(sProfile)
                 }
@@ -250,22 +249,17 @@ class InputControlsFragment : Fragment() {
             hint = getString(titleResId)
         }
 
-        val dialog = AlertDialog.Builder(requireContext())
-            .setTitle(getString(titleResId))
+        AlertDialog.Builder(requireContext())
+            .setTitle(titleResId)
             .setView(editText)
-            .setPositiveButton(R.string.ok, null)
-            .setNegativeButton(R.string.cancel, null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+            .setPositiveButton(R.string.ok) { _, _ ->
                 val value = editText.text.toString().trim()
                 if (value.isNotEmpty()) {
                     onResult(value)
-                    dialog.dismiss()
                 }
             }
-        }
-        dialog.show()
+            .setNegativeButton(R.string.cancel, null)
+            .show()
     }
 
     @Deprecated("Deprecated in Java")
