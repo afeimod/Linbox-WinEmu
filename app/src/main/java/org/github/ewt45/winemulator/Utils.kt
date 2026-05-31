@@ -1085,10 +1085,10 @@ object Utils {
                     .apply { putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) }
 
                 override fun parseResult(resultCode: Int, intent: Intent?) =
-                    NotificationManagerCompat.from(context).areNotificationsEnabled()
+                    NotificationManagerCompat.from(a).areNotificationsEnabled()
 
                 override fun getSynchronousResult(context: Context, input: String): SynchronousResult<Boolean>? {
-                    val granted = NotificationManagerCompat.from(context).areNotificationsEnabled()
+                    val granted = NotificationManagerCompat.from(a).areNotificationsEnabled()
                     return if (granted) SynchronousResult(true) else null
                 }
 
