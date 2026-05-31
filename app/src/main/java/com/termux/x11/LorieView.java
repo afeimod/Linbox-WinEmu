@@ -56,6 +56,11 @@ public interface LorieView extends InputStub {
 
     boolean isFullscreen();
 
+    // Viewport refresh method (used by CursorLocker)
+    default void refreshViewport() {
+        // Default implementation does nothing - override in actual implementation
+    }
+
     // Pointer injection methods
     void injectPointerMoveDelta(int dx, int dy);
     void injectPointerButtonPress(Pointer.Button button);

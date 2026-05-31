@@ -32,6 +32,7 @@ import com.termux.x11.controller.core.TermuxConfigFiles;
 import com.termux.x11.controller.math.Mathf;
 import com.termux.x11.controller.winhandler.WinHandler;
 import com.termux.x11.LorieView;
+import com.termux.x11.controller.xserver.Pointer;
 import com.termux.x11.controller.xserver.XKeycode;
 
 import java.io.File;

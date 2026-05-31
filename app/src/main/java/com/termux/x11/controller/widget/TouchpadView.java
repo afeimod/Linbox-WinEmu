@@ -10,6 +10,7 @@ import android.view.ViewGroup;
 import android.widget.FrameLayout;
 
 import com.termux.x11.LorieView;
+import com.termux.x11.controller.xserver.Pointer;
 import com.termux.x11.controller.core.AppUtils;
 import com.termux.x11.controller.math.Mathf;
 import com.termux.x11.controller.math.XForm;
@@ -234,16 +235,16 @@ public class TouchpadView extends View {
                 scrollAccumY += ((finger1.y + finger2.y) * 0.5f) - (finger1.lastY + finger2.lastY) * 0.5f;
 
                 if (scrollAccumY < -100) {
-                    xServer.injectPointerButtonPress(LorieView.Pointer.Button.BUTTON_SCROLL_DOWN);
-                    xServer.injectPointerButtonRelease(LorieView.Pointer.Button.BUTTON_SCROLL_DOWN);
+                    xServer.injectPointerButtonPress(Pointer.Button.BUTTON_SCROLL_DOWN);
+                    xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_SCROLL_DOWN);
                     scrollAccumY = 0;
                 } else if (scrollAccumY > 100) {
-                    xServer.injectPointerButtonPress(LorieView.Pointer.Button.BUTTON_SCROLL_UP);
-                    xServer.injectPointerButtonRelease(LorieView.Pointer.Button.BUTTON_SCROLL_UP);
+                    xServer.injectPointerButtonPress(Pointer.Button.BUTTON_SCROLL_UP);
+                    xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_SCROLL_UP);
                     scrollAccumY = 0;
                 }
                 scrolling = true;
-            } else if (currDistance >= MAX_TWO_FINGERS_SCROLL_DISTANCE && !xServer.getPointer().isButtonPressed(LorieView.Pointer.Button.BUTTON_LEFT) &&
+            } else if (currDistance >= MAX_TWO_FINGERS_SCROLL_DISTANCE && !xServer.getPointer().isButtonPressed(Pointer.Button.BUTTON_LEFT) &&
                 finger2.travelDistance() < MAX_TAP_TRAVEL_DISTANCE) {
                 pressPointerButtonLeft(finger1);
                 skipPointerMove = true;
@@ -272,32 +273,32 @@ public class TouchpadView extends View {
     }
 
     private void pressPointerButtonLeft(Finger finger) {
-        if (pointerButtonLeftEnabled && !xServer.getPointer().isButtonPressed(LorieView.Pointer.Button.BUTTON_LEFT)) {
-            xServer.injectPointerButtonPress(LorieView.Pointer.Button.BUTTON_LEFT);
+        if (pointerButtonLeftEnabled && !xServer.getPointer().isButtonPressed(Pointer.Button.BUTTON_LEFT)) {
+            xServer.injectPointerButtonPress(Pointer.Button.BUTTON_LEFT);
             fingerPointerButtonLeft = finger;
         }
     }
 
     private void pressPointerButtonRight(Finger finger) {
-        if (pointerButtonRightEnabled && !xServer.getPointer().isButtonPressed(LorieView.Pointer.Button.BUTTON_RIGHT)) {
-            xServer.injectPointerButtonPress(LorieView.Pointer.Button.BUTTON_RIGHT);
+        if (pointerButtonRightEnabled && !xServer.getPointer().isButtonPressed(Pointer.Button.BUTTON_RIGHT)) {
+            xServer.injectPointerButtonPress(Pointer.Button.BUTTON_RIGHT);
             fingerPointerButtonRight = finger;
         }
     }
 
     private void releasePointerButtonLeft(final Finger finger) {
-        if (pointerButtonLeftEnabled && finger == fingerPointerButtonLeft && xServer.getPointer().isButtonPressed(LorieView.Pointer.Button.BUTTON_LEFT)) {
+        if (pointerButtonLeftEnabled && finger == fingerPointerButtonLeft && xServer.getPointer().isButtonPressed(Pointer.Button.BUTTON_LEFT)) {
             postDelayed(() -> {
-                xServer.injectPointerButtonRelease(LorieView.Pointer.Button.BUTTON_LEFT);
+                xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_LEFT);
                 fingerPointerButtonLeft = null;
             }, 30);
         }
     }
 
     private void releasePointerButtonRight(final Finger finger) {
-        if (pointerButtonRightEnabled && finger == fingerPointerButtonRight && xServer.getPointer().isButtonPressed(LorieView.Pointer.Button.BUTTON_RIGHT)) {
+        if (pointerButtonRightEnabled && finger == fingerPointerButtonRight && xServer.getPointer().isButtonPressed(Pointer.Button.BUTTON_RIGHT)) {
             postDelayed(() -> {
-                xServer.injectPointerButtonRelease(LorieView.Pointer.Button.BUTTON_RIGHT);
+                xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_RIGHT);
                 fingerPointerButtonRight = null;
             }, 30);
         }
@@ -334,17 +335,17 @@ public class TouchpadView extends View {
             switch (event.getAction()) {
                 case MotionEvent.ACTION_BUTTON_PRESS:
                     if (actionButton == MotionEvent.BUTTON_PRIMARY) {
-                        xServer.injectPointerButtonPress(LorieView.Pointer.Button.BUTTON_LEFT);
+                        xServer.injectPointerButtonPress(Pointer.Button.BUTTON_LEFT);
                     } else if (actionButton == MotionEvent.BUTTON_SECONDARY) {
-                        xServer.injectPointerButtonPress(LorieView.Pointer.Button.BUTTON_RIGHT);
+                        xServer.injectPointerButtonPress(Pointer.Button.BUTTON_RIGHT);
                     }
                     handled = true;
                     break;
                 case MotionEvent.ACTION_BUTTON_RELEASE:
                     if (actionButton == MotionEvent.BUTTON_PRIMARY) {
-                        xServer.injectPointerButtonRelease(LorieView.Pointer.Button.BUTTON_LEFT);
+                        xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_LEFT);
                     } else if (actionButton == MotionEvent.BUTTON_SECONDARY) {
-                        xServer.injectPointerButtonRelease(LorieView.Pointer.Button.BUTTON_RIGHT);
+                        xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_RIGHT);
                     }
                     handled = true;
                     break;
@@ -356,11 +357,11 @@ public class TouchpadView extends View {
                 case MotionEvent.ACTION_SCROLL:
                     float scrollY = event.getAxisValue(MotionEvent.AXIS_VSCROLL);
                     if (scrollY <= -1.0f) {
-                        xServer.injectPointerButtonPress(LorieView.Pointer.Button.BUTTON_SCROLL_DOWN);
-                        xServer.injectPointerButtonRelease(LorieView.Pointer.Button.BUTTON_SCROLL_DOWN);
+                        xServer.injectPointerButtonPress(Pointer.Button.BUTTON_SCROLL_DOWN);
+                        xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_SCROLL_DOWN);
                     } else if (scrollY >= 1.0f) {
-                        xServer.injectPointerButtonPress(LorieView.Pointer.Button.BUTTON_SCROLL_UP);
-                        xServer.injectPointerButtonRelease(LorieView.Pointer.Button.BUTTON_SCROLL_UP);
+                        xServer.injectPointerButtonPress(Pointer.Button.BUTTON_SCROLL_UP);
+                        xServer.injectPointerButtonRelease(Pointer.Button.BUTTON_SCROLL_UP);
                     }
                     handled = true;
                     break;
