@@ -79,6 +79,12 @@ public abstract class ContentDialogBase {
         this.onConfirmCallback = callback;
     }
 
+    public void setOnConfirmCallback(Runnable runnable) {
+        this.onConfirmCallback = data -> {
+            runnable.run();
+        };
+    }
+
     public void setBottomBarText(String text) {
         if (bottomBar != null && bottomBarText != null) {
             bottomBar.setVisibility(View.VISIBLE);
