@@ -1082,10 +1082,10 @@ object Utils {
             requestLauncher = a.registerForActivityResult(ActivityResultContracts.RequestPermission(), onActivityResult)
             notificationRequestLauncher = a.registerForActivityResult(object : ActivityResultContract<String, Boolean>() {
                 override fun createIntent(context: Context, input: String) = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
-                    .apply { putExtra(Settings.EXTRA_APP_PACKAGE, MainEmuApplication.i.packageName) }
+                    .apply { putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName) }
 
                 override fun parseResult(resultCode: Int, intent: Intent?) =
-                    NotificationManagerCompat.from(MainEmuApplication.i).areNotificationsEnabled()
+                    NotificationManagerCompat.from(context).areNotificationsEnabled()
 
                 override fun getSynchronousResult(context: Context, input: String): SynchronousResult<Boolean>? {
                     val granted = NotificationManagerCompat.from(context).areNotificationsEnabled()
