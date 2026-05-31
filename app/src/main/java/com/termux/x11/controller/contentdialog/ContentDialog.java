@@ -7,7 +7,7 @@ import android.view.View;
 
 import androidx.annotation.StringRes;
 
-import com.termux.x11.R;
+import a.io.github.ewt45.winemulator.R;
 import com.termux.x11.controller.core.AppUtils;
 import com.termux.x11.controller.core.Callback;
 

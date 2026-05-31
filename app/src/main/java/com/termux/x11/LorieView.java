@@ -48,6 +48,9 @@ public interface LorieView extends InputStub {
     default Keyboard getXServerKeyboard() { return getKeyboard(); }
     default ScreenInfo getXServerScreenInfo() { return getScreenInfo(); }
 
+    // Property accessor for legacy field access pattern (xServer.screenInfo)
+    default ScreenInfo getScreenInfoAccessor() { return getScreenInfo(); }
+
     // Cursor locker accessor
     CursorLocker getCursorLocker();
 

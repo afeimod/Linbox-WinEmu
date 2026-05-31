@@ -14,7 +14,7 @@ import android.widget.PopupMenu;
 import android.widget.TextView;
 
 import com.termux.x11.LorieViewRuntimeApi;
-import com.termux.x11.R;
+import a.io.github.ewt45.winemulator.R;
 import com.termux.x11.controller.contentdialog.ContentDialog;
 import com.termux.x11.controller.core.CPUStatus;
 import com.termux.x11.controller.core.ProcessHelper;

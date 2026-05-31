@@ -10,7 +10,7 @@ import android.widget.TextView;
 
 import androidx.annotation.Nullable;
 
-import com.termux.x11.R;
+import a.io.github.ewt45.winemulator.R;
 
 import java.util.Arrays;
 import java.util.List;

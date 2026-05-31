@@ -26,7 +26,7 @@ import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 
-import com.termux.x11.R;
+import a.io.github.ewt45.winemulator.R;
 import com.termux.x11.controller.core.AppUtils;
 import com.termux.x11.controller.core.FileUtils;
 import com.termux.x11.controller.core.UnitUtils;
