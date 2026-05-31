@@ -26,7 +26,7 @@ import androidx.recyclerview.widget.DividerItemDecoration;
 import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
-import a.io.github.ewt45.winemulator.R;
+import org.github.ewt45.winemulator.R;
 import com.termux.x11.controller.core.AppUtils;
 import com.termux.x11.controller.inputcontrols.Binding;
 import com.termux.x11.controller.inputcontrols.ControlsProfile;

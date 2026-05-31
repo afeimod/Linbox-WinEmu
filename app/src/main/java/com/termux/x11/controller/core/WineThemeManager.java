@@ -11,7 +11,7 @@ import android.graphics.RectF;
 import android.util.DisplayMetrics;
 
 
-import a.io.github.ewt45.winemulator.R;
+import org.github.ewt45.winemulator.R;
 import com.termux.x11.controller.xserver.ScreenInfo;
 
 import java.io.File;

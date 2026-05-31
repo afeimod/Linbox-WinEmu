@@ -7,7 +7,7 @@ import android.view.Window;
 import android.widget.ProgressBar;
 import android.widget.TextView;
 
-import a.io.github.ewt45.winemulator.R;
+import org.github.ewt45.winemulator.R;
 
 /**
  * Dialog showing download progress with a progress indicator.

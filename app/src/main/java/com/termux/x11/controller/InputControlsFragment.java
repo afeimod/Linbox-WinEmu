@@ -30,7 +30,7 @@ import androidx.core.content.ContextCompat;
 import androidx.core.widget.ImageViewCompat;
 import androidx.fragment.app.Fragment;
 
-import a.io.github.ewt45.winemulator.R;
+import org.github.ewt45.winemulator.R;
 import com.termux.x11.LoriePreferences;
 import com.termux.x11.controller.contentdialog.ContentDialog;
 import com.termux.x11.controller.core.AppUtils;

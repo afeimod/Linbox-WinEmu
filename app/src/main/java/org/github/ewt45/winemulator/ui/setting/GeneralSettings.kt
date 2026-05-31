@@ -1,6 +1,6 @@
 package org.github.ewt45.winemulator.ui.setting
 
-import a.io.github.ewt45.winemulator.R
+import org.github.ewt45.winemulator.R
 import android.net.Uri
 import android.util.Log
 import android.webkit.MimeTypeMap

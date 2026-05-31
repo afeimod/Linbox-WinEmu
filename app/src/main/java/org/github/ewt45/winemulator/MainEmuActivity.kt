@@ -1,6 +1,6 @@
 package org.github.ewt45.winemulator
 
-import a.io.github.ewt45.winemulator.R
+import org.github.ewt45.winemulator.R
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager

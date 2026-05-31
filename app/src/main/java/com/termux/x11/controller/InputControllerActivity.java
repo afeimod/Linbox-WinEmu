@@ -9,7 +9,7 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 
-import a.io.github.ewt45.winemulator.R;
+import org.github.ewt45.winemulator.R;
 import com.termux.x11.controller.core.Callback;
 import com.termux.x11.controller.core.PreloaderDialog;
 import com.termux.x11.controller.core.PreloaderDialogImpl;

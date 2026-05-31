@@ -22,7 +22,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.MainEmuActivity
-import a.io.github.ewt45.winemulator.R
+import org.github.ewt45.winemulator.R
 
 class X11Service : LifecycleService() {
     private val TAG = "X11Service"

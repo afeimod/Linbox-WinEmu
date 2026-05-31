@@ -22,7 +22,7 @@ import android.widget.PopupWindow;
 
 import androidx.annotation.Nullable;
 
-import a.io.github.ewt45.winemulator.R;
+import org.github.ewt45.winemulator.R;
 import com.termux.x11.LoriePreferences;
 import com.termux.x11.controller.ControlsEditorActivity;
 import com.termux.x11.controller.core.AppUtils;

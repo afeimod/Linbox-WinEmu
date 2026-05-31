@@ -1,6 +1,6 @@
 package org.github.ewt45.winemulator.ui
 
-import a.io.github.ewt45.winemulator.R
+import org.github.ewt45.winemulator.R
 import android.content.Context
 import android.view.View
 import android.view.ViewGroup.LayoutParams.MATCH_PARENT
