@@ -65,7 +65,15 @@ public class AppUtils {
             if (controller != null) {
                 controller.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    controller.setSystemBarsBehavior(WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE_GESTURE);
+                    // Use reflection to avoid compile-time dependency on the constant
+                    try {
+                        java.lang.reflect.Field field = WindowInsetsController.class.getField("BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE_GESTURE");
+                        int behaviorConstant = field.getInt(null);
+                        controller.setSystemBarsBehavior(behaviorConstant);
+                    } catch (NoSuchFieldException | IllegalAccessException e) {
+                        // Fallback: use value 1 for API 31+
+                        controller.setSystemBarsBehavior(1);
+                    }
                 }
             }
         } else {
