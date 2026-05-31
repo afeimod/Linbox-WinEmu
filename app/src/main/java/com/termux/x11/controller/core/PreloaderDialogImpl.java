@@ -1,56 +1,43 @@
 package com.termux.x11.controller.core;
 
-import android.app.Dialog;
 import android.app.ProgressDialog;
 import android.content.Context;
-import android.os.Handler;
-import android.os.Looper;
+import androidx.annotation.StringRes;
 
 /**
- * Implementation of PreloaderDialog using Android ProgressDialog.
+ * Default implementation of PreloaderDialog using ProgressDialog.
  */
 public class PreloaderDialogImpl implements PreloaderDialog {
-    private final Context context;
-    private ProgressDialog dialog;
-    private final Handler handler;
-    private boolean isShowing = false;
+    private final ProgressDialog progressDialog;
 
     public PreloaderDialogImpl(Context context) {
-        this.context = context;
-        this.handler = new Handler(Looper.getMainLooper());
+        progressDialog = new ProgressDialog(context);
+        progressDialog.setIndeterminate(true);
+        progressDialog.setCancelable(false);
     }
 
     @Override
-    public void show(final int messageResId) {
-        handler.post(() -> {
-            if (dialog == null) {
-                dialog = new ProgressDialog(context);
-                dialog.setProgressStyle(ProgressDialog.STYLE_SPINNER);
-                dialog.setCancelable(false);
-            }
-            dialog.setMessage(context.getText(messageResId));
-            dialog.show();
-            isShowing = true;
-        });
+    public void show(int messageResId) {
+        progressDialog.setMessage(progressDialog.getContext().getString(messageResId));
+        if (!progressDialog.isShowing()) {
+            progressDialog.show();
+        }
     }
 
     @Override
     public void close() {
-        dismiss();
+        if (progressDialog.isShowing()) {
+            progressDialog.dismiss();
+        }
     }
 
     @Override
     public void dismiss() {
-        handler.post(() -> {
-            if (dialog != null && dialog.isShowing()) {
-                dialog.dismiss();
-            }
-            isShowing = false;
-        });
+        close();
     }
 
     @Override
     public boolean isShowing() {
-        return isShowing && dialog != null && dialog.isShowing();
+        return progressDialog.isShowing();
     }
 }

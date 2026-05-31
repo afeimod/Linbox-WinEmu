@@ -12,6 +12,7 @@ import androidx.fragment.app.FragmentManager;
 import a.io.github.ewt45.winemulator.R;
 import com.termux.x11.controller.core.Callback;
 import com.termux.x11.controller.core.PreloaderDialog;
+import com.termux.x11.controller.core.PreloaderDialogImpl;
 
 public class InputControllerActivity extends AppCompatActivity {
 
@@ -19,7 +20,7 @@ public class InputControllerActivity extends AppCompatActivity {
     public static final byte PERMISSION_WRITE_EXTERNAL_STORAGE_REQUEST_CODE = 1;
     public static final byte OPEN_FILE_REQUEST_CODE = 2;
     public static final byte OPEN_DIRECTORY_REQUEST_CODE = 4;
-    public final PreloaderDialog preloaderDialog = new PreloaderDialog(this);
+    public final PreloaderDialog preloaderDialog = new PreloaderDialogImpl(this);
     private boolean editInputControls = false;
     private int selectedProfileId;
     private Callback<Uri> openFileCallback;

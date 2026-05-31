@@ -2,14 +2,18 @@ package com.termux.x11.controller.core;
 
 import android.content.Context;
 import android.net.Uri;
+import android.os.Build;
 
 import java.io.BufferedReader;
 import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -103,5 +107,64 @@ public class FileUtils {
         if (!dir.isDirectory()) return true;
         String[] files = dir.list();
         return files == null || files.length == 0;
+    }
+
+    /**
+     * Create a temporary file with the given prefix in the specified directory.
+     * @param dir directory to create temp file in
+     * @param prefix prefix for the filename
+     * @return the temporary File
+     */
+    public static File createTempFile(File dir, String prefix) {
+        try {
+            File tempFile = File.createTempFile(prefix, ".tmp", dir);
+            return tempFile;
+        } catch (IOException e) {
+            e.printStackTrace();
+            return null;
+        }
+    }
+
+    /**
+     * Read entire file as byte array.
+     * @param targetFile the file to read
+     * @return byte array of file contents
+     */
+    public static byte[] read(File targetFile) {
+        try {
+            return Files.readAllBytes(targetFile.toPath());
+        } catch (IOException e) {
+            e.printStackTrace();
+            return new byte[0];
+        }
+    }
+
+    /**
+     * Change file permissions (chmod).
+     * @param file the file to chmod
+     * @param mode the permission mode (e.g., 0771)
+     */
+    public static void chmod(File file, int mode) {
+        try {
+            Runtime.getRuntime().exec(new String[]{"chmod", Integer.toOctalString(mode), file.getAbsolutePath()}).waitFor();
+        } catch (IOException | InterruptedException e) {
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Read an integer value from a file.
+     * @param path path to the file containing an integer
+     * @return the integer value, or 0 on error
+     */
+    public static int readInt(String path) {
+        try {
+            BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(path)));
+            String line = reader.readLine();
+            reader.close();
+            return line != null ? Integer.parseInt(line.trim()) : 0;
+        } catch (IOException | NumberFormatException e) {
+            return 0;
+        }
     }
 }

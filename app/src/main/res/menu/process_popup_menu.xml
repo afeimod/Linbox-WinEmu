@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:id="@+id/process_affinity"
+        android:title="CPU Affinity" />
+    <item
+        android:id="@+id/bring_to_front"
+        android:title="@string/bring_to_front" />
+    <item
+        android:id="@+id/process_end"
+        android:title="@string/end_process" />
+</menu>

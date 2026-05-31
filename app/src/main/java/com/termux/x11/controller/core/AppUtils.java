@@ -5,10 +5,13 @@ import android.content.Context;
 import android.content.pm.PackageManager;
 import android.os.Build;
 import android.util.DisplayMetrics;
+import android.view.Gravity;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.AdapterView;
+import android.widget.LinearLayout;
+import android.widget.PopupWindow;
 import android.widget.Spinner;
 import android.widget.Toast;
 
@@ -111,5 +114,26 @@ public class AppUtils {
                 }
             }
         }
+    }
+
+    /**
+     * Show a popup window anchored to a view.
+     * @param anchorView the view to anchor the popup to
+     * @param contentView the content view of the popup
+     * @param xOffset horizontal offset
+     * @param yOffset vertical offset
+     * @return the PopupWindow
+     */
+    public static PopupWindow showPopupWindow(View anchorView, View contentView, int xOffset, int yOffset) {
+        PopupWindow popupWindow = new PopupWindow(contentView,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT,
+                true);
+        popupWindow.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
+        popupWindow.setOutsideTouchable(true);
+        popupWindow.setTouchable(true);
+        popupWindow.showAtLocation(anchorView, Gravity.TOP | Gravity.START,
+                xOffset, yOffset);
+        return popupWindow;
     }
 }
