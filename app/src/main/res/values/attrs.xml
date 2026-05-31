@@ -4,12 +4,20 @@
     <declare-styleable name="ImagePickerView">
         <attr name="activityTypeCode" format="integer" />
     </declare-styleable>
-    
+
     <!-- NumberPicker styleable attributes -->
     <declare-styleable name="NumberPicker">
         <attr name="minValue" format="integer" />
         <attr name="maxValue" format="integer" />
         <attr name="step" format="integer" />
         <attr name="value" format="integer" />
+    </declare-styleable>
+
+    <!-- ExtraKeysButton styleable attributes for termux-x11 -->
+    <declare-styleable name="ExtraKeysButton">
+        <attr name="extraKeysButtonActiveBackgroundColor" format="color" />
+        <attr name="extraKeysButtonActiveTextColor" format="color" />
+        <attr name="extraKeysButtonBackgroundColor" format="color" />
+        <attr name="extraKeysButtonTextColor" format="color" />
     </declare-styleable>
 </resources>
