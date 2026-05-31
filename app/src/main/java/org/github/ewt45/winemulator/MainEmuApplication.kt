@@ -20,6 +20,7 @@ class MainEmuApplication:Application() {
 }
 
 private val MainEmuApplication.dataStore: DataStore<Preferences> by preferencesDataStore(name = "settings")
-/** 持久化数据。获取某个key的最新值可以通过Consts.Pref.xxx.get() */
-val dataStore = MainEmuApplication.i.dataStore
+/** 持久化数据。获取某个key的最新值可以通过Consts.Pref.xxx.get()
+ *  使用lazy确保在Application初始化完成后才访问dataStore */
+val dataStore by lazy { MainEmuApplication.i.dataStore }
 
