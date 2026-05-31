@@ -34,7 +34,6 @@ import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.FuncOnChangeAction
 import com.termux.x11.controller.inputcontrols.ControlsProfile
 import com.termux.x11.controller.inputcontrols.InputControlsManager
-import com.termux.x11.controller.ControlsEditorActivity
 import org.github.ewt45.winemulator.ui.components.*
 import org.github.ewt45.winemulator.ui.setting.*
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel
@@ -228,7 +227,7 @@ fun VirtualKeysSettingsPopup(
 
     // 加载配置
     LaunchedEffect(Unit) {
-        manager.loadProfiles(false)
+        manager.loadProfiles(ignoreTemplates = false)
         profiles = manager.getProfiles()
         val savedId = prefs.getInt(InputControlsFragment.SELECTED_PROFILE_ID, 0)
         selectedProfile = if (savedId != 0) manager.getProfile(savedId) else null
@@ -386,7 +385,7 @@ fun VirtualKeysSettingsPopup(
                             ) {
                                 profiles.forEach { profile ->
                                     DropdownMenuItem(
-                                        text = { Text(profile.getName()) },
+                                        text = { Text(profile.name) },
                                         onClick = {
                                             selectedProfile = profile
                                             prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.id).apply()

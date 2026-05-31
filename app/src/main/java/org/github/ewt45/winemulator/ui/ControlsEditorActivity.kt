@@ -24,11 +24,11 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import org.github.ewt45.winemulator.R
-import org.github.ewt45.winemulator.inputcontrols.Binding
-import org.github.ewt45.winemulator.inputcontrols.ControlElement
-import org.github.ewt45.winemulator.inputcontrols.ControlsProfile
-import org.github.ewt45.winemulator.inputcontrols.InputControlsManager
-import org.github.ewt45.winemulator.inputcontrols.InputControlsView
+import com.termux.x11.controller.inputcontrols.Binding
+import com.termux.x11.controller.inputcontrols.ControlElement
+import com.termux.x11.controller.inputcontrols.ControlsProfile
+import com.termux.x11.controller.inputcontrols.InputControlsManager
+import com.termux.x11.controller.inputcontrols.InputControlsView
 import java.io.IOException
 import java.io.InputStream
 import java.util.Arrays
