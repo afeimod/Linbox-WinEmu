@@ -97,7 +97,11 @@ public class ControlsEditorActivity extends AppCompatActivity implements View.On
         }
 
         ((TextView) findViewById(R.id.TVProfileName)).setText(profileName);
-        inputControlsView.setProfile(profile);
+
+        // 确保 profile 正确设置
+        if (inputControlsView != null) {
+            inputControlsView.setProfile(profile);
+        }
 
         FrameLayout container = findViewById(R.id.FLContainer);
         container.addView(inputControlsView, 0);
@@ -136,106 +140,123 @@ public class ControlsEditorActivity extends AppCompatActivity implements View.On
     }
 
     private void showControlElementSettings(View anchorView) {
+        // 安全检查：确保 inputControlsView 和选中的元素不为 null
+        if (inputControlsView == null || inputControlsView.getSelectedElement() == null) {
+            AppUtils.showToast(this, R.string.no_control_element_selected);
+            return;
+        }
+
         final ControlElement element = inputControlsView.getSelectedElement();
-        View view = LayoutInflater.from(this).inflate(R.layout.control_element_settings, null);
+        if (element == null) {
+            AppUtils.showToast(this, R.string.no_control_element_selected);
+            return;
+        }
 
-        final Runnable updateLayout = () -> {
-            ControlElement.Type type = element.getType();
-            view.findViewById(R.id.LLShape).setVisibility(View.GONE);
-            view.findViewById(R.id.CBToggleSwitch).setVisibility(View.GONE);
-            view.findViewById(R.id.LLCustomTextIcon).setVisibility(View.GONE);
-            view.findViewById(R.id.LLRangeOptions).setVisibility(View.GONE);
+        try {
+            View view = LayoutInflater.from(this).inflate(R.layout.control_element_settings, null);
 
-            if (type == ControlElement.Type.BUTTON ||
-                type == ControlElement.Type.COMBINE_BUTTON ||
-                type == ControlElement.Type.CHEAT_CODE_TEXT) {
-                view.findViewById(R.id.LLShape).setVisibility(View.VISIBLE);
-                view.findViewById(R.id.CBToggleSwitch).setVisibility(View.VISIBLE);
-                view.findViewById(R.id.LLCustomTextIcon).setVisibility(View.VISIBLE);
-            } else if (type == ControlElement.Type.RANGE_BUTTON) {
-                view.findViewById(R.id.LLRangeOptions).setVisibility(View.VISIBLE);
-            }
+            final Runnable updateLayout = () -> {
+                ControlElement.Type type = element.getType();
+                view.findViewById(R.id.LLShape).setVisibility(View.GONE);
+                view.findViewById(R.id.CBToggleSwitch).setVisibility(View.GONE);
+                view.findViewById(R.id.LLCustomTextIcon).setVisibility(View.GONE);
+                view.findViewById(R.id.LLRangeOptions).setVisibility(View.GONE);
 
-            loadBindingSpinners(element, view);
-        };
-
-        loadTypeSpinner(element, view.findViewById(R.id.SType), updateLayout);
-        loadShapeSpinner(element, view.findViewById(R.id.SShape));
-        loadRangeSpinner(element, view.findViewById(R.id.SRange));
-
-        RadioGroup rgOrientation = view.findViewById(R.id.RGOrientation);
-        rgOrientation.check(element.getOrientation() == 1 ? R.id.RBVertical : R.id.RBHorizontal);
-        rgOrientation.setOnCheckedChangeListener((group, checkedId) -> {
-            element.setOrientation((byte) (checkedId == R.id.RBVertical ? 1 : 0));
-            profile.save();
-            inputControlsView.invalidate();
-        });
-
-        NumberPicker npColumns = view.findViewById(R.id.NPColumns);
-        npColumns.setValue(element.getBindingCount());
-        npColumns.setOnValueChangeListener((numberPicker, value) -> {
-            element.setBindingCount(value);
-            profile.save();
-            inputControlsView.invalidate();
-        });
-
-        final TextView tvScale = view.findViewById(R.id.TVScale);
-        SeekBar sbScale = view.findViewById(R.id.SBScale);
-        sbScale.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-            @Override
-            public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
-                tvScale.setText(progress + "%");
-                if (fromUser) {
-                    progress = (int) Mathf.roundTo(progress, 5);
-                    seekBar.setProgress(progress);
-                    element.setScale(progress / 100.0f);
-                    profile.save();
-                    inputControlsView.invalidate();
+                if (type == ControlElement.Type.BUTTON ||
+                    type == ControlElement.Type.COMBINE_BUTTON ||
+                    type == ControlElement.Type.CHEAT_CODE_TEXT) {
+                    view.findViewById(R.id.LLShape).setVisibility(View.VISIBLE);
+                    view.findViewById(R.id.CBToggleSwitch).setVisibility(View.VISIBLE);
+                    view.findViewById(R.id.LLCustomTextIcon).setVisibility(View.VISIBLE);
+                } else if (type == ControlElement.Type.RANGE_BUTTON) {
+                    view.findViewById(R.id.LLRangeOptions).setVisibility(View.VISIBLE);
                 }
-            }
 
-            @Override
-            public void onStartTrackingTouch(SeekBar seekBar) {
-            }
+                loadBindingSpinners(element, view);
+            };
 
-            @Override
-            public void onStopTrackingTouch(SeekBar seekBar) {
-            }
-        });
-        sbScale.setProgress((int) (element.getScale() * 100));
+            loadTypeSpinner(element, view.findViewById(R.id.SType), updateLayout);
+            loadShapeSpinner(element, view.findViewById(R.id.SShape));
+            loadRangeSpinner(element, view.findViewById(R.id.SRange));
 
-        CheckBox cbToggleSwitch = view.findViewById(R.id.CBToggleSwitch);
-        cbToggleSwitch.setChecked(element.isToggleSwitch());
-        cbToggleSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
-            element.setToggleSwitch(isChecked);
-            profile.save();
-        });
+            RadioGroup rgOrientation = view.findViewById(R.id.RGOrientation);
+            rgOrientation.check(element.getOrientation() == 1 ? R.id.RBVertical : R.id.RBHorizontal);
+            rgOrientation.setOnCheckedChangeListener((group, checkedId) -> {
+                element.setOrientation((byte) (checkedId == R.id.RBVertical ? 1 : 0));
+                profile.save();
+                inputControlsView.invalidate();
+            });
 
-        final EditText etCustomText = view.findViewById(R.id.ETCustomText);
-        etCustomText.setText(element.getText());
-        final LinearLayout llIconList = view.findViewById(R.id.LLIconList);
-        loadIcons(llIconList, element.getIconId());
-        loadCustomIconType(element, view);
+            NumberPicker npColumns = view.findViewById(R.id.NPColumns);
+            npColumns.setValue(element.getBindingCount());
+            npColumns.setOnValueChangeListener((numberPicker, value) -> {
+                element.setBindingCount(value);
+                profile.save();
+                inputControlsView.invalidate();
+            });
 
-        updateLayout.run();
-
-        PopupWindow popupWindow = AppUtils.showPopupWindow(anchorView, view, 340, 0);
-        popupWindow.setOnDismissListener(() -> {
-            String text = etCustomText.getText().toString().trim();
-            byte iconId = 0;
-            for (int i = 0; i < llIconList.getChildCount(); i++) {
-                View child = llIconList.getChildAt(i);
-                if (child.isSelected()) {
-                    iconId = (byte) child.getTag();
-                    break;
+            final TextView tvScale = view.findViewById(R.id.TVScale);
+            SeekBar sbScale = view.findViewById(R.id.SBScale);
+            sbScale.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                @Override
+                public void onProgressChanged(SeekBar seekBar, int progress, boolean fromUser) {
+                    tvScale.setText(progress + "%");
+                    if (fromUser) {
+                        progress = (int) Mathf.roundTo(progress, 5);
+                        seekBar.setProgress(progress);
+                        element.setScale(progress / 100.0f);
+                        profile.save();
+                        inputControlsView.invalidate();
+                    }
                 }
-            }
 
-            element.setText(text);
-            element.setIconId(iconId);
-            profile.save();
-            inputControlsView.invalidate();
-        });
+                @Override
+                public void onStartTrackingTouch(SeekBar seekBar) {
+                }
+
+                @Override
+                public void onStopTrackingTouch(SeekBar seekBar) {
+                }
+            });
+            sbScale.setProgress((int) (element.getScale() * 100));
+
+            CheckBox cbToggleSwitch = view.findViewById(R.id.CBToggleSwitch);
+            cbToggleSwitch.setChecked(element.isToggleSwitch());
+            cbToggleSwitch.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                element.setToggleSwitch(isChecked);
+                profile.save();
+            });
+
+            final EditText etCustomText = view.findViewById(R.id.ETCustomText);
+            etCustomText.setText(element.getText());
+            final LinearLayout llIconList = view.findViewById(R.id.LLIconList);
+            loadIcons(llIconList, element.getIconId());
+            loadCustomIconType(element, view);
+
+            updateLayout.run();
+
+            PopupWindow popupWindow = AppUtils.showPopupWindow(anchorView, view, 340, 0);
+            popupWindow.setOnDismissListener(() -> {
+                String text = etCustomText.getText().toString().trim();
+                byte iconId = 0;
+                for (int i = 0; i < llIconList.getChildCount(); i++) {
+                    View child = llIconList.getChildAt(i);
+                    if (child.isSelected()) {
+                        iconId = (byte) child.getTag();
+                        break;
+                    }
+                }
+
+                element.setText(text);
+                element.setIconId(iconId);
+                profile.save();
+                inputControlsView.invalidate();
+            });
+        } catch (Exception e) {
+            // 安全处理：如果加载视图失败，显示错误信息而不是崩溃
+            e.printStackTrace();
+            AppUtils.showToast(this, "无法打开设置界面: " + e.getMessage());
+        }
     }
 
     private void loadCustomIconType(ControlElement element, View view) {
