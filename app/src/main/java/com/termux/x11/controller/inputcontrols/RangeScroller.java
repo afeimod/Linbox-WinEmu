@@ -27,7 +27,14 @@ public class RangeScroller {
 
     public float getElementSize() {
         Rect boundingBox = element.getBoundingBox();
-        return (float)Math.max(boundingBox.width(), boundingBox.height()) / element.getBindingCount();
+        int bindingCount = element.getBindingCount();
+        // 安全检查：确保除数不为 0
+        if (bindingCount <= 0) {
+            bindingCount = 1;
+        }
+        float size = (float) Math.max(boundingBox.width(), boundingBox.height()) / bindingCount;
+        // 安全检查：确保返回的大小不为 0
+        return Math.max(1, size);
     }
 
     public float getScrollSize() {

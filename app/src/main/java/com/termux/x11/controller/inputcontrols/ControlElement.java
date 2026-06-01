@@ -294,7 +294,19 @@ public class ControlElement {
     }
 
     private Rect computeBoundingBox() {
+        // 安全检查：确保 inputControlsView 不为 null
+        if (inputControlsView == null) {
+            boundingBox.set(0, 0, 0, 0);
+            boundingBoxNeedsUpdate = false;
+            return boundingBox;
+        }
+
         int snappingSize = inputControlsView.getSnappingSize();
+        // 安全检查：确保 snappingSize 不为 0
+        if (snappingSize <= 0) {
+            snappingSize = 1;
+        }
+
         int halfWidth = 0;
         int halfHeight = 0;
 
