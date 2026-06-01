@@ -65,6 +65,17 @@ public class ControlsEditorActivity extends AppCompatActivity implements View.On
         AppUtils.hideSystemUI(this);
         setContentView(R.layout.controls_editor_activity);
 
+        // 处理屏幕方向变化
+        int orientation = getResources().getConfiguration().orientation;
+        if (orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE) {
+            // 横屏时旋转90度
+            getWindow().setAttributes(new android.view.WindowManager.LayoutParams(
+                android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+            ));
+        }
+
         inputControlsView = new InputControlsView(this);
         inputControlsView.setEditMode(true);
         inputControlsView.setOverlayOpacity(0.6f);
@@ -86,6 +97,15 @@ public class ControlsEditorActivity extends AppCompatActivity implements View.On
         container.findViewById(R.id.BTAddElement).setOnClickListener(this);
         container.findViewById(R.id.BTRemoveElement).setOnClickListener(this);
         container.findViewById(R.id.BTElementSettings).setOnClickListener(this);
+    }
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration newConfig) {
+        super.onConfigurationChanged(newConfig);
+        // 当屏幕方向变化时，重新加载profile以更新布局
+        if (profile != null) {
+            inputControlsView.setProfile(profile);
+        }
     }
 
     @Override
