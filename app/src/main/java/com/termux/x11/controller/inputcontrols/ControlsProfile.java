@@ -157,7 +157,7 @@ public class ControlsProfile implements Comparable<ControlsProfile> {
     }
 
     public boolean isTemplate() {
-        return name.toLowerCase(Locale.ENGLISH).contains("template");
+        return name != null && name.toLowerCase(Locale.ENGLISH).contains("template");
     }
 
     public ArrayList<ExternalController> loadControllers() {

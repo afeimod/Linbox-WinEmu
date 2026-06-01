@@ -402,7 +402,14 @@ public class ControlElement {
     }
 
     public void draw(Canvas canvas) {
+        // 安全检查：确保 inputControlsView 不为 null
+        if (inputControlsView == null) {
+            return;
+        }
         int snappingSize = inputControlsView.getSnappingSize();
+        if (snappingSize <= 0) {
+            snappingSize = 1;
+        }
         Paint paint = inputControlsView.getPaint();
         int primaryColor = inputControlsView.getPrimaryColor();
 
@@ -606,6 +613,9 @@ public class ControlElement {
     }
 
     private void drawIcon(Canvas canvas, float cx, float cy, float width, float height, int iconId) {
+        if (inputControlsView == null) {
+            return;
+        }
         Paint paint = inputControlsView.getPaint();
         Bitmap icon = null;
 
@@ -621,6 +631,9 @@ public class ControlElement {
     }
 
     private void drawCustomIcon(Canvas canvas, float cx, float cy, float width, float height, String iconId, boolean isCycle) {
+        if (inputControlsView == null) {
+            return;
+        }
         Paint paint = inputControlsView.getPaint();
         Bitmap icon = null;
         if (clipIcon != null && oldCustomIconId.equals(iconId)) {
@@ -652,6 +665,9 @@ public class ControlElement {
     }
 
     private void drawColorSolidIcon(Canvas canvas, float cx, float cy, float width, float height, int iconColor, boolean isCycle) {
+        if (inputControlsView == null) {
+            return;
+        }
         Paint paint = inputControlsView.getPaint();
         Bitmap icon = null;
         if (clipIcon != null && iconColor == oldBackgroundColor) {
