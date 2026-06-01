@@ -474,11 +474,12 @@ public class InputControlsView extends View {
 
     private boolean handleControlTouchDown(int pointerId, float x, float y) {
         boolean handled = false;
-        touchpadView.setPointerButtonLeftEnabled(true);
+        if (touchpadView != null)
+            touchpadView.setPointerButtonLeftEnabled(true);
         for (ControlElement element : profile.getElements()) {
             if (element.handleTouchDown(pointerId, x, y)) {
                 handled = true;
-                if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON)
+                if (element.getBindingAt(0) == Binding.MOUSE_LEFT_BUTTON && touchpadView != null)
                     touchpadView.setPointerButtonLeftEnabled(false);
             }
         }
@@ -512,6 +513,7 @@ public class InputControlsView extends View {
     }
 
     public float[] computeTouchpadDeltaPoint(float lastX, float lastY, float x, float y) {
+        if (touchpadView == null) return new float[]{0, 0};
         return touchpadView.computeDeltaPoint(toViewX(lastX), toViewY(lastY), toViewX(x), toViewY(y));
     }
 
