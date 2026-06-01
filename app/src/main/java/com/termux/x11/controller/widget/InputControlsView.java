@@ -172,14 +172,22 @@ public class InputControlsView extends View {
         int previousLayoutWidth = controlLayoutWidth;
         int previousLayoutHeight = controlLayoutHeight;
 
-        // 计算逻辑尺寸，使用 Math.max 确保不为 0
-        int calculatedWidth = Math.max(width, height);
-        int calculatedHeight = Math.min(width, height);
+        // 全屏虚拟按键布局逻辑：
+        // 使用屏幕完整尺寸作为逻辑尺寸，确保虚拟按键在各种屏幕方向下都能正确显示
+        // 这与 termux-app 的处理方式不同，后者假设虚拟按键始终在竖屏布局中
 
-        // 确保 snappingSize 不会为 0，防止后续计算出现除零或几何尺寸为 0
-        snappingSize = Math.max(1, calculatedWidth / 100);
-        controlLayoutWidth = Math.max(snappingSize, (int) Mathf.roundTo(calculatedWidth, snappingSize));
-        controlLayoutHeight = Math.max(snappingSize, (int) Mathf.roundTo(calculatedHeight, snappingSize));
+        // 始终使用屏幕宽高作为逻辑尺寸，不交换宽高
+        controlLayoutWidth = Math.max(width, height);
+        controlLayoutHeight = Math.max(width, height);
+
+        // 确保 snappingSize 不为 0，防止后续计算出现除零错误
+        snappingSize = Math.max(1, controlLayoutWidth / 100);
+
+        // 对齐到 snappingSize 的整数倍
+        controlLayoutWidth = Math.max(snappingSize, (int) Mathf.roundTo(controlLayoutWidth, snappingSize));
+        controlLayoutHeight = Math.max(snappingSize, (int) Mathf.roundTo(controlLayoutHeight, snappingSize));
+
+        // 计算缩放比例以适应屏幕
         controlLayoutScale = Math.min((float) width / controlLayoutWidth, (float) height / controlLayoutHeight);
         controlLayoutOffsetX = (width - controlLayoutWidth * controlLayoutScale) * 0.5f;
         controlLayoutOffsetY = (height - controlLayoutHeight * controlLayoutScale) * 0.5f;
@@ -709,11 +717,11 @@ public class InputControlsView extends View {
     public void handleInputEvent(Binding binding, boolean isActionDown, float offset) {
         if (binding.isGamepad()) {
             WinHandler winHandler = xServer != null ? xServer.getWinHandler() : null;
-            GamepadState state = profile.getGamepadState();
+            GamepadState state = profile != null ? profile.getGamepadState() : null;
+            if (state == null) return;
             int buttonIdx = binding.ordinal() - Binding.GAMEPAD_BUTTON_A.ordinal();
-            if (buttonIdx <= 11) {
+            if (buttonIdx >= 0 && buttonIdx <= 11) {
                 state.setPressed(buttonIdx, isActionDown);
-//                if (winHandler != null) winHandler.saveGamepadState(state);
             } else if (binding == Binding.GAMEPAD_LEFT_THUMB_UP || binding == Binding.GAMEPAD_LEFT_THUMB_DOWN) {
                 state.thumbLY = isActionDown ? offset : 0;
             } else if (binding == Binding.GAMEPAD_LEFT_THUMB_LEFT || binding == Binding.GAMEPAD_LEFT_THUMB_RIGHT) {
@@ -735,25 +743,25 @@ public class InputControlsView extends View {
                 winHandler.sendGamepadState();
             }
         } else {
+            // 如果 xServer 未初始化，跳过输入事件处理避免闪退
+            if (xServer == null) {
+                return;
+            }
             if (binding == Binding.MOUSE_MOVE_LEFT || binding == Binding.MOUSE_MOVE_RIGHT) {
-//                Log.d("handleInputEvent","<binding == Binding.MOUSE_MOVE_LEFT || binding == Binding.MOUSE_MOVE_RIGHT>:"+binding.toString());
                 mouseMoveOffset.x = isActionDown ? (offset != 0 ? offset : (binding == Binding.MOUSE_MOVE_LEFT ? -1 : 1)) : 0;
                 if (isActionDown) createMouseMoveTimer();
             } else if (binding == Binding.MOUSE_MOVE_DOWN || binding == Binding.MOUSE_MOVE_UP) {
-//                Log.d("handleInputEvent","<binding == Binding.MOUSE_MOVE_DOWN || binding == Binding.MOUSE_MOVE_UP> "+binding.toString());
                 mouseMoveOffset.y = isActionDown ? (offset != 0 ? offset : (binding == Binding.MOUSE_MOVE_UP ? -1 : 1)) : 0;
                 if (isActionDown) createMouseMoveTimer();
             } else {
                 Pointer.Button pointerButton = binding.getPointerButton();
                 if (isActionDown) {
-//                    Log.d("handleInputEvent","<isActionDown> "+binding.toString());
                     if (pointerButton != null) {
                         xServer.injectPointerButtonPress(pointerButton);
                     } else {
                         xServer.injectKeyPress(XKeycode.fromId(binding.keycode));
                     }
                 } else {
-//                    Log.d("handleInputEvent","<isActionUp> "+binding.toString());
                     if (pointerButton != null) {
                         xServer.injectPointerButtonRelease(pointerButton);
                     } else {
