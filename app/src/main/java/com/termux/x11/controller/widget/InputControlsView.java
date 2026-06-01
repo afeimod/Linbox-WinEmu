@@ -300,7 +300,10 @@ public class InputControlsView extends View {
     private synchronized void deselectAllElements() {
         selectedElement = null;
         if (profile != null) {
-            for (ControlElement element : profile.getElements()) element.setSelected(false);
+            List<ControlElement> elements = profile.getElements();
+            if (elements != null) {
+                for (ControlElement element : elements) element.setSelected(false);
+            }
         }
     }
 
@@ -491,6 +494,7 @@ public class InputControlsView extends View {
 
     private boolean handleControlTouchDown(int pointerId, float x, float y) {
         boolean handled = false;
+        if (profile == null) return false;
         if (touchpadView != null)
             touchpadView.setPointerButtonLeftEnabled(true);
         for (ControlElement element : profile.getElements()) {
@@ -505,6 +509,7 @@ public class InputControlsView extends View {
 
     private boolean handleControlTouchMove(int pointerId, float x, float y) {
         boolean handled = false;
+        if (profile == null) return false;
         for (ControlElement element : profile.getElements()) {
             if (element.handleTouchMove(pointerId, x, y))
                 handled = true;
@@ -513,6 +518,7 @@ public class InputControlsView extends View {
     }
 
     private boolean handleControlTouchUp(int pointerId, float x, float y) {
+        if (profile == null) return false;
         boolean handled = false;
         for (ControlElement element : profile.getElements()) {
             if (element.handleTouchUp(pointerId, x, y))
@@ -796,6 +802,14 @@ public class InputControlsView extends View {
         xServer.injectText(text);
         xServer.injectKeyPress(XKeycode.KEY_ENTER);
         xServer.injectKeyRelease(XKeycode.KEY_ENTER);
+    }
+
+    /**
+     * 注入鼠标移动事件
+     */
+    public void injectPointerMove(int dx, int dy) {
+        if (xServer == null) return;
+        xServer.injectPointerMoveDelta(dx, dy);
     }
 
     public Bitmap getIcon(byte id) {
