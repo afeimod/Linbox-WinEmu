@@ -47,7 +47,6 @@ import kotlinx.coroutines.delay
 fun X11Screen(
     x11Content: (Context) -> View,
     onNavigateToOthers: (Destination) -> Unit,
-    onLorieViewReady: ((InputStub) -> Unit)? = null,
     settingVm: SettingViewModel? = null
 ) {
     val context = LocalContext.current
@@ -146,17 +145,18 @@ fun X11Screen(
             factory = { ctx ->
                 val view = x11Content(ctx)
                 try {
-                    val lorieView = if (view is com.termux.x11.ILorieView) {
+                    // AAR's LorieView implements InputStub
+                    val inputStub: InputStub? = if (view is InputStub) {
                         view
                     } else {
-                        findLorieView(view)
+                        // Try to find InputStub in view hierarchy
+                        findInputStub(view)
                     }
-                    lorieView?.let {
+                    inputStub?.let {
                         x11InputSender.initialize(it)
                         // 在初始化后强制重置鼠标按钮状态，防止首次启动时鼠标卡在按下状态
                         x11InputSender.forceResetMouseButtons()
                         x11InputSender.setRenderData(renderData)
-                        onLorieViewReady?.invoke(it)
                         Log.d("X11Screen", "X11InputSender initialized with LorieView")
 
                         // 不再设置触摸监听器，因为 InputControlsView 会处理触摸事件
@@ -310,16 +310,16 @@ private fun handleX11TouchEvent(
 }
 
 /**
- * Recursively find LorieView in the view hierarchy
+ * Recursively find InputStub in the view hierarchy (AAR's LorieView implements InputStub)
  */
-private fun findLorieView(view: View): com.termux.x11.ILorieView? {
-    if (view is com.termux.x11.ILorieView) {
+private fun findInputStub(view: View): InputStub? {
+    if (view is InputStub) {
         return view
     }
     if (view is android.view.ViewGroup) {
         for (i in 0 until view.childCount) {
             val child = view.getChildAt(i)
-            val result = findLorieView(child)
+            val result = findInputStub(child)
             if (result != null) {
                 return result
             }
