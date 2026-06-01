@@ -521,21 +521,28 @@ public class InputControlsView extends View {
         return handled;
     }
 
+    /**
+     * 获取逻辑布局宽度，用于 ControlElement 保存坐标时使用
+     */
     public int getMaxWidth() {
+        if (snappingSize <= 0) {
+            return controlLayoutWidth > 0 ? controlLayoutWidth : 100;
+        }
         return controlLayoutWidth;
     }
 
+    /**
+     * 获取逻辑布局高度，用于 ControlElement 保存坐标时使用
+     */
     public int getMaxHeight() {
+        if (snappingSize <= 0) {
+            return controlLayoutHeight > 0 ? controlLayoutHeight : 100;
+        }
         return controlLayoutHeight;
     }
 
-    public float[] computeTouchpadDeltaPoint(float lastX, float lastY, float x, float y) {
-        if (touchpadView == null) return new float[]{0, 0};
-        return touchpadView.computeDeltaPoint(toViewX(lastX), toViewY(lastY), toViewX(x), toViewY(y));
-    }
-
     private void createMouseMoveTimer() {
-        if (profile != null && mouseMoveTimer == null) {
+        if (profile != null && mouseMoveTimer == null && xServer != null) {
             final float cursorSpeed = profile.getCursorSpeed();
             mouseMoveTimer = new Timer();
             mouseMoveTimer.schedule(new TimerTask() {
@@ -773,6 +780,7 @@ public class InputControlsView extends View {
     }
 
     public void sendText(String text) {
+        if (xServer == null) return;
         xServer.injectText(text);
         xServer.injectKeyPress(XKeycode.KEY_ENTER);
         xServer.injectKeyRelease(XKeycode.KEY_ENTER);
