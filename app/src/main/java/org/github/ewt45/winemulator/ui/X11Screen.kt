@@ -146,7 +146,7 @@ fun X11Screen(
             factory = { ctx ->
                 val view = x11Content(ctx)
                 try {
-                    val lorieView = if (view is com.termux.x11.LorieView) {
+                    val lorieView = if (view is com.termux.x11.ILorieView) {
                         view
                     } else {
                         findLorieView(view)
@@ -312,8 +312,8 @@ private fun handleX11TouchEvent(
 /**
  * Recursively find LorieView in the view hierarchy
  */
-private fun findLorieView(view: View): com.termux.x11.LorieView? {
-    if (view is com.termux.x11.LorieView) {
+private fun findLorieView(view: View): com.termux.x11.ILorieView? {
+    if (view is com.termux.x11.ILorieView) {
         return view
     }
     if (view is android.view.ViewGroup) {
