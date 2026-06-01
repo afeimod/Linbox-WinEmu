@@ -27,6 +27,11 @@ public enum Binding {
     }
 
     private static XKeycode mapToXKeycode(String bindingName) {
+        // Mouse and gamepad bindings don't have XKeycode mappings
+        if (bindingName.startsWith("MOUSE_") || bindingName.startsWith("GAMEPAD_")) {
+            return null;
+        }
+
         // Map Binding names to XKeycode names
         switch (bindingName) {
             case "KEY_CAPS_LOCK": return XKeycode.KEY_CAPS_LOCK;
@@ -45,9 +50,6 @@ public enum Binding {
             case "KEY_KP_8": case "KEY_KP_9": return XKeycode.valueOf(bindingName);
             default:
                 XKeycode result = XKeycode.fromString(bindingName);
-                if (result == null) {
-                    throw new IllegalArgumentException("No XKeycode mapping for " + bindingName);
-                }
                 return result;
         }
     }
