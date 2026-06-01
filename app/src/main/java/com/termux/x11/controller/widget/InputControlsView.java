@@ -139,6 +139,12 @@ public class InputControlsView extends View {
             readyToDraw = false;
             return;
         }
+
+        // 在更新几何布局前确保 snappingSize 有效
+        if (snappingSize <= 0) {
+            snappingSize = Math.max(1, Math.max(width, height) / 100);
+        }
+
         updateControlLayoutGeometry(width, height);
 
         readyToDraw = true;
