@@ -158,11 +158,15 @@ public class Prefs {
     // UI preferences
     public final BooleanPreference showAdditionalKbd = new BooleanPreference("show_additional_kbd", false);
     public final BooleanPreference fullscreen = new BooleanPreference("fullscreen", false);
+    public final BooleanPreference keepScreenOn = new BooleanPreference("keep_screen_on", false);
     public final BooleanPreference hideCutout = new BooleanPreference("hide_cutout", false);
 
     // Other preferences
     public final IntPreference clipboardMode = new IntPreference("clipboard_mode", 0);
     public final StringPreference desktopMode = new StringPreference("desktop_mode", "default");
+
+    // Touch mode preference (required for MainActivity compatibility)
+    public final ListPreference touchMode = new ListPreference("touchMode", "1");
 
     public Prefs(Context context) {
         this.sharedPreferences = context.getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE);
@@ -179,9 +183,11 @@ public class Prefs {
         displayResolutionCustom.setSharedPreferences(sharedPreferences);
         showAdditionalKbd.setSharedPreferences(sharedPreferences);
         fullscreen.setSharedPreferences(sharedPreferences);
+        keepScreenOn.setSharedPreferences(sharedPreferences);
         hideCutout.setSharedPreferences(sharedPreferences);
         clipboardMode.setSharedPreferences(sharedPreferences);
         desktopMode.setSharedPreferences(sharedPreferences);
+        touchMode.setSharedPreferences(sharedPreferences);
     }
 
     public SharedPreferences getSharedPreferences() {
