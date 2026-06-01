@@ -166,11 +166,14 @@ public class InputControlsView extends View {
         int previousLayoutWidth = controlLayoutWidth;
         int previousLayoutHeight = controlLayoutHeight;
 
-        controlLayoutWidth = Math.max(width, height);
-        controlLayoutHeight = Math.min(width, height);
-        snappingSize = Math.max(1, controlLayoutWidth / 100);
-        controlLayoutWidth = Math.max(snappingSize, (int) Mathf.roundTo(controlLayoutWidth, snappingSize));
-        controlLayoutHeight = Math.max(snappingSize, (int) Mathf.roundTo(controlLayoutHeight, snappingSize));
+        // 计算逻辑尺寸，使用 Math.max 确保不为 0
+        int calculatedWidth = Math.max(width, height);
+        int calculatedHeight = Math.min(width, height);
+
+        // 确保 snappingSize 不会为 0，防止后续计算出现除零或几何尺寸为 0
+        snappingSize = Math.max(1, calculatedWidth / 100);
+        controlLayoutWidth = Math.max(snappingSize, (int) Mathf.roundTo(calculatedWidth, snappingSize));
+        controlLayoutHeight = Math.max(snappingSize, (int) Mathf.roundTo(calculatedHeight, snappingSize));
         controlLayoutScale = Math.min((float) width / controlLayoutWidth, (float) height / controlLayoutHeight);
         controlLayoutOffsetX = (width - controlLayoutWidth * controlLayoutScale) * 0.5f;
         controlLayoutOffsetY = (height - controlLayoutHeight * controlLayoutScale) * 0.5f;
