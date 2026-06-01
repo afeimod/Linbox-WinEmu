@@ -91,14 +91,15 @@ class MainEmuActivity : MainActivity() {
         // 启动时同步所有X11设置到SharedPreferences
         settingViewModel.syncX11SettingsToSharedPrefs()
 
-        //偏好设置
-        prefs.displayResolutionMode.put("custom")
-        runBlocking { prefs.displayResolutionCustom.put(Consts.Pref.general_resolution.get()) }
-        prefs.showAdditionalKbd.put(false) // 不显示底部按键
-        // 全屏设置
-        runBlocking { prefs.fullscreen.put(Consts.Pref.x11_fullscreen.get()) }
-        // 刘海屏设置 - 使用刘海屏区域
-        prefs.hideCutout.put(false)
+        //偏好设置 - 使用SharedPreferences直接设置
+        val sharedPrefs = prefs.getSharedPreferences()
+        sharedPrefs.edit().apply {
+            putString("displayResolutionMode", "custom")
+            putString("displayResolutionCustom", Consts.Pref.general_resolution.get())
+            putBoolean("showAdditionalKbd", false) // 不显示底部按键
+            putBoolean("fullscreen", Consts.Pref.x11_fullscreen.get())
+            putBoolean("hideCutout", false) // 刘海屏设置 - 不隐藏
+        }.apply()
 
 
 //        //将composeView添加到原视图布局中
