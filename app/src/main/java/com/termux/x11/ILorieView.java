@@ -36,8 +36,9 @@ public interface ILorieView {
     ScreenInfo getScreenInfoAccessor();
 
     // Core component accessors
-    Object getPointer();
-    Object getKeyboard();
+    com.termux.x11.controller.xserver.Pointer getPointer();
+    com.termux.x11.controller.xserver.Keyboard getKeyboard();
+    com.termux.x11.controller.winhandler.WinHandler getWinHandler();
     ScreenInfo getScreenInfo();
 
     // Cursor locker accessor
@@ -48,17 +49,19 @@ public interface ILorieView {
     // Pointer injection methods
     void injectPointerMoveDelta(int dx, int dy);
     void injectPointerButtonPress(int button);
+    void injectPointerButtonPress(com.termux.x11.controller.xserver.Pointer.Button button);
     void injectPointerButtonRelease(int button);
+    void injectPointerButtonRelease(com.termux.x11.controller.xserver.Pointer.Button button);
 
-    // Keyboard injection methods
+    // Keyboard injection methods - accept XKeycode enum
     void injectKeyPress(int keycode);
+    void injectKeyPress(com.termux.x11.controller.xserver.XKeycode keycode);
+    void injectKeyPress(com.termux.x11.controller.xserver.XKeycode keycode, int unicodeChar);
     void injectKeyRelease(int keycode);
+    void injectKeyRelease(com.termux.x11.controller.xserver.XKeycode keycode);
 
     // Text injection
     void injectText(String text);
-
-    // Window handler
-    Object getWinHandler();
 
     // Viewport refresh method
     default void refreshViewport() {
