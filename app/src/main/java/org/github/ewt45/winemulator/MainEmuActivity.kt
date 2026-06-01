@@ -92,12 +92,12 @@ class MainEmuActivity : MainActivity() {
         settingViewModel.syncX11SettingsToSharedPrefs()
 
         //偏好设置 - 使用SharedPreferences直接设置
-        val sharedPrefs = prefs.getSharedPreferences()
+        val sharedPrefs = getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE)
         sharedPrefs.edit().apply {
             putString("displayResolutionMode", "custom")
-            putString("displayResolutionCustom", Consts.Pref.general_resolution.get())
+            putString("displayResolutionCustom", "1280x720") // 默认分辨率
             putBoolean("showAdditionalKbd", false) // 不显示底部按键
-            putBoolean("fullscreen", Consts.Pref.x11_fullscreen.get())
+            putBoolean("fullscreen", false) // 默认不全屏
             putBoolean("hideCutout", false) // 刘海屏设置 - 不隐藏
         }.apply()
 
