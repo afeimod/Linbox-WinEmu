@@ -46,6 +46,13 @@ public interface ILorieView {
 
     boolean isFullscreen();
 
+    // Direct mouse event sending methods
+    void sendMouseWheelEvent(int dx, int dy);
+    void sendMouseEvent(int x, int y, int button, boolean isDown, boolean isAbsolute);
+
+    // Direct keyboard event sending methods
+    void sendKeyEvent(int keysym, int keycode, boolean isDown);
+
     // Pointer injection methods
     void injectPointerMoveDelta(int dx, int dy);
     void injectPointerButtonPress(int button);
