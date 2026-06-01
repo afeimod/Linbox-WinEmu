@@ -54,7 +54,7 @@ public class InputControlsManager {
     private void copyAssetProfilesIfNeeded() {
         File profilesDir = InputControlsManager.getProfilesDir(context);
         if (FileUtils.isEmpty(profilesDir)) {
-            FileUtils.copy(context, "inputcontrols/profiles", profilesDir);
+            FileUtils.copyAssetsDir(context, "inputcontrols/profiles", profilesDir);
             return;
         }
 
