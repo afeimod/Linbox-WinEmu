@@ -16,8 +16,8 @@ public enum Binding {
         int keycodeVal = 0;
         String name = name();
 
-        // NONE does not map to any XKeycode
-        if (this != NONE) {
+        // NONE does not map to any XKeycode, skip mapping
+        if (!"NONE".equals(name)) {
             XKeycode mapped = mapToXKeycode(name);
             if (mapped != null) {
                 keycodeVal = mapped.id;
