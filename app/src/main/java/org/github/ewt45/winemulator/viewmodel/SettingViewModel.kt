@@ -261,8 +261,8 @@ class SettingViewModel : ViewModel() {
             resolutionText = formatted //这个独立于flow之外所以要手动赋值
             Log.d(TAG, "onChangeResolutionText: 分辨率更改 - 格式正确，保存到本地")
             editDateStoreAsync(general_resolution.key, formatted)
-            // 使用SharedPreferences直接设置
-            MainEmuActivity.instance.getPref().getSharedPreferences()
+            // 使用MainEmuActivity的SharedPreferences直接设置
+            MainEmuActivity.instance.getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE)
                 .edit()
                 .putString("displayResolutionCustom", formatted)
                 .apply()
