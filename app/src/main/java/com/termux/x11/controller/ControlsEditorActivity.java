@@ -89,13 +89,14 @@ public class ControlsEditorActivity extends AppCompatActivity implements View.On
         }
 
         // 确保 profile 名称不为 null
-        if (profile.getName() == null) {
+        String profileName = profile.getName();
+        if (profileName == null || profileName.isEmpty()) {
             AppUtils.showToast(this, R.string.no_profile_selected);
             finish();
             return;
         }
 
-        ((TextView) findViewById(R.id.TVProfileName)).setText(profile.getName());
+        ((TextView) findViewById(R.id.TVProfileName)).setText(profileName);
         inputControlsView.setProfile(profile);
 
         FrameLayout container = findViewById(R.id.FLContainer);
