@@ -541,6 +541,14 @@ public class InputControlsView extends View {
         return controlLayoutHeight;
     }
 
+    /**
+     * 计算触控板上的移动距离
+     */
+    public float[] computeTouchpadDeltaPoint(float lastX, float lastY, float x, float y) {
+        if (touchpadView == null) return new float[]{0, 0};
+        return touchpadView.computeDeltaPoint(toViewX(lastX), toViewY(lastY), toViewX(x), toViewY(y));
+    }
+
     private void createMouseMoveTimer() {
         if (profile != null && mouseMoveTimer == null && xServer != null) {
             final float cursorSpeed = profile.getCursorSpeed();
