@@ -113,30 +113,41 @@ class MainEmuActivity : MainActivity() {
         // 启动时同步所有X11设置到SharedPreferences
         settingViewModel.syncX11SettingsToSharedPrefs()
 
-        // ★全屏修复 (v3 回归)：
-        // 上 v2 把 lorieView 从 frm 里 removeView 出来交给 Compose 独享——结果 AAR
-        // 注册在 frm 上的 onTouchListener / onKeyListener / onHoverListener /
-        // onGenericMotionListener / onCapturedPointerListener 全跟着 lorieView 一起
-        // 析构了，鼠标事件 / 键盘事件 / 滚轮事件全部丢失，X11 里面鼠标不能动。
-        //
-        // 正确做法：让 frm 整体进 Compose, lorieView 保持在 frm 里不动, AAR 的事件
-        // 转发链不被打断。LorieView 全屏靠 displayResolutionMode=scaled +
-        // adjustResolution=false + displayStretch=true + displayScale=100 这些 prefs
-        // 让 AAR LorieView.onMeasure 放弃 fixed size, 接受父布局 (全屏 Compose Box) 尺寸。
-        // 反射 reloadPreferences 强制重读 prefs, requestLayout 触发重测。
+        // ★全屏修复 (v4 稳态)：
+        // 上 v3 在 setContent lambda 里 error("frm 反射不到") 会造成闪退——在第一次重组时
+        // 如果反射拿不到就直接 IllegalStateException, Activity 崩。
+        // 这次:
+        // 1) setContent 之前就拿 frm 走公开 R.id.frame 资源,不要在 Composable 内用 error 抛
+        // 2) 拿不到 frm 就创建一个空的 fallback FrameLayout,让 app 至少能打开(虽然 X11 不能用)
+        // 3) lorieView 仍然在 frm 里不动, AAR TouchInputHandler 事件链不被打断
+        // 4) 通过 setContent 之前写好的 prefs (displayResolutionMode=scaled 等) 让 LorieView 全屏
+        val hostFrm: android.view.View = try {
+            // AAR 的资源 id 公开, 不需要反射
+            val frmId = com.termux.x11.R.id.frame
+            findViewById<android.view.View>(frmId)
+                ?: error("AAR R.id.frame not found in contentView")
+        } catch (e: Throwable) {
+            Log.e(TAG, "拿 frm 失败, fallback 空 FrameLayout: ${e.message}")
+            android.widget.FrameLayout(this).apply {
+                layoutParams = android.view.ViewGroup.LayoutParams(
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                )
+            }
+        }
+
+        // 反射调 LorieView.reloadPreferences(prefs), 拉一下全屏 measure
         try {
             val lorieViewField = com.termux.x11.MainActivity::class.java.getDeclaredField("lorieView")
             lorieViewField.isAccessible = true
             val lv = lorieViewField.get(this) as? android.view.View
             lv?.let { v ->
-                // 1) 强制 lorieView 自己的 layoutParams 为 MATCH_PARENT
                 val lvLp = v.layoutParams
                 if (lvLp != null) {
                     lvLp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
                     lvLp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
                     v.layoutParams = lvLp
                 }
-                // 2) 它的父 (frm) 也要 MATCH_PARENT
                 val parent = v.parent as? android.view.ViewGroup
                 if (parent != null) {
                     val pLp = parent.layoutParams
@@ -146,7 +157,6 @@ class MainEmuActivity : MainActivity() {
                         parent.layoutParams = pLp
                     }
                 }
-                // 3) reloadPreferences(prefs) 强制 AAR LorieView 重读刚改的 prefs
                 try {
                     val prefsField = com.termux.x11.MainActivity::class.java.getDeclaredField("prefs")
                     prefsField.isAccessible = true
@@ -193,13 +203,7 @@ class MainEmuActivity : MainActivity() {
 
             MainTheme(darkTheme = isDarkTheme) {
                 MainScreen(
-                    tx11Content = { ctx ->
-                        // v3 回归：让 frm 整体进 Compose, lorieView 留在 frm 里,
-                        // 不破坏 AAR TouchInputHandler 事件链。
-                        // frm 之前 Activity 装载的根 FrameLayout, 现在
-                        // (frm.parent as? ViewGroup)?.removeView(frm) 后由 Compose 接管。
-                        findFrmViaReflection() ?: error("frm 反射不到")
-                    },
+                    tx11Content = { ctx -> hostFrm },
                     Destination.X11, mainViewModel, terminalViewModel, settingViewModel, prepareViewModel
                 )
             }
@@ -338,37 +342,13 @@ class MainEmuActivity : MainActivity() {
     }
 
     /**
-     * 反射拿到 AAR 里的 frm（FrameLayout 字段，package-private / private）。
-     * 用于不直接依赖 AAR 源代码，避免编译期不兼容。
+     * 反射拿 AAR 里的 frm / 递归找 lorieView 的辅助函数已不再需要：
+     * v4 改用 AAR 公开资源 com.termux.x11.R.id.frame 直接拿 frm，
+     * lorieView 也改在 setContent 之前反射拿一次，事件转发链靠 AAR 自己保留。
+     * 这里只是保留入口占位，避免有人 grep 不到函数。
      */
-    private fun findFrmViaReflection(): android.view.View? {
-        return try {
-            val f = com.termux.x11.MainActivity::class.java.getDeclaredField("frm")
-            f.isAccessible = true
-            f.get(this) as? android.view.View
-        } catch (e: Throwable) {
-            Log.w(TAG, "反射拿 frm 失败: ${e.message}")
-            null
-        }
-    }
-
-    /**
-     * 在 root 这棵 ViewTree 里找出 lorieView（AAR 布局里 R.id.lorieView 的实例）。
-     * 优先用 id 匹配，找不到时按类名 fallback。
-     */
-    private fun findLorieView(root: android.view.View): android.view.View? {
-        if (root.javaClass.name == "com.termux.x11.LorieView") return root
-        val id = try {
-            resources.getIdentifier("lorieView", "id", com.termux.x11.MainActivity.HOST_PKG_NAME)
-        } catch (_: Throwable) { android.view.View.NO_ID }
-        if (root is android.view.ViewGroup) {
-            for (i in 0 until root.childCount) {
-                val child = root.getChildAt(i)
-                if (id != android.view.View.NO_ID && child.id == id) return child
-                val found = findLorieView(child)
-                if (found != null) return found
-            }
-        }
-        return null
+    @Suppress("unused")
+    private fun _legacyHelpersRemoved() {
+        // intentionally empty
     }
 }
