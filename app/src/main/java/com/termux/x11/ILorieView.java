@@ -15,9 +15,11 @@ public interface ILorieView {
     }
 
     /**
-     * Screen information containing display dimensions and scaling
+     * Screen information containing display dimensions and scaling.
+     * 修正：原来是 package-private，跨包实现 ILorieView 时拿不到类型。改为 public 让 X11InputSender
+     * 之类的实现可以直接返回 ScreenInfo 实例。
      */
-    class ScreenInfo {
+    public class ScreenInfo {
         public int screenWidth = 1920;
         public int screenHeight = 1080;
         public int offsetX = 0;
