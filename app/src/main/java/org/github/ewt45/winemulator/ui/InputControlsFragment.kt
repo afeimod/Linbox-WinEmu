@@ -1,9 +1,7 @@
 package org.github.ewt45.winemulator.ui
 
 import android.app.Activity
-import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -23,6 +21,7 @@ import java.util.ArrayList
 /**
  * InputControlsFragment - 虚拟按键配置管理Fragment
  * 修复：删除了与com.termux.x11.controller.InputControlsFragment的冲突
+ * 使用Arguments Bundle传递profile ID，兼容Java代码调用
  */
 class InputControlsFragment : Fragment() {
     private lateinit var manager: InputControlsManager
@@ -31,49 +30,30 @@ class InputControlsFragment : Fragment() {
     private var importProfileCallback: ((ControlsProfile) -> Unit)? = null
     
     // 用于从Java代码创建时接收profile ID
-    private val selectedProfileId: Int
+    private var selectedProfileId: Int = 0
 
     companion object {
         const val SELECTED_PROFILE_ID = "selected_profile_id"
-    }
-
-    // Java兼容构造函数
-    constructor(selectedProfileId: Int) : super() {
-        this.selectedProfileId = selectedProfileId
-    }
-
-    // 默认构造函数
-    constructor() : super() {
-        this.selectedProfileId = 0
-    }
-
-    private val openFileLauncher = registerForActivityResult(
-        ActivityResultContracts.StartActivityForResult()
-    ) { result ->
-        if (result.resultCode == Activity.RESULT_OK) {
-            result.data?.data?.let { uri ->
-                try {
-                    val inputStream = requireContext().contentResolver.openInputStream(uri)
-                    val json = inputStream?.bufferedReader()?.readText()
-                    inputStream?.close()
-                    if (json != null) {
-                        val importedProfile = manager.importProfile(JSONObject(json))
-                        if (importedProfile != null && importProfileCallback != null) {
-                            importProfileCallback!!(importedProfile)
-                        }
-                    }
-                } catch (e: Exception) {
-                    Toast.makeText(context, R.string.unable_to_import_profile, Toast.LENGTH_SHORT).show()
-                }
-            }
+        
+        /**
+         * 工厂方法 - 用于Java代码创建Fragment
+         */
+        @JvmStatic
+        fun newInstance(selectedProfileId: Int = 0): InputControlsFragment {
+            val fragment = InputControlsFragment()
+            val args = Bundle()
+            args.putInt(SELECTED_PROFILE_ID, selectedProfileId)
+            fragment.arguments = args
+            return fragment
         }
-        importProfileCallback = null
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // 从Arguments获取传入的profile ID
+        selectedProfileId = arguments?.getInt(SELECTED_PROFILE_ID, 0) ?: 0
         manager = InputControlsManager(requireContext())
-        // 如果是从Java代码创建并传入了profile ID，则使用该ID加载配置
+        // 如果传入了profile ID，则使用该ID加载配置
         if (selectedProfileId > 0) {
             currentProfile = manager.getProfile(selectedProfileId)
         }
@@ -92,9 +72,12 @@ class InputControlsFragment : Fragment() {
         val context = requireContext()
         val preferences = PreferenceManager.getDefaultSharedPreferences(context)
 
-        // 从 SharedPreferences 加载上次选中的配置 ID
+        // 从 SharedPreferences 或构造函数参数加载
         val savedProfileId = preferences.getInt(SELECTED_PROFILE_ID, 0)
-        currentProfile = if (savedProfileId > 0) manager.getProfile(savedProfileId) else null
+        // 如果当前Profile还未设置，尝试从SavedPreferences加载
+        if (currentProfile == null && savedProfileId > 0) {
+            currentProfile = manager.getProfile(savedProfileId)
+        }
 
         val sProfile = view.findViewById<Spinner>(R.id.SProfile)
         loadProfileSpinner(sProfile)
