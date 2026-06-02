@@ -83,6 +83,27 @@ class MainEmuActivity : MainActivity() {
         //设置包名
         MainActivity.HOST_PKG_NAME = packageName
         startX11Intent = createStartX11Intent()
+
+        // ★关键：必须在 super.onCreate 之前就写入 lorie_prefs，
+        // 因为 AAR 的 MainActivity.onCreate 会立刻 new Prefs(this) 并读取这些值，
+        // 之后 LorieView.onMeasure 会基于 displayResolutionMode 决定是否 setFixedSize。
+        // 旧代码在 super.onCreate 之后才写 prefs，此时 LorieView 已经 fixed size 成 1280x720 居中显示了。
+        val sharedPrefsEarly = getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE)
+        sharedPrefsEarly.edit().apply {
+            // 用 scaled 模式 + adjustResolution=false，让 LorieView 直接按父布局尺寸铺满，
+            // 不要再用 setFixedSize(1280,720) 把 X11 钉在屏幕中间一块
+            putString("displayResolutionMode", "scaled")
+            putString("displayResolutionCustom", "1280x720")
+            putBoolean("adjustResolution", false)
+            putBoolean("displayStretch", true)
+            putInt("displayScale", 100)
+            // 全屏显示，不要状态栏/导航栏遮挡
+            putBoolean("fullscreen", true)
+            putBoolean("hideCutout", true)
+            // 不显示 termux 的额外按键栏（我们用自己实现的虚拟按键系统）
+            putBoolean("showAdditionalKbd", false)
+        }.apply()
+
         super.onCreate(savedInstanceState)
 
         // 初始化X11设置SharedPreferences同步
@@ -91,15 +112,38 @@ class MainEmuActivity : MainActivity() {
         // 启动时同步所有X11设置到SharedPreferences
         settingViewModel.syncX11SettingsToSharedPrefs()
 
-        //偏好设置 - 使用SharedPreferences直接设置
-        val sharedPrefs = getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE)
-        sharedPrefs.edit().apply {
-            putString("displayResolutionMode", "custom")
-            putString("displayResolutionCustom", "1280x720") // 默认分辨率
-            putBoolean("showAdditionalKbd", false) // 不显示底部按键
-            putBoolean("fullscreen", false) // 默认不全屏
-            putBoolean("hideCutout", false) // 刘海屏设置 - 不隐藏
-        }.apply()
+        // ★强制把 LorieView 的 layoutParams 重置为 MATCH_PARENT 并重新测量。
+        // 即使 prefs 改对了，AAR 内部仍可能因为 first-frame 已经 setFixedSize 而停留在 fixed size，
+        // 这里主动重置 + requestLayout 让 LorieView 重新铺满父布局。
+        try {
+            val lorieViewField = com.termux.x11.MainActivity::class.java.getDeclaredField("lorieView")
+            lorieViewField.isAccessible = true
+            val lorieView = lorieViewField.get(this) as? android.view.View
+            lorieView?.let { v ->
+                val parent = v.parent as? android.view.ViewGroup
+                if (parent != null) {
+                    val lp = parent.layoutParams
+                    if (lp != null) {
+                        lp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        lp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        parent.layoutParams = lp
+                    }
+                    // LorieView 自己也要 MATCH_PARENT
+                    val vlLp = v.layoutParams
+                    if (vlLp != null) {
+                        vlLp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        vlLp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        v.layoutParams = vlLp
+                    }
+                    parent.requestLayout()
+                    v.requestLayout()
+                    v.invalidate()
+                    Log.d(TAG, "LorieView 布局已重置为 MATCH_PARENT")
+                }
+            }
+        } catch (e: Throwable) {
+            Log.w(TAG, "重置 LorieView 布局失败: ${e.message}")
+        }
 
 
 //        //将composeView添加到原视图布局中
