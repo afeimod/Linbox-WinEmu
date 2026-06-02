@@ -48,7 +48,8 @@ public class InputControllerActivity extends AppCompatActivity {
         if (fragmentManager.getBackStackEntryCount() > 0) {
             fragmentManager.popBackStack(null, FragmentManager.POP_BACK_STACK_INCLUSIVE);
         }
-        show(new InputControlsFragment(selectedProfileId));
+        // 使用工厂方法创建Fragment，传递selectedProfileId参数
+        show(InputControlsFragment.newInstance(selectedProfileId));
         return true;
     }
     private void show(Fragment fragment) {
