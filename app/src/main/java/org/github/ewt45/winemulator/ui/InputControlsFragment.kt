@@ -20,14 +20,31 @@ import com.termux.x11.controller.ControlsEditorActivity
 import org.json.JSONObject
 import java.util.ArrayList
 
+/**
+ * InputControlsFragment - 虚拟按键配置管理Fragment
+ * 修复：删除了与com.termux.x11.controller.InputControlsFragment的冲突
+ */
 class InputControlsFragment : Fragment() {
     private lateinit var manager: InputControlsManager
     private var currentProfile: ControlsProfile? = null
     private var updateLayout: Runnable? = null
     private var importProfileCallback: ((ControlsProfile) -> Unit)? = null
+    
+    // 用于从Java代码创建时接收profile ID
+    private val selectedProfileId: Int
 
     companion object {
         const val SELECTED_PROFILE_ID = "selected_profile_id"
+    }
+
+    // Java兼容构造函数
+    constructor(selectedProfileId: Int) : super() {
+        this.selectedProfileId = selectedProfileId
+    }
+
+    // 默认构造函数
+    constructor() : super() {
+        this.selectedProfileId = 0
     }
 
     private val openFileLauncher = registerForActivityResult(
@@ -56,6 +73,10 @@ class InputControlsFragment : Fragment() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         manager = InputControlsManager(requireContext())
+        // 如果是从Java代码创建并传入了profile ID，则使用该ID加载配置
+        if (selectedProfileId > 0) {
+            currentProfile = manager.getProfile(selectedProfileId)
+        }
     }
 
     override fun onCreateView(
