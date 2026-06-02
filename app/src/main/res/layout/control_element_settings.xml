@@ -102,6 +102,22 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
+                android:text="Count"
+                android:textColor="#FFFFFF" />
+
+            <!-- ★关键：ControlsEditorActivity 通过 findViewById(R.id.NPColumns) 拿这个 NumberPicker
+                 用来控制 RANGE_BUTTON 的 binding 数量。旧版本缺少这个 view，导致
+                 "Attempt to invoke virtual method ... NumberPicker.setValue(int) on a null object reference" -->
+            <com.termux.x11.controller.widget.NumberPicker
+                android:id="@+id/NPColumns"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
                 android:text="Orientation"
                 android:textColor="#FFFFFF" />
 
