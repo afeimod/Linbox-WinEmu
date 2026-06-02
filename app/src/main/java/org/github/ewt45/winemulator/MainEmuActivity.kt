@@ -21,7 +21,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.app.NotificationCompat
-import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.termux.x11.MainActivity
 import com.termux.x11.Prefs
@@ -84,27 +83,6 @@ class MainEmuActivity : MainActivity() {
         //设置包名
         MainActivity.HOST_PKG_NAME = packageName
         startX11Intent = createStartX11Intent()
-
-        // ★关键：必须在 super.onCreate 之前就写入 lorie_prefs，
-        // 因为 AAR 的 MainActivity.onCreate 会立刻 new Prefs(this) 并读取这些值，
-        // 之后 LorieView.onMeasure 会基于 displayResolutionMode 决定是否 setFixedSize。
-        // 旧代码在 super.onCreate 之后才写 prefs，此时 LorieView 已经 fixed size 成 1280x720 居中显示了。
-        val sharedPrefsEarly = getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE)
-        sharedPrefsEarly.edit().apply {
-            // 用 scaled 模式 + adjustResolution=false，让 LorieView 直接按父布局尺寸铺满，
-            // 不要再用 setFixedSize(1280,720) 把 X11 钉在屏幕中间一块
-            putString("displayResolutionMode", "scaled")
-            putString("displayResolutionCustom", "1280x720")
-            putBoolean("adjustResolution", false)
-            putBoolean("displayStretch", true)
-            putInt("displayScale", 100)
-            // 全屏显示，不要状态栏/导航栏遮挡
-            putBoolean("fullscreen", true)
-            putBoolean("hideCutout", true)
-            // 不显示 termux 的额外按键栏（我们用自己实现的虚拟按键系统）
-            putBoolean("showAdditionalKbd", false)
-        }.apply()
-
         super.onCreate(savedInstanceState)
 
         // 初始化X11设置SharedPreferences同步
@@ -113,67 +91,25 @@ class MainEmuActivity : MainActivity() {
         // 启动时同步所有X11设置到SharedPreferences
         settingViewModel.syncX11SettingsToSharedPrefs()
 
-        // ★全屏修复 (v4 稳态)：
-        // 上 v3 在 setContent lambda 里 error("frm 反射不到") 会造成闪退——在第一次重组时
-        // 如果反射拿不到就直接 IllegalStateException, Activity 崩。
-        // 这次:
-        // 1) setContent 之前就拿 frm 走公开 R.id.frame 资源,不要在 Composable 内用 error 抛
-        // 2) 拿不到 frm 就创建一个空的 fallback FrameLayout,让 app 至少能打开(虽然 X11 不能用)
-        // 3) lorieView 仍然在 frm 里不动, AAR TouchInputHandler 事件链不被打断
-        // 4) 通过 setContent 之前写好的 prefs (displayResolutionMode=scaled 等) 让 LorieView 全屏
-        val hostFrm: android.view.View = try {
-            // AAR 的资源 id 公开, 不需要反射
-            val frmId = com.termux.x11.R.id.frame
-            findViewById<android.view.View>(frmId)
-                ?: error("AAR R.id.frame not found in contentView")
-        } catch (e: Throwable) {
-            Log.e(TAG, "拿 frm 失败, fallback 空 FrameLayout: ${e.message}")
-            android.widget.FrameLayout(this).apply {
-                layoutParams = android.view.ViewGroup.LayoutParams(
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT,
-                    android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                )
-            }
-        }
-
-        // 反射调 LorieView.reloadPreferences(prefs), 拉一下全屏 measure
-        try {
-            val lorieViewField = com.termux.x11.MainActivity::class.java.getDeclaredField("lorieView")
-            lorieViewField.isAccessible = true
-            val lv = lorieViewField.get(this) as? android.view.View
-            lv?.let { v ->
-                val lvLp = v.layoutParams
-                if (lvLp != null) {
-                    lvLp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    lvLp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    v.layoutParams = lvLp
-                }
-                val parent = v.parent as? android.view.ViewGroup
-                if (parent != null) {
-                    val pLp = parent.layoutParams
-                    if (pLp != null) {
-                        pLp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                        pLp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                        parent.layoutParams = pLp
-                    }
-                }
-                try {
-                    val prefsField = com.termux.x11.MainActivity::class.java.getDeclaredField("prefs")
-                    prefsField.isAccessible = true
-                    val prefs = prefsField.get(this)
-                    val reloadMethod = v.javaClass.getDeclaredMethod("reloadPreferences", prefs.javaClass)
-                    reloadMethod.isAccessible = true
-                    reloadMethod.invoke(v, prefs)
-                    Log.d(TAG, "已调 LorieView.reloadPreferences(prefs)")
-                } catch (e: Throwable) {
-                    Log.w(TAG, "reloadPreferences 反射调失败: ${e.message}")
-                }
-                v.requestLayout()
-                v.invalidate()
-            }
-        } catch (e: Throwable) {
-            Log.w(TAG, "准备 lorieView 全屏失败: ${e.message}")
-        }
+        //偏好设置 - 使用SharedPreferences直接设置
+        val sharedPrefs = getSharedPreferences("lorie_prefs", Context.MODE_PRIVATE)
+        sharedPrefs.edit().apply {
+            // 改：之前 displayResolutionMode=custom + displayResolutionCustom=1280x720
+            // 会让 LorieView.onMeasure 走 fixed size 路径, setFixedSize(1280, 720),
+            // 然后 LorieView 在父 FrameLayout (match_parent) 里居中显示一块, 周围黑边。
+            // 这里改成 scaled 模式 + adjustResolution=false + displayStretch=true
+            // + displayScale=100, 让 LorieView 接受父布局尺寸, 不再 fixed size。
+            // 父布局是 Compose AndroidView fillMaxSize, 拿到 1920x1080 全屏尺寸,
+            // LorieView 跟着全屏。
+            putString("displayResolutionMode", "scaled")
+            putString("displayResolutionCustom", "1280x720") // 默认分辨率
+            putBoolean("adjustResolution", false)            // 关键：不要按 custom 尺寸 setFixedSize
+            putBoolean("displayStretch", true)               // 拉伸填充
+            putInt("displayScale", 100)                       // 1:1 缩放
+            putBoolean("showAdditionalKbd", false) // 不显示底部按键
+            putBoolean("fullscreen", true)        // 全屏
+            putBoolean("hideCutout", true)         // 允许延伸到刘海屏
+        }.apply()
 
 
 //        //将composeView添加到原视图布局中
@@ -194,24 +130,15 @@ class MainEmuActivity : MainActivity() {
             val themeMode by settingViewModel.themeState.collectAsState()
             val isDarkTheme = themeMode != 0 // 0 = 跟随系统
 
-            // edge-to-edge：让 LorieView 可以延伸到状态栏 / 导航栏后面，
-            // 避免出现“中间一块，中间两边黑色边”的现象。
-            // SideEffect 保证不会每次重组都重复调。
-            androidx.compose.runtime.SideEffect {
-                WindowCompat.setDecorFitsSystemWindows(window, false)
-            }
-
             MainTheme(darkTheme = isDarkTheme) {
                 MainScreen(
-                    tx11Content = { ctx -> hostFrm },
+                    tx11Content = { frm.also { (frm.parent as? ViewGroup)?.removeView(frm) } },
                     Destination.X11, mainViewModel, terminalViewModel, settingViewModel, prepareViewModel
                 )
             }
         }
 
         // 在准备完成时自动启动模拟器
-        enableEdgeToEdge()
-
         lifecycleScope.launch {
             // 监听准备状态变化
             prepareViewModel.uiState.collect { state ->
@@ -223,6 +150,8 @@ class MainEmuActivity : MainActivity() {
                 }
             }
         }
+
+        enableEdgeToEdge()
 
 //            startEmu()
 //
@@ -339,16 +268,5 @@ class MainEmuActivity : MainActivity() {
         return Intent(this, X11Service::class.java).apply {
             putExtra("timestamp", System.currentTimeMillis())
         }
-    }
-
-    /**
-     * 反射拿 AAR 里的 frm / 递归找 lorieView 的辅助函数已不再需要：
-     * v4 改用 AAR 公开资源 com.termux.x11.R.id.frame 直接拿 frm，
-     * lorieView 也改在 setContent 之前反射拿一次，事件转发链靠 AAR 自己保留。
-     * 这里只是保留入口占位，避免有人 grep 不到函数。
-     */
-    @Suppress("unused")
-    private fun _legacyHelpersRemoved() {
-        // intentionally empty
     }
 }
