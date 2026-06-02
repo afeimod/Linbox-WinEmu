@@ -113,30 +113,31 @@ class MainEmuActivity : MainActivity() {
         // 启动时同步所有X11设置到SharedPreferences
         settingViewModel.syncX11SettingsToSharedPrefs()
 
-        // ★全屏修复（重做版）：
-        // 1. 反射拿到 AAR 里的 lorieView，把它从 frm 这个 FrameLayout 里找出来；
-        // 2. 将 lorieView 从 frm 里 remove 出来并 saveInstanceState 保留；
-        // 3. frm 本身从它的父 ViewGroup 里 removeView 出来交给 Compose；
-        // 4. Compose 里不要在 frm 里查 LorieView，而是直接拿 lorieView 包装到 AndroidView 里，
-        //    Modifier.fillMaxSize() 让 lorieView 拿到 1920x1080 真实屏幕尺寸，
-        //    AAR 的 LorieView.onMeasure 看到 displayResolutionMode=scaled + displayScale=100
-        //    会直接 setMeasuredDimension(全屏) 拉伸 X11 画面填满屏幕。
-        var extractedLorieView: android.view.View? = null
+        // ★全屏修复 (v3 回归)：
+        // 上 v2 把 lorieView 从 frm 里 removeView 出来交给 Compose 独享——结果 AAR
+        // 注册在 frm 上的 onTouchListener / onKeyListener / onHoverListener /
+        // onGenericMotionListener / onCapturedPointerListener 全跟着 lorieView 一起
+        // 析构了，鼠标事件 / 键盘事件 / 滚轮事件全部丢失，X11 里面鼠标不能动。
+        //
+        // 正确做法：让 frm 整体进 Compose, lorieView 保持在 frm 里不动, AAR 的事件
+        // 转发链不被打断。LorieView 全屏靠 displayResolutionMode=scaled +
+        // adjustResolution=false + displayStretch=true + displayScale=100 这些 prefs
+        // 让 AAR LorieView.onMeasure 放弃 fixed size, 接受父布局 (全屏 Compose Box) 尺寸。
+        // 反射 reloadPreferences 强制重读 prefs, requestLayout 触发重测。
         try {
             val lorieViewField = com.termux.x11.MainActivity::class.java.getDeclaredField("lorieView")
             lorieViewField.isAccessible = true
             val lv = lorieViewField.get(this) as? android.view.View
-            if (lv != null) {
-                // 重要：保持 ID 留下来，lorieView 内部 native 侧可能用 getId 查找自己
+            lv?.let { v ->
                 // 1) 强制 lorieView 自己的 layoutParams 为 MATCH_PARENT
-                val lvLp = lv.layoutParams
+                val lvLp = v.layoutParams
                 if (lvLp != null) {
                     lvLp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
                     lvLp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                    lv.layoutParams = lvLp
+                    v.layoutParams = lvLp
                 }
-                // 2) 它的父 View（按 AAR 布局就是 frm）也要 MATCH_PARENT（虽然下面会 remove 它）
-                val parent = lv.parent as? android.view.ViewGroup
+                // 2) 它的父 (frm) 也要 MATCH_PARENT
+                val parent = v.parent as? android.view.ViewGroup
                 if (parent != null) {
                     val pLp = parent.layoutParams
                     if (pLp != null) {
@@ -145,31 +146,23 @@ class MainEmuActivity : MainActivity() {
                         parent.layoutParams = pLp
                     }
                 }
-                // 3) 从父 View 拿出来，单独保留，等下交给 Compose
-                (lv.parent as? android.view.ViewGroup)?.removeView(lv)
-                extractedLorieView = lv
-
-                // 4) 主动调 AAR 的 LorieView.reloadPreferences(prefs)，让 LorieView 重新读刚才改的 prefs
-                //    （displayResolutionMode=scaled, displayScale=100, displayStretch=true），
-                //    然后调 requestLayout 触发重测。AAR 的 onMeasure 会按 scaled 模式 measure
-                //    而不是 fixed size。
+                // 3) reloadPreferences(prefs) 强制 AAR LorieView 重读刚改的 prefs
                 try {
                     val prefsField = com.termux.x11.MainActivity::class.java.getDeclaredField("prefs")
                     prefsField.isAccessible = true
                     val prefs = prefsField.get(this)
-                    val reloadMethod = lv.javaClass.getDeclaredMethod("reloadPreferences", prefs.javaClass)
+                    val reloadMethod = v.javaClass.getDeclaredMethod("reloadPreferences", prefs.javaClass)
                     reloadMethod.isAccessible = true
-                    reloadMethod.invoke(lv, prefs)
+                    reloadMethod.invoke(v, prefs)
                     Log.d(TAG, "已调 LorieView.reloadPreferences(prefs)")
                 } catch (e: Throwable) {
                     Log.w(TAG, "reloadPreferences 反射调失败: ${e.message}")
                 }
-                lv.requestLayout()
-                lv.invalidate()
-                Log.d(TAG, "lorieView 已从 frm 剥离,准备交给 Compose")
+                v.requestLayout()
+                v.invalidate()
             }
         } catch (e: Throwable) {
-            Log.w(TAG, "提取 lorieView 失败: ${e.message}")
+            Log.w(TAG, "准备 lorieView 全屏失败: ${e.message}")
         }
 
 
@@ -201,8 +194,11 @@ class MainEmuActivity : MainActivity() {
             MainTheme(darkTheme = isDarkTheme) {
                 MainScreen(
                     tx11Content = { ctx ->
-                        // 优先级：1) 剥出来的 lorieView；2) 反射拿 frm 从中找 lorieView
-                        extractedLorieView ?: (findFrmViaReflection()?.let { findLorieView(it) } ?: findFrmViaReflection()!!)
+                        // v3 回归：让 frm 整体进 Compose, lorieView 留在 frm 里,
+                        // 不破坏 AAR TouchInputHandler 事件链。
+                        // frm 之前 Activity 装载的根 FrameLayout, 现在
+                        // (frm.parent as? ViewGroup)?.removeView(frm) 后由 Compose 接管。
+                        findFrmViaReflection() ?: error("frm 反射不到")
                     },
                     Destination.X11, mainViewModel, terminalViewModel, settingViewModel, prepareViewModel
                 )
