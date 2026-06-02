@@ -292,6 +292,28 @@
                     android:layout_height="wrap_content"
                     android:orientation="horizontal" />
             </HorizontalScrollView>
+
+            <!-- ★ 关键：ControlsEditorActivity.loadCustomIconType 需要这三个 view 来
+                 切换自定义图标 vs 背景颜色模式。原版只 ids.xml 声明了 id，但 layout 里没实例。
+                 所以一进控件设置就 NPE: "Spinner.setOnItemSelectedListener ... on a null object reference"。 -->
+            <Spinner
+                android:id="@+id/SControllerIconType"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:background="#FFFFFF" />
+
+            <com.termux.x11.controller.widget.ColorPickerView
+                android:id="@+id/CPVControllerBackgroundColor"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
+
+            <com.termux.x11.controller.widget.ImagePickerView
+                android:id="@+id/IPVControllerBackgroundImage"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
 </ScrollView>
