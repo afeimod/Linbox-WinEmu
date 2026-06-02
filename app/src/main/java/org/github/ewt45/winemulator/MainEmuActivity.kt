@@ -21,6 +21,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.core.app.NotificationCompat
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import com.termux.x11.MainActivity
 import com.termux.x11.Prefs
@@ -112,37 +113,63 @@ class MainEmuActivity : MainActivity() {
         // 启动时同步所有X11设置到SharedPreferences
         settingViewModel.syncX11SettingsToSharedPrefs()
 
-        // ★强制把 LorieView 的 layoutParams 重置为 MATCH_PARENT 并重新测量。
-        // 即使 prefs 改对了，AAR 内部仍可能因为 first-frame 已经 setFixedSize 而停留在 fixed size，
-        // 这里主动重置 + requestLayout 让 LorieView 重新铺满父布局。
+        // ★全屏修复（重做版）：
+        // 1. 反射拿到 AAR 里的 lorieView，把它从 frm 这个 FrameLayout 里找出来；
+        // 2. 将 lorieView 从 frm 里 remove 出来并 saveInstanceState 保留；
+        // 3. frm 本身从它的父 ViewGroup 里 removeView 出来交给 Compose；
+        // 4. Compose 里不要在 frm 里查 LorieView，而是直接拿 lorieView 包装到 AndroidView 里，
+        //    Modifier.fillMaxSize() 让 lorieView 拿到 1920x1080 真实屏幕尺寸，
+        //    AAR 的 LorieView.onMeasure 看到 displayResolutionMode=scaled + displayScale=100
+        //    会直接 setMeasuredDimension(全屏) 拉伸 X11 画面填满屏幕。
+        var extractedLorieView: android.view.View? = null
         try {
             val lorieViewField = com.termux.x11.MainActivity::class.java.getDeclaredField("lorieView")
             lorieViewField.isAccessible = true
-            val lorieView = lorieViewField.get(this) as? android.view.View
-            lorieView?.let { v ->
-                val parent = v.parent as? android.view.ViewGroup
-                if (parent != null) {
-                    val lp = parent.layoutParams
-                    if (lp != null) {
-                        lp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                        lp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                        parent.layoutParams = lp
-                    }
-                    // LorieView 自己也要 MATCH_PARENT
-                    val vlLp = v.layoutParams
-                    if (vlLp != null) {
-                        vlLp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                        vlLp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
-                        v.layoutParams = vlLp
-                    }
-                    parent.requestLayout()
-                    v.requestLayout()
-                    v.invalidate()
-                    Log.d(TAG, "LorieView 布局已重置为 MATCH_PARENT")
+            val lv = lorieViewField.get(this) as? android.view.View
+            if (lv != null) {
+                // 重要：保持 ID 留下来，lorieView 内部 native 侧可能用 getId 查找自己
+                // 1) 强制 lorieView 自己的 layoutParams 为 MATCH_PARENT
+                val lvLp = lv.layoutParams
+                if (lvLp != null) {
+                    lvLp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    lvLp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                    lv.layoutParams = lvLp
                 }
+                // 2) 它的父 View（按 AAR 布局就是 frm）也要 MATCH_PARENT（虽然下面会 remove 它）
+                val parent = lv.parent as? android.view.ViewGroup
+                if (parent != null) {
+                    val pLp = parent.layoutParams
+                    if (pLp != null) {
+                        pLp.width = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        pLp.height = android.view.ViewGroup.LayoutParams.MATCH_PARENT
+                        parent.layoutParams = pLp
+                    }
+                }
+                // 3) 从父 View 拿出来，单独保留，等下交给 Compose
+                (lv.parent as? android.view.ViewGroup)?.removeView(lv)
+                extractedLorieView = lv
+
+                // 4) 主动调 AAR 的 LorieView.reloadPreferences(prefs)，让 LorieView 重新读刚才改的 prefs
+                //    （displayResolutionMode=scaled, displayScale=100, displayStretch=true），
+                //    然后调 requestLayout 触发重测。AAR 的 onMeasure 会按 scaled 模式 measure
+                //    而不是 fixed size。
+                try {
+                    val prefsField = com.termux.x11.MainActivity::class.java.getDeclaredField("prefs")
+                    prefsField.isAccessible = true
+                    val prefs = prefsField.get(this)
+                    val reloadMethod = lv.javaClass.getDeclaredMethod("reloadPreferences", prefs.javaClass)
+                    reloadMethod.isAccessible = true
+                    reloadMethod.invoke(lv, prefs)
+                    Log.d(TAG, "已调 LorieView.reloadPreferences(prefs)")
+                } catch (e: Throwable) {
+                    Log.w(TAG, "reloadPreferences 反射调失败: ${e.message}")
+                }
+                lv.requestLayout()
+                lv.invalidate()
+                Log.d(TAG, "lorieView 已从 frm 剥离,准备交给 Compose")
             }
         } catch (e: Throwable) {
-            Log.w(TAG, "重置 LorieView 布局失败: ${e.message}")
+            Log.w(TAG, "提取 lorieView 失败: ${e.message}")
         }
 
 
@@ -164,15 +191,27 @@ class MainEmuActivity : MainActivity() {
             val themeMode by settingViewModel.themeState.collectAsState()
             val isDarkTheme = themeMode != 0 // 0 = 跟随系统
 
+            // edge-to-edge：让 LorieView 可以延伸到状态栏 / 导航栏后面，
+            // 避免出现“中间一块，中间两边黑色边”的现象。
+            // SideEffect 保证不会每次重组都重复调。
+            androidx.compose.runtime.SideEffect {
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+            }
+
             MainTheme(darkTheme = isDarkTheme) {
                 MainScreen(
-                    tx11Content = { frm.also { (frm.parent as? ViewGroup)?.removeView(frm) } },
+                    tx11Content = { ctx ->
+                        // 优先级：1) 剥出来的 lorieView；2) 反射拿 frm 从中找 lorieView
+                        extractedLorieView ?: (findFrmViaReflection()?.let { findLorieView(it) } ?: findFrmViaReflection()!!)
+                    },
                     Destination.X11, mainViewModel, terminalViewModel, settingViewModel, prepareViewModel
                 )
             }
         }
 
         // 在准备完成时自动启动模拟器
+        enableEdgeToEdge()
+
         lifecycleScope.launch {
             // 监听准备状态变化
             prepareViewModel.uiState.collect { state ->
@@ -184,8 +223,6 @@ class MainEmuActivity : MainActivity() {
                 }
             }
         }
-
-        enableEdgeToEdge()
 
 //            startEmu()
 //
@@ -302,5 +339,40 @@ class MainEmuActivity : MainActivity() {
         return Intent(this, X11Service::class.java).apply {
             putExtra("timestamp", System.currentTimeMillis())
         }
+    }
+
+    /**
+     * 反射拿到 AAR 里的 frm（FrameLayout 字段，package-private / private）。
+     * 用于不直接依赖 AAR 源代码，避免编译期不兼容。
+     */
+    private fun findFrmViaReflection(): android.view.View? {
+        return try {
+            val f = com.termux.x11.MainActivity::class.java.getDeclaredField("frm")
+            f.isAccessible = true
+            f.get(this) as? android.view.View
+        } catch (e: Throwable) {
+            Log.w(TAG, "反射拿 frm 失败: ${e.message}")
+            null
+        }
+    }
+
+    /**
+     * 在 root 这棵 ViewTree 里找出 lorieView（AAR 布局里 R.id.lorieView 的实例）。
+     * 优先用 id 匹配，找不到时按类名 fallback。
+     */
+    private fun findLorieView(root: android.view.View): android.view.View? {
+        if (root.javaClass.name == "com.termux.x11.LorieView") return root
+        val id = try {
+            resources.getIdentifier("lorieView", "id", com.termux.x11.MainActivity.HOST_PKG_NAME)
+        } catch (_: Throwable) { android.view.View.NO_ID }
+        if (root is android.view.ViewGroup) {
+            for (i in 0 until root.childCount) {
+                val child = root.getChildAt(i)
+                if (id != android.view.View.NO_ID && child.id == id) return child
+                val found = findLorieView(child)
+                if (found != null) return found
+            }
+        }
+        return null
     }
 }
