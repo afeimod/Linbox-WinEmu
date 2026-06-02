@@ -178,25 +178,25 @@ public class InputControlsView extends View {
         int previousLayoutWidth = controlLayoutWidth;
         int previousLayoutHeight = controlLayoutHeight;
 
-        // 全屏虚拟按键布局逻辑：
-        // 使用屏幕完整尺寸作为逻辑尺寸，确保虚拟按键在各种屏幕方向下都能正确显示
-        // 这与 termux-app 的处理方式不同，后者假设虚拟按键始终在竖屏布局中
+        // 修：之前用 Math.max(width, height) 会让竖屏 (1080x1920) 退化成 (1920x1920) 逻辑画布，
+        // 控件按 1920x1920 画后再缩放到 1080x1920, 控件“错位”到屏幕上半部分,
+        // 控件坐标全错。跟 BF 版本 (InputControlsView.kt) 一致：直接用真实 width/height。
+        controlLayoutWidth = width;
+        controlLayoutHeight = height;
 
-        // 始终使用屏幕宽高作为逻辑尺寸，不交换宽高
-        controlLayoutWidth = Math.max(width, height);
-        controlLayoutHeight = Math.max(width, height);
-
-        // 确保 snappingSize 不为 0，防止后续计算出现除零错误
-        snappingSize = Math.max(1, controlLayoutWidth / 100);
+        // 确保 snappingSize 不为 0, 防止后续计算出现除零错误
+        snappingSize = Math.max(1, Math.max(width, height) / 100);
 
         // 对齐到 snappingSize 的整数倍
         controlLayoutWidth = Math.max(snappingSize, (int) Mathf.roundTo(controlLayoutWidth, snappingSize));
         controlLayoutHeight = Math.max(snappingSize, (int) Mathf.roundTo(controlLayoutHeight, snappingSize));
 
         // 计算缩放比例以适应屏幕
-        controlLayoutScale = Math.min((float) width / controlLayoutWidth, (float) height / controlLayoutHeight);
-        controlLayoutOffsetX = (width - controlLayoutWidth * controlLayoutScale) * 0.5f;
-        controlLayoutOffsetY = (height - controlLayoutHeight * controlLayoutScale) * 0.5f;
+        // 修：现在 controlLayoutWidth == width 且 controlLayoutHeight == height,
+        // 缩放比例应总是 1.0, 偏移应为 0。
+        controlLayoutScale = 1.0f;
+        controlLayoutOffsetX = 0f;
+        controlLayoutOffsetY = 0f;
 
         if (profile != null && profile.isElementsLoaded()
             && (snappingSize != previousSnappingSize
