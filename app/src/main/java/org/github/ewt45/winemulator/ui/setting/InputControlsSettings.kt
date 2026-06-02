@@ -195,13 +195,14 @@ fun InputControlsSettings(
                 onExpandedChange = { expanded = !expanded }
             ) {
                 OutlinedTextField(
-                    value = selectedProfile!!.getName(),
+                    value = selectedProfile?.getName() ?: "",
                     onValueChange = {},
                     readOnly = true,
                     trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true)
+                        .menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true),
+                    enabled = selectedProfile != null
                 )
 
                 ExposedDropdownMenu(
