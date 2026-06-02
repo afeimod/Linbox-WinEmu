@@ -28,7 +28,13 @@ public class FileUtils {
 
     public static String getBasename(String path) {
         int lastSep = path.lastIndexOf(File.separator);
-        return lastSep >= 0 ? path.substring(lastSep + 1) : path;
+        String name = lastSep >= 0 ? path.substring(lastSep + 1) : path;
+        // 修：原版只去路径分隔符，没去扩展名。结果 getBasename("0.png") = "0.png"，
+        // 后续 Byte.parseByte("0.png") 抛 NumberFormatException: "For input string: \"0.png\""，
+        // 导致 ControlsEditorActivity.loadIcons 崩溃——从虚拟按键菜单"编辑虚拟按键布局"
+        // → 点中某个控件的设置图标 → 崩。现在还要去扩展名。
+        int lastDot = name.lastIndexOf('.');
+        return lastDot >= 0 ? name.substring(0, lastDot) : name;
     }
 
     public static String readString(Context context, Uri uri) {
