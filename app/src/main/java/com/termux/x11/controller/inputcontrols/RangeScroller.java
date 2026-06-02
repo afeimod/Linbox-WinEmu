@@ -86,6 +86,10 @@ public class RangeScroller {
     }
 
     public void handleTouchDown(float x, float y) {
+        // 安全检查：确保 inputControlsView 不为 null
+        if (inputControlsView == null) {
+            return;
+        }
         destroyTimer();
 
         scrolling = false;
@@ -96,10 +100,14 @@ public class RangeScroller {
         element.setBinding(Binding.NONE);
 
         timer = new Timer(true);
+        final Binding finalBinding = binding;
         timer.schedule(new TimerTask() {
             @Override
             public void run() {
-                if (!scrolling) inputControlsView.post(() -> inputControlsView.handleInputEvent(binding, true));
+                // 再次检查视图是否仍然有效
+                if (inputControlsView != null && !scrolling) {
+                    inputControlsView.post(() -> inputControlsView.handleInputEvent(finalBinding, true));
+                }
             }
         }, inputControlsView.MAX_TAP_MILLISECONDS);
     }
@@ -129,11 +137,21 @@ public class RangeScroller {
 
     public void handleTouchUp() {
         if (isActionDown) {
+            // 安全检查：确保 inputControlsView 不为 null
+            if (inputControlsView == null) {
+                isActionDown = false;
+                return;
+            }
             destroyTimer();
             if (isTap() && !scrolling) {
                 inputControlsView.handleInputEvent(binding, true);
                 final Binding finalBinding = binding;
-                inputControlsView.postDelayed(() -> inputControlsView.handleInputEvent(finalBinding, false), 30);
+                inputControlsView.postDelayed(() -> {
+                    // 再次检查视图是否仍然有效
+                    if (inputControlsView != null) {
+                        inputControlsView.handleInputEvent(finalBinding, false);
+                    }
+                }, 30);
             }
             else inputControlsView.handleInputEvent(binding, false);
         }
