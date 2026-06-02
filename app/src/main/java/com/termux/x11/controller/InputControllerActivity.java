@@ -13,6 +13,7 @@ import a.io.github.ewt45.winemulator.R;
 import com.termux.x11.controller.core.Callback;
 import com.termux.x11.controller.core.PreloaderDialog;
 import com.termux.x11.controller.core.PreloaderDialogImpl;
+import org.github.ewt45.winemulator.ui.InputControlsFragment;
 
 public class InputControllerActivity extends AppCompatActivity {
 
