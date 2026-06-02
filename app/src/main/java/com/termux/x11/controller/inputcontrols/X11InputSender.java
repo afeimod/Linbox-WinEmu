@@ -7,30 +7,27 @@ import com.termux.x11.controller.xserver.XKeycode;
 import com.termux.x11.input.InputStub;
 import com.termux.x11.input.RenderData;
 
-// 注：ILorieView.ScreenInfo 原来在 com.termux.x11 包内是 package-private，
-// 跨包实现 ILorieView 时拿不到这个类型。已修复为 public（见 ILorieView.java）。
-
 /**
  * Sender class for X11 input events.
  *
- * 修复要点：旧的 X11InputSender 只持有 InputStub，并通过 sendXxxEvent 包装了少量事件。
- * 但项目里的虚拟按键系统（InputControlsView）要求的不是 InputStub，而是 ILorieView 接口。
- * 旧代码里 X11Screen 创建了 InputControlsView 之后，从未调用 setXServer(...)，
- * 导致 InputControlsView.handleInputEvent 在最开头 if (xServer == null) return; 直接丢弃事件，
- * 这就是用户报告的"虚拟按键没有任何作用，点击没有真正输出到 X11 界面"。
+ * 修复要点 (v7 键位修复):
+ * 旧版 X11InputSender.injectKeyPress(XKeycode) 内部直接 sendKeyEvent(XKeycode.id, XKeycode.id, isDown)。
+ * XKeycode.id 实际是 termux-x11 内部的 X11 keysym table 索引, 跟 termux-x11 native 端
+ * 实际期望的 (keycode, scancode) 数值体系不一致——这导致用户报告"所有键位都乱了,包括方向键"。
  *
- * 修复：让 X11InputSender implement ILorieView，所有 injectXXX/sendXXX 委托给底层 InputStub，
- * 这样 X11Screen 可以直接把 x11InputSender 注入给 InputControlsView.setXServer(x11InputSender)，
- * 虚拟按键的键鼠事件就能真正送达 X11。
+ * 修法: 参考 BF 项目 (InputControlsView.kt + Binding.kt), BF 用的是 PC AT Set 1 scancode
+ * (KEY_UP=72, KEY_LEFT=75, KEY_A=30, KEY_ESC=1 等)。
+ *
+ * 这里在 X11InputSender 内部维护一张 XKeycode -> PC AT scancode 的完整映射表,
+ * injectKeyPress(XKeycode) 时按映射表查 scancode, 然后调 sendKeyEvent(scancode, scancode, isDown)。
+ * 让 termux-x11 native 端能从 scancode 找到 X11 keysym 还原按键。
  */
 public class X11InputSender implements ILorieView {
     private InputStub xServer;
     private RenderData renderData;
     private boolean initialized = false;
 
-    // 懒加载的辅助对象，仅在 InputControlsView 真正用到时构造。
-    // 之所以懒加载，是因为 X11Screen 在 Compose 工厂里就能拿到 x11InputSender，
-    // 但不一定立即需要 Pointer/Keyboard/ScreenInfo。
+    // 懒加载
     private Pointer pointer;
     private Keyboard keyboard;
     private final ScreenInfo screenInfo = new ScreenInfo();
@@ -57,9 +54,10 @@ public class X11InputSender implements ILorieView {
 
     // ============= 旧 API（保持兼容）=============
 
-    public void sendEvdevKeyEvent(int keycode, boolean isDown) {
+    public void sendEvdevKeyEvent(int scancode, boolean isDown) {
         if (xServer != null) {
-            xServer.sendKeyEvent(keycode, keycode, isDown);
+            // scancode 已经是 PC AT scancode, 直接发
+            xServer.sendKeyEvent(scancode, scancode, isDown);
         }
     }
 
@@ -77,9 +75,9 @@ public class X11InputSender implements ILorieView {
 
     public void forceResetMouseButtons() {
         if (xServer != null) {
-            xServer.sendMouseEvent(0, 0, 1, false, false); // Left button
-            xServer.sendMouseEvent(0, 0, 2, false, false); // Middle button
-            xServer.sendMouseEvent(0, 0, 3, false, false); // Right button
+            xServer.sendMouseEvent(0, 0, 1, false, false);
+            xServer.sendMouseEvent(0, 0, 2, false, false);
+            xServer.sendMouseEvent(0, 0, 3, false, false);
         }
     }
 
@@ -94,7 +92,6 @@ public class X11InputSender implements ILorieView {
     public void release() {
         this.xServer = null;
         this.initialized = false;
-        // 释放懒加载对象
         this.pointer = null;
         this.keyboard = null;
     }
@@ -115,7 +112,6 @@ public class X11InputSender implements ILorieView {
 
     @Override
     public com.termux.x11.controller.winhandler.WinHandler getWinHandler() {
-        // 此实现不参与 WinHandler 流程，让上层做 null 防御即可
         return null;
     }
 
@@ -131,9 +127,6 @@ public class X11InputSender implements ILorieView {
 
     @Override
     public com.termux.x11.ILorieView.CursorLocker getCursorLocker() {
-        // 注意：ILorieView.CursorLocker（interface） 跟 controller.core.CursorLocker（class） 是不同类型，
-        // ILorieView 里的接口签名是 panBy(float, float)。这里返回一个内联实现，
-        // 把 panBy 转发为 InputStub 的鼠标移动事件。
         return new com.termux.x11.ILorieView.CursorLocker() {
             @Override
             public void panBy(float dx, float dy) {
@@ -196,20 +189,27 @@ public class X11InputSender implements ILorieView {
         if (xServer != null) xServer.sendKeyEvent(keycode, keycode, true);
     }
 
+    /**
+     * 修：把 XKeycode 转成 PC AT scancode, 然后 sendKeyEvent(scancode, scancode, isDown)。
+     * 这是参考 BF 项目 (InputControlsView.kt + Binding.kt) 的方案。
+     * XKeycode 跟 PC AT scancode 的数值体系完全不一样, 必须做映射。
+     */
     @Override
     public void injectKeyPress(XKeycode keycode) {
-        if (xServer != null && keycode != null) {
+        if (xServer == null || keycode == null) return;
+        int scancode = xkeycodeToScancode(keycode);
+        if (scancode <= 0) {
+            // 没找到映射, 退回到 XKeycode.id (可能不准确但不抛异常)
             int k = keycode.id & 0xff;
             xServer.sendKeyEvent(k, k, true);
+            return;
         }
+        xServer.sendKeyEvent(scancode, scancode, true);
     }
 
     @Override
     public void injectKeyPress(XKeycode keycode, int unicodeChar) {
-        if (xServer != null && keycode != null) {
-            int k = keycode.id & 0xff;
-            xServer.sendKeyEvent(k, k, true);
-        }
+        injectKeyPress(keycode);
     }
 
     @Override
@@ -219,16 +219,18 @@ public class X11InputSender implements ILorieView {
 
     @Override
     public void injectKeyRelease(XKeycode keycode) {
-        if (xServer != null && keycode != null) {
+        if (xServer == null || keycode == null) return;
+        int scancode = xkeycodeToScancode(keycode);
+        if (scancode <= 0) {
             int k = keycode.id & 0xff;
             xServer.sendKeyEvent(k, k, false);
+            return;
         }
+        xServer.sendKeyEvent(scancode, scancode, false);
     }
 
     @Override
     public void injectText(String text) {
-        // InputStub 没有直接的 sendText 接口，termux-x11 内部是通过 injectKeyPress(unicode) 一字一字发。
-        // 这里保守起见：按字符逐个 sendKeyEvent，用 keysym 模式。
         if (xServer == null || text == null) return;
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
@@ -240,6 +242,135 @@ public class X11InputSender implements ILorieView {
 
     @Override
     public void refreshViewport() {
-        // 不需要做事
+    }
+
+    // ============= XKeycode -> PC AT Set 1 scancode 映射 =============
+
+    /**
+     * 把 XKeycode 转成 PC AT Set 1 scancode。
+     * XKeycode 的 id 是 termux-x11 内部 X11 keysym table 索引 (1..248), 跟 PC AT scancode 不是同一套。
+     * termux-x11 的 InputStub.sendKeyEvent 实际期望 PC AT scancode, 所以必须做映射。
+     * 参考 BF Binding.kt 提供的 scancode 数值体系。
+     */
+    private static int xkeycodeToScancode(XKeycode k) {
+        if (k == null) return 0;
+        switch (k) {
+            // 字母 A-Z (Set 1 scancode: 30..58 范围内, A=30, B=48, C=46, ...)
+            case KEY_A: return 30;
+            case KEY_B: return 48;
+            case KEY_C: return 46;
+            case KEY_D: return 32;
+            case KEY_E: return 18;
+            case KEY_F: return 33;
+            case KEY_G: return 34;
+            case KEY_H: return 35;
+            case KEY_I: return 23;
+            case KEY_J: return 36;
+            case KEY_K: return 37;
+            case KEY_L: return 38;
+            case KEY_M: return 50;
+            case KEY_N: return 49;
+            case KEY_O: return 24;
+            case KEY_P: return 25;
+            case KEY_Q: return 16;
+            case KEY_R: return 19;
+            case KEY_S: return 31;
+            case KEY_T: return 20;
+            case KEY_U: return 22;
+            case KEY_V: return 47;
+            case KEY_W: return 17;
+            case KEY_X: return 45;
+            case KEY_Y: return 21;
+            case KEY_Z: return 44;
+
+            // 数字 0-9
+            case KEY_0: return 11;
+            case KEY_1: return 2;
+            case KEY_2: return 3;
+            case KEY_3: return 4;
+            case KEY_4: return 5;
+            case KEY_5: return 6;
+            case KEY_6: return 7;
+            case KEY_7: return 8;
+            case KEY_8: return 9;
+            case KEY_9: return 10;
+
+            // 功能键
+            case KEY_ESC: return 1;
+            case KEY_TAB: return 15;
+            case KEY_SPACE: return 57;
+            case KEY_ENTER: return 28;
+            case KEY_BKSP: return 14;
+            case KEY_DEL: return 83;   // 注意：DEL 不是 BACKSPACE, scancode 不同
+            case KEY_INSERT: return 82;
+            case KEY_HOME: return 71;
+            case KEY_END: return 79;
+            case KEY_PRIOR: return 73;   // Page Up
+            case KEY_NEXT: return 81;    // Page Down
+            case KEY_UP: return 72;
+            case KEY_DOWN: return 80;
+            case KEY_LEFT: return 75;
+            case KEY_RIGHT: return 77;
+
+            // 修饰键
+            case KEY_SHIFT_L: return 42;
+            case KEY_SHIFT_R: return 54;
+            case KEY_CTRL_L: return 29;
+            case KEY_CTRL_R: return 97;
+            case KEY_ALT_L: return 56;
+            case KEY_ALT_R: return 100;
+            case KEY_CAPS_LOCK: return 58;
+            case KEY_NUM_LOCK: return 69;
+            case KEY_SCROLL_LOCK: return 70;
+            case KEY_PRTSCN: return 99;
+
+            // F1-F12
+            case KEY_F1: return 59;
+            case KEY_F2: return 60;
+            case KEY_F3: return 61;
+            case KEY_F4: return 62;
+            case KEY_F5: return 63;
+            case KEY_F6: return 64;
+            case KEY_F7: return 65;
+            case KEY_F8: return 66;
+            case KEY_F9: return 67;
+            case KEY_F10: return 68;
+            case KEY_F11: return 87;
+            case KEY_F12: return 88;
+
+            // 符号键
+            case KEY_MINUS: return 12;
+            case KEY_EQUAL: return 13;
+            case KEY_BRACKET_LEFT: return 26;
+            case KEY_BRACKET_RIGHT: return 27;
+            case KEY_BACKSLASH: return 43;
+            case KEY_SEMICOLON: return 39;
+            case KEY_APOSTROPHE: return 40;
+            case KEY_GRAVE: return 41;
+            case KEY_COMMA: return 51;
+            case KEY_PERIOD: return 52;
+            case KEY_SLASH: return 53;
+
+            // 小键盘
+            case KEY_KP_0: return 82;
+            case KEY_KP_1: return 79;
+            case KEY_KP_2: return 80;
+            case KEY_KP_3: return 81;
+            case KEY_KP_4: return 75;
+            case KEY_KP_5: return 76;
+            case KEY_KP_6: return 77;
+            case KEY_KP_7: return 71;
+            case KEY_KP_8: return 72;
+            case KEY_KP_9: return 73;
+            case KEY_KP_DEL: return 83;   // 小键盘小数点
+            case KEY_KP_ENTER: return 96;
+            case KEY_KP_DIVIDE: return 98;
+            case KEY_KP_ADD: return 78;
+            case KEY_KP_SUBTRACT: return 74;
+            case KEY_MAX: return 0;   // 这个是 alias 不用
+
+            default:
+                return 0;   // 找不到, 上层会 fallback 到 XKeycode.id
+        }
     }
 }
