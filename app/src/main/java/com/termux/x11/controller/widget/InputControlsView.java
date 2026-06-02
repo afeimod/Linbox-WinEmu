@@ -146,6 +146,11 @@ public class InputControlsView extends View {
             snappingSize = Math.max(1, Math.max(width, height) / 100);
         }
 
+        // 调用 updateControlLayoutGeometry 之前确保所有参数有效
+        if (controlLayoutWidth <= 0) controlLayoutWidth = width;
+        if (controlLayoutHeight <= 0) controlLayoutHeight = height;
+
+
         updateControlLayoutGeometry(width, height);
 
         readyToDraw = true;
@@ -206,8 +211,16 @@ public class InputControlsView extends View {
     private void ensureControlLayoutGeometry() {
         int width = getWidth();
         int height = getHeight();
-        if (width > 0 && height > 0)
+        if (width > 0 && height > 0) {
+            // 在更新几何布局前确保 snappingSize 有效
+            if (snappingSize <= 0) {
+                snappingSize = Math.max(1, Math.max(width, height) / 100);
+            }
+            // 调用 updateControlLayoutGeometry 之前确保所有参数有效
+            if (controlLayoutWidth <= 0) controlLayoutWidth = width;
+            if (controlLayoutHeight <= 0) controlLayoutHeight = height;
             updateControlLayoutGeometry(width, height);
+        }
     }
 
     private void applyControlLayoutTransform(Canvas canvas) {
@@ -216,18 +229,23 @@ public class InputControlsView extends View {
     }
 
     private float toControlLayoutX(float x) {
+        if (controlLayoutScale <= 0) return x;
         return (x - controlLayoutOffsetX) / controlLayoutScale;
     }
 
     private float toControlLayoutY(float y) {
+        if (controlLayoutScale <= 0) return y;
         return (y - controlLayoutOffsetY) / controlLayoutScale;
     }
 
     private float toViewX(float x) {
+        if (controlLayoutScale <= 0) return x;
         return x * controlLayoutScale + controlLayoutOffsetX;
     }
 
+
     private float toViewY(float y) {
+        if (controlLayoutScale <= 0) return y;
         return y * controlLayoutScale + controlLayoutOffsetY;
     }
 
