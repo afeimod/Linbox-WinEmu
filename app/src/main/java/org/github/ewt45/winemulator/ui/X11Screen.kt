@@ -97,6 +97,14 @@ fun X11Screen(
     val inputControlsView = remember {
         InputControlsView(context).apply {
             setEditMode(false)
+            // ★关键修复：把 x11InputSender 注入给 InputControlsView 作为 xServer。
+            // 旧版本从未调用 setXServer(...) ，导致 InputControlsView.handleInputEvent 在最开头
+            // if (xServer == null) return; 静默丢弃所有虚拟按键事件——所以之前按什么键都无效。
+            // x11InputSender 已经实现了 ILorieView，所有 injectXXX 委托给 InputStub.sendXXX，
+            // 按键 / 鼠标 / 滚轮 / 文本都会真正送到 X11。
+            // 注意：这里 setXServer(x11InputSender) 是预绑定；factory 拿到真正的 InputStub
+            // 完成 x11InputSender.initialize(...) 后，会再调一次 setXServer 确保转发生效。
+            setXServer(x11InputSender)
         }
     }
 
@@ -157,6 +165,11 @@ fun X11Screen(
                         // 在初始化后强制重置鼠标按钮状态，防止首次启动时鼠标卡在按下状态
                         x11InputSender.forceResetMouseButtons()
                         x11InputSender.setRenderData(renderData)
+                        // ★重新注入一次 xServer。setXServer 会重启 mouseMoveTimer（如果 profile 已加载），
+                        // 但 x11InputSender 实现的 ILorieView 是无状态转发，不需要 timer，所以这里
+                        // 主要是为了"在 InputStub 准备好之后再次确保虚拟按键转发链可用"，
+                        // 以防 InputControlsView 的 onTouchEvent 在 factory 执行前抢先触发。
+                        inputControlsView.setXServer(x11InputSender)
                         Log.d("X11Screen", "X11InputSender initialized with LorieView")
 
                         // 不再设置触摸监听器，因为 InputControlsView 会处理触摸事件
