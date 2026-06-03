@@ -24,7 +24,8 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:background="#FFFFFF" />
+            android:background="#FFFFFF"
+            android:entries="@array/binding_type_entries" />
 
         <Spinner
             android:id="@+id/SBinding"
