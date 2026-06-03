@@ -253,9 +253,20 @@ public class ControlsEditorActivity extends AppCompatActivity implements View.On
                 inputControlsView.invalidate();
             });
         } catch (Exception e) {
-            // 安全处理：如果加载视图失败，显示错误信息而不是崩溃
+            // 修复：e.getMessage() 对 NPE 而言一般是 null，之前只显示 "无法打开设置界面: null"
+            // 根本不知道是哪里 NPE。现在追加类名+stack trace前三行到 logcat 和 Toast。
             e.printStackTrace();
-            AppUtils.showToast(this, "无法打开设置界面: " + e.getMessage());
+            StringBuilder sb = new StringBuilder();
+            sb.append("无法打开设置界面: ").append(e.getClass().getSimpleName());
+            if (e.getMessage() != null) sb.append(": ").append(e.getMessage());
+            android.util.Log.e("ControlsEditor", sb.toString(), e);
+            // 只取前 3 帧 stack trace 拼到 toast 里，避免 toast 文字过长被裁
+            StackTraceElement[] st = e.getStackTrace();
+            int n = Math.min(3, st != null ? st.length : 0);
+            for (int i = 0; i < n; i++) {
+                sb.append("\n  at ").append(st[i].toString());
+            }
+            AppUtils.showToast(this, sb.toString());
         }
     }
 
