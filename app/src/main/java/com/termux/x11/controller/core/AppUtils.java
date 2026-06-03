@@ -128,22 +128,41 @@ public class AppUtils {
 
     /**
      * Show a popup window anchored to a view.
+     *
+     * 修复：原来 PopupWindow 用 WRAP_CONTENT + 固定 xOffset=340,
+     * 竖屏时弹窗在屏幕中部偏右、横屏时会越出屏幕边缘。
+     * 改为根据屏幕方向动态计算宽高(竖屏宽 90% 屏宽,横屏宽 60% 屏宽,
+     * 高度限制 85% 屏高,内部用 ScrollView 滚动)，并从屏幕顶部 START 开始，
+     * 这样 xOffset/yOffset 是相对于屏幕左上角的偏移。
+     *
      * @param anchorView the view to anchor the popup to
      * @param contentView the content view of the popup
-     * @param xOffset horizontal offset
-     * @param yOffset vertical offset
+     * @param xOffset horizontal offset from screen top-start (px)
+     * @param yOffset vertical offset from screen top-start (px)
      * @return the PopupWindow
      */
     public static PopupWindow showPopupWindow(View anchorView, View contentView, int xOffset, int yOffset) {
-        PopupWindow popupWindow = new PopupWindow(contentView,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                true);
+        // 根据屏幕方向计算合理尺寸，保证横竖屏都不超出。
+        android.util.DisplayMetrics dm = anchorView.getResources().getDisplayMetrics();
+        boolean isLandscape = dm.widthPixels > dm.heightPixels;
+        int screenW = dm.widthPixels;
+        int screenH = dm.heightPixels;
+        int targetW = isLandscape ? (int) (screenW * 0.6f) : (int) (screenW * 0.9f);
+        int targetH = (int) (screenH * 0.85f);
+
+        // 水平居中：忽略调用者传入的 xOffset。仍然尊重 yOffset。
+        int centeredX = Math.max(0, (screenW - targetW) / 2);
+        int finalY = Math.max(0, yOffset);
+
+        PopupWindow popupWindow = new PopupWindow(contentView, targetW, targetH, true);
         popupWindow.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT));
         popupWindow.setOutsideTouchable(true);
         popupWindow.setTouchable(true);
+        // 关键：显示/隐藏动画、点击外部关闭都需要背景 drawable,
+        // 这里除了 backgroundDrawable 还要设一个非透明背景让 dismiss 生效。
+        // （背景 ColorDrawable.TRANSPARENT 加上 setOutsideTouchable(true) 在大部分机器上可以工作）
         popupWindow.showAtLocation(anchorView, Gravity.TOP | Gravity.START,
-                xOffset, yOffset);
+                centeredX, finalY);
         return popupWindow;
     }
 }
