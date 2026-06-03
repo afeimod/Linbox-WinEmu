@@ -344,6 +344,9 @@ public class InputControlsView extends View {
             this.profile = profile;
             deselectAllElements();
         } else this.profile = null;
+        // 修复：切换 profile 后必须 invalidate,否则 onDraw 不会被调用,
+        // 新配置的虚拟按键要等系统下一次重绘(很晚)才显示——表现为"切换配置没立即刷新"。
+        invalidate();
     }
 
     public boolean isShowTouchscreenControls() {
@@ -352,6 +355,9 @@ public class InputControlsView extends View {
 
     public void setShowTouchscreenControls(boolean showTouchscreenControls) {
         this.showTouchscreenControls = showTouchscreenControls;
+        // 修复：切换显示开关后必须 invalidate,否则 onDraw 不会被调用,
+        // 虚拟按键的显示/隐藏要等系统下一次重绘才反映——表现为"开关没立即生效"。
+        invalidate();
     }
 
     public int getPrimaryColor() {
