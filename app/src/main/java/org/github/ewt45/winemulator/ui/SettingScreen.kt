@@ -86,7 +86,7 @@ fun SettingScreen(
         HorizontalDivider()
         X11Settings(settingVm)
         HorizontalDivider()
-        InputControlsSettings()
+        InputControlsSettings(settingViewModel = settingVm)
         HorizontalDivider()
         MiscSettings(navigateTo)
         Spacer(Modifier.height(16.dp))

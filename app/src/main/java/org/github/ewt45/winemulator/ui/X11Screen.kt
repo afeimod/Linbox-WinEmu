@@ -25,6 +25,7 @@ import com.termux.x11.controller.inputcontrols.X11InputSender
 import com.termux.x11.controller.inputcontrols.InputEventHandler
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel
 import kotlinx.coroutines.delay
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
  * X11 Screen composable that displays X11 content with virtual controls overlay
@@ -145,6 +146,26 @@ fun X11Screen(
         val newProfile = if (newProfileId != 0) manager.getProfile(newProfileId) else manager.getProfiles().firstOrNull()
         inputControlsView.setProfile(newProfile)
         Log.d("X11Screen", "refreshControlsImmediately: show=$newShowControls, profile=${newProfile?.name}")
+    }
+
+    // 事件驱动的即时刷新：监听 SettingViewModel 的虚拟按键变更事件。
+    // 修复关键点：在 InputControlsSettings / VirtualKeysSettingsPopup / 未来其他入口修改
+    // 虚拟按键 prefs 后，settingViewModel.notifyInputControlsChanged() 会加一这个 Flow。
+    // X11Screen 收到事件后立即调用 refreshControlsImmediately,不需要等 300ms 轮询。
+    // 同时也支持从 Settings 页面切回 X11 时跨页面通知(此时 X11Screen 重新进入 composition,
+    // LaunchedEffect(inputControlsChangeEvent) 会首次 collect 一次初始值,
+    // 但这可能不代表“变更”，所以 LaunchedEffect 里的“首次”会被下面的条件跳过)。
+    if (settingVm != null) {
+        val changeEvent by settingVm.inputControlsChangeEvent.collectAsStateWithLifecycle()
+        LaunchedEffect(changeEvent) {
+            // changeEvent == 0L 是初始状态，不是变更；如果 showTouchscreenControls 和
+            // currentProfileId 还没被使用过，LaunchedEffect 首次 collect 也会跳过。
+            // 为了万无一失，初始 0L 时不刷新（避免启动时无谓重画），只有真实变更才刷新。
+            if (changeEvent != 0L) {
+                Log.d("X11Screen", "inputControlsChangeEvent received, refreshing")
+                refreshControlsImmediately()
+            }
+        }
     }
 
     Box(Modifier.fillMaxSize()) {
