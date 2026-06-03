@@ -14,6 +14,9 @@ import androidx.preference.PreferenceManager
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Dispatchers.IO
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
@@ -146,6 +149,28 @@ class SettingViewModel : ViewModel() {
         )
     }
     val inputControlsState = stateInSimple(PrefInputControls_DEFAULT, inputControlsFlow)
+
+    /**
+     * 虚拟按键设置变更事件。
+     *
+     * 任何修改了虚拟按键相关 prefs（show_touchscreen_controls / SELECTED_PROFILE_ID 等）的入口
+     * （包括悬浮弹窗 VirtualKeysSettingsPopup 和设置页 InputControlsSettings）都必须调用
+     * [notifyInputControlsChanged] 把这个 Flow 加一，X11Screen 会在收到事件时强制重读 prefs
+     * 并刷新 InputControlsView。这是修复"选择配置/开关虚拟按键不立即生效"的关键。
+     */
+    private val _inputControlsChangeEvent = MutableStateFlow(0L)
+    val inputControlsChangeEvent: StateFlow<Long> = _inputControlsChangeEvent.asStateFlow()
+
+    /**
+     * 通知 X11Screen 虚拟按键相关设置已变更（新增/删除/选择/开关），需要立即刷新。
+     *
+     * 调用方应在修改完 SharedPreferences（prefs.edit()...apply()）之后立即调用本方法，
+     * 这样 X11Screen 的 LaunchedEffect 就能在同一帧内拉取最新 prefs 并刷新视图，
+     * 而不是依赖 300ms 轮询。
+     */
+    fun notifyInputControlsChanged() {
+        _inputControlsChangeEvent.value = System.nanoTime()
+    }
     
     // Theme设置
     val themeFlow = dataStore.data.map { pref ->
