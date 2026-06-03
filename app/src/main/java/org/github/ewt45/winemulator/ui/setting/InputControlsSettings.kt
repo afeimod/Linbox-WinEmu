@@ -28,6 +28,9 @@ import org.github.ewt45.winemulator.ui.components.rememberConfirmDialogState
 import org.github.ewt45.winemulator.ui.InputControlsFragment
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel
 import android.widget.Toast
+// linbox 的 R 类在 a.io.github.ewt45.winemulator 包下(来自 build.gradle 的 namespace),
+// 不是默认的 org.github.ewt45.winemulator.R,这里必须显式 import。
+import a.io.github.ewt45.winemulator.R
 
 /**
  * 虚拟按键设置（设置页面中嵌入的版本）
