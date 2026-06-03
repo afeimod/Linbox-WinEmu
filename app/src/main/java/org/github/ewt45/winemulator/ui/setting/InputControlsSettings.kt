@@ -26,11 +26,22 @@ import com.termux.x11.controller.inputcontrols.ControlElement
 import org.github.ewt45.winemulator.ui.components.ConfirmDialog
 import org.github.ewt45.winemulator.ui.components.rememberConfirmDialogState
 import org.github.ewt45.winemulator.ui.InputControlsFragment
+import org.github.ewt45.winemulator.viewmodel.SettingViewModel
+import android.widget.Toast
 
+/**
+ * 虚拟按键设置（设置页面中嵌入的版本）
+ *
+ * @param onSettingsChanged 任何会改虚拟按键 prefs 的操作完成后立即调用，X11Screen 收到后会强制重读 prefs 并刷新 InputControlsView。
+ *                           修复"选择配置/开关虚拟按键不立即生效"以及"从设置页返回游戏后不刷新"的问题。
+ * @param settingViewModel 可选。传入后会通过 VM 广播变更事件，用于在 SettingScreen ↔ X11Screen 跨页面时也生效。
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun InputControlsSettings(
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    onSettingsChanged: () -> Unit = {},
+    settingViewModel: SettingViewModel? = null,
 ) {
     val context = LocalContext.current
     val prefs = PreferenceManager.getDefaultSharedPreferences(context)
@@ -44,6 +55,20 @@ fun InputControlsSettings(
     var isControlsEnabled by remember { mutableStateOf(false) }
 
     val manager = remember { InputControlsManager(context) }
+
+    // 用于从 ControlsEditorActivity 返回时重载 profile 列表
+    val controlsEditorLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { _ ->
+        // 从编辑器返回后必须强制重载 profiles,否则新建/删除的按键不会反映到设置页面下拉框
+        manager.forceReloadProfiles()
+        profiles = manager.getProfiles()
+        val savedId = prefs.getInt(InputControlsFragment.SELECTED_PROFILE_ID, 0)
+        selectedProfile = if (savedId != 0) manager.getProfile(savedId) else null
+        // 修复：返回时也要通知 X11Screen 刷新
+        onSettingsChanged()
+        settingViewModel?.notifyInputControlsChanged()
+    }
 
     // 加载配置列表，并恢复上次选中的配置
     LaunchedEffect(Unit) {
@@ -147,6 +172,10 @@ fun InputControlsSettings(
                         isControlsEnabled = true
                         prefs.edit().putBoolean("show_touchscreen_controls", true).apply()
                     }
+                    // 修复：之前所有分支都没有通知 X11Screen,导致打开/关闭虚拟按键
+                    // 要等 300ms 轮询才发现 prefs 变化。现在 apply() 完成后立即通知。
+                    onSettingsChanged()
+                    settingViewModel?.notifyInputControlsChanged()
                 }
             )
         }
@@ -173,6 +202,9 @@ fun InputControlsSettings(
                     onCheckedChange = { show ->
                         showControls = show
                         prefs.edit().putBoolean("show_touchscreen_controls", show).apply()
+                        // 修复：同“启用虚拟按键”开关，必须立即通知
+                        onSettingsChanged()
+                        settingViewModel?.notifyInputControlsChanged()
                     }
                 )
             }
@@ -216,6 +248,10 @@ fun InputControlsSettings(
                                 selectedProfile = profile
                                 prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, profile.id).apply()
                                 expanded = false
+                                // 修复：之前这里只改 prefs 不通知 X11Screen,导致
+                                // "选完配置后游戏画面不立即刷新"；现在 apply 后立即通知。
+                                onSettingsChanged()
+                                settingViewModel?.notifyInputControlsChanged()
                             }
                         )
                     }
@@ -250,6 +286,10 @@ fun InputControlsSettings(
                                 } else {
                                     prefs.edit().remove(InputControlsFragment.SELECTED_PROFILE_ID).apply()
                                 }
+                                // 修复：删除配置后必须立即通知 X11Screen 刷新,否则
+                                // 游戏的 InputControlsView 仍持有已删除 profile 的引用
+                                onSettingsChanged()
+                                settingViewModel?.notifyInputControlsChanged()
                             }
                         },
                         modifier = Modifier.weight(1f)
@@ -267,6 +307,9 @@ fun InputControlsSettings(
                         selectedProfile = manager.duplicateProfile(profile)
                         profiles = manager.getProfiles()
                         prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, selectedProfile!!.id).apply()
+                        // 修复：复制配置后立即通知
+                        onSettingsChanged()
+                        settingViewModel?.notifyInputControlsChanged()
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -281,10 +324,18 @@ fun InputControlsSettings(
             // 编辑布局按钮
             Button(
                 onClick = {
-                    selectedProfile?.let { profile ->
+                    val profile = selectedProfile
+                    if (profile == null) {
+                        // 修复：如果未选中配置，点“编辑虚拟按键布局”应该提示用户，
+                        // 而不是静默无响应——之前是“虚拟按键布局里按键无法进入设置界面”的根因之一。
+                        Toast.makeText(context, R.string.no_profile_selected, Toast.LENGTH_SHORT).show()
+                    } else {
+                        // 修复：之前用 context.startActivity(intent) 直接启动，
+                        // 从 ControlsEditorActivity 返回后本页面的下拉框不会同步最新的按键数。
+                        // 改用 controlsEditorLauncher，回调里 forceReloadProfiles 并通知 X11Screen 刷新。
                         val intent = Intent(context, ControlsEditorActivity::class.java)
                         intent.putExtra(ControlsEditorActivity.EXTRA_PROFILE_ID, profile.id)
-                        context.startActivity(intent)
+                        controlsEditorLauncher.launch(intent)
                     }
                 },
                 modifier = Modifier.fillMaxWidth()
@@ -387,6 +438,9 @@ fun InputControlsSettings(
                             profiles = manager.getProfiles()
                             selectedProfile = newProfile
                             prefs.edit().putInt(InputControlsFragment.SELECTED_PROFILE_ID, newProfile.id).apply()
+                            // 修复：新建配置后立即通知 X11Screen 刷新
+                            onSettingsChanged()
+                            settingViewModel?.notifyInputControlsChanged()
                             showProfileDialog = false
                         }
                     }
