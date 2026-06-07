@@ -88,6 +88,10 @@ class X11InputSender {
         // 严格保证按下/释放配对, 按下 / 释放都进同一个 Handler 队列, 顺序 FIFO
         handler.post {
             val now = SystemClock.uptimeMillis()
+            // KeyEvent FLAG 说明:
+            //  - FLAG_KEEP_TOUCH_MODE (0x4) = API 5+, 告诉系统保持触摸模式, 防止弹起软键盘
+            //  - FLAG_FROM_SOURCE (0x1000000) = API 23+, 但 termux-x11 用的 android.jar
+            //    影子版本里解析不到, 这里就不用它, 避免 unresolved reference。
             val event = KeyEvent(
                 now,                                  // downTime
                 now,                                  // eventTime
@@ -96,8 +100,8 @@ class X11InputSender {
                 0,                                    // repeat
                 0,                                    // metaState
                 0,                                    // deviceId
-                scancode and 0xFF,                    // scanCode (PC AT Set 1)
-                KeyEvent.FLAG_FROM_SOURCE or KeyEvent.FLAG_KEEP_TOUCH_MODE
+                scancode and 0xFF,                    // scanCode (PC AT Set 1) - 关键
+                KeyEvent.FLAG_KEEP_TOUCH_MODE         // flags
             )
             sender.sendKeyEvent(event)
         }
