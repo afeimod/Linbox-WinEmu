@@ -1232,14 +1232,16 @@ class ControlElement(
                         }
                         setFlag(FLAG_SELECTED, selected)
                         touchTime = null
-                    } else if (!isFlagSet(FLAG_TOGGLE_SWITCH)) {
-                        // 非Toggle按钮：抬起时发送释放事件
+                    } else if (!isFlagSet(FLAG_TOGGLE_SWITCH) || isFlagSet(FLAG_SELECTED)) {
+                        // 修: 旧实现只对非Toggle按钮发释放, 漏了"toggle 且已 selected"这一支,
+                        // 导致用户第二次点击 toggle 按钮 (例如 Shift) 时 X server 端的按键
+                        // 永远不释放, 表现为 "卡住 shift / 卡住 ctrl"。
+                        // 跟 abc-fix handleTouchUp BUTTON 分支 !toggleSwitch || selected 对齐。
                         if (binding != Binding.NONE) {
                             inputControlsView.handleInputEvent(binding, false)
                         }
                     }
-                    // Toggle按钮：抬起时不发送释放事件（长按保持）
-
+                    // Toggle 状态翻转放到最后, 保证上面"已 selected 才发释放"读到的是本轮的状态
                     if (isFlagSet(FLAG_TOGGLE_SWITCH)) {
                         setFlag(FLAG_SELECTED, !selected)
                     }

@@ -130,6 +130,8 @@ class InputControlsView(context: Context?) : View(context) {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        // 修复: 兜底释放所有按下的虚拟按键, 防止"卡键" / "角色还在走"这种 bug
+        releaseAllPressedKeys()
         // 清理按键重复定时器资源，防止内存泄漏
         stopKeyRepeat()
         keyRepeatScheduler.shutdown()
@@ -873,11 +875,13 @@ class InputControlsView(context: Context?) : View(context) {
      */
     private fun onKeyRepeat() {
         val handler = inputEventHandler ?: return
-        
-        // 复制按键列表并过滤仍在pressedKeys中的按键
-        // 这样可以防止已释放的按键继续发送重复事件
-        val keysToRepeat = pressedKeys.filter { it in pressedKeys }
-        
+
+        // 修复: 旧实现 "pressedKeys.filter { it in pressedKeys }" 是个 no-op,
+        // 真实存在的"快照"应该是 .toList() 而不是 .filter。原先的注释说
+        // "防止已释放的按键继续发送重复事件", 实际靠的是 Handler.post 内部
+        // 的 contains 检查, 那个是有效的; 这里顺手把 toList 改对。
+        val keysToRepeat = pressedKeys.toList()
+
         // 发送到主线程处理
         Handler(Looper.getMainLooper()).post {
             for (binding in keysToRepeat) {
@@ -886,6 +890,30 @@ class InputControlsView(context: Context?) : View(context) {
                     handler.onKeyEvent(binding.toEvdev(), true)
                 }
             }
+        }
+    }
+
+    /**
+     * 释放所有按下的虚拟按键。
+     *
+     * 调用场景 (跟 abc-fix 的 forceResetMouseButtons 思路一致, 关键路径兜底):
+     * - 视图销毁 / 切到后台
+     * - 切 profile / 切显示开关
+     * - Activity onPause 期间手指还停在屏幕上
+     *
+     * 修这条之前, 上面这些情况都会留下"按下的虚拟键"在 X server 那边,
+     * 表现出来就是: 角色在 W 键卡住 / 鼠标左键吸住不松 / Shift 一直粘着。
+     */
+    fun releaseAllPressedKeys() {
+        val handler = inputEventHandler ?: return
+        if (pressedKeys.isEmpty()) return
+        // 复制一份再清, 避免迭代过程中修改集合
+        val toRelease = pressedKeys.toList()
+        pressedKeys.clear()
+        stopKeyRepeat()
+        for (binding in toRelease) {
+            // 跟正常释放走同一个出口, 走 InputEventHandler 转发
+            handler.onKeyEvent(binding.toEvdev(), false)
         }
     }
 
