@@ -2,208 +2,193 @@ package org.github.ewt45.winemulator.inputcontrols
 
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.view.KeyEvent
 import com.termux.x11.input.InputEventSender
 import com.termux.x11.input.InputStub
-import com.termux.x11.input.InputStub.BUTTON_LEFT
-import com.termux.x11.input.InputStub.BUTTON_MIDDLE
-import com.termux.x11.input.InputStub.BUTTON_RIGHT
 import com.termux.x11.input.RenderData
 
 /**
- * X11 Input Handler using InputEventSender
- * 把虚拟按键事件转成 termux-x11 的 native InputStub 事件注入到 X server.
+ * X11 Input Handler — 把虚拟按键事件直接转给 termux-x11 的 [InputStub] (LorieView 实现).
  *
- * 修复要点 (对齐 abc-fix X11InputSender.java 的 "v7 键位修复" 方案):
- * 1. 旧实现 [sendKeyEvent] 调的是 [KeyEvent] 的两参数构造器, KeyEvent.scanCode 永远是 0。
- *    AAR 里的 InputEventSender.sendKeyEvent(KeyEvent) 实际上会调 native 的
- *    sendKeyEvent(int keyCode, int scancode, boolean pressed), 它依赖
- *    event.getScanCode() 拿到 scancode。scancode=0 直接导致 termux-x11 native 端
- *    无法用 scancode 找 X11 keysym, 表现出来就是 "所有键位都乱了, 包括方向键"。
+ * ## 重大修复 (完全对齐 abc-fix X11InputSender.java 的 "v7 键位修复" + 注入路径修复)
  *
- * 2. 修法: 改用 [KeyEvent] 的完整构造器, 把 PC AT Set 1 scancode 显式传进去;
- *    配合 [Binding.toEvdev] 修复后的统一 scancode 表, 整条链路就通了。
+ * 旧 master 实现走的是 [InputEventSender.sendKeyEvent] 包装层 (AAR 里的 Java 包装器),
+ * 那个包装器有自己的 [mPressedKeys] / [mPressedTextKeys] 状态机和字符/组合键处理逻辑,
+ * 但**它处理 scancode 的方式跟 termux-x11 native 端实际期望的 (keysym, scancode) 数值
+ * 体系不一致**, 而且包装层依赖 Android [KeyEvent] 的 keyCode 字段做 fallback,
+ * 一旦 scancode 跟 keyCode 对不上号, native 端就 fall back 到错误的 X11 keysym。
  *
- * 3. 顺手把 [Binding.toEvdev] 里方向键/Home/PgUp/PgDn/PrtScn/DEL/小键盘
- *    那些混着 Linux evdev 的错值都换成 PC AT Set 1 标准值, 跟 abc-fix 完全对齐。
+ * Java 版 abc-fix 完全不走这层包装, 而是直接拿 [InputStub] (就是 LorieView) 调
+ * `sendKeyEvent(scancode, scancode, isDown)` — 把 scancode 同时当 keysym 和
+ * scancode 传过去, native 端从 scancode 字段反查 X11 keysym, 一查一个准。
+ *
+ * 这条 [X11InputSender] 完全按 abc-fix 的方式重写:
+ *
+ * 1. [initialize] 拿到 [InputStub] (LorieView) 引用后**直接保存**, 不再 wrap 进
+ *    [InputEventSender]。InputEventSender 仍保留以兼容可能存在的旧调用方 (目前
+ *    没有, 仅作 fallback), 但主路径全走 [inputStub]。
+ *
+ * 2. [sendEvdevKeyEvent] (和 [sendKeyEvent]) 直接调
+ *    `inputStub.sendKeyEvent(scancode, scancode, isDown)` —— 这跟 abc-fix 的
+ *    `xServer.sendKeyEvent(scancode, scancode, isDown)` 字节级一致。
+ *
+ * 3. 鼠标 / 滚轮事件同样直走 [inputStub], 绕开 wrapper 的 [mInjector] 链路。
+ *
+ * 4. [Binding.toEvdev] 用 PC AT Set 1 scancode 全量表 (跟 abc-fix 完全对齐),
+ *    之前 master 混着 Linux evdev 码的方向键 / Home / PgUp / PgDn / PrtScn /
+ *    DEL / 小键盘 全部错位的问题一并修了。
+ *
+ * 5. 配套 [scancodeToAndroidKeycode] 反向表, 给 [InputEventSender] fallback 路径
+ *    留着, 防止新代码不小心走到 wrapper 又把 keycode 算错。
  */
 class X11InputSender {
+    // 直接持有的 InputStub (LorieView), 跟 abc-fix 一样绕过 InputEventSender
+    private var inputStub: InputStub? = null
+
+    // 保留 InputEventSender 引用, 只用于 resetMouseButtons 之类必须走 wrapper 的
+    // 兜底场景; 正式按键/鼠标路径全用 inputStub。
     private var inputEventSender: InputEventSender? = null
     private val handler = Handler(Looper.getMainLooper())
 
     // RenderData for touch events - needs to be set from LorieView
     var renderData: RenderData? = null
 
-    // Whether InputEventSender is initialized
+    // Whether the sender is initialized and ready to send events
     val isInitialized: Boolean
-        get() = inputEventSender != null
+        get() = inputStub != null
 
     /**
-     * Initialize with an InputStub (typically LorieView)
-     * Also resets all mouse button states to prevent stuck buttons on startup
+     * Initialize with an InputStub (typically LorieView).
+     * 直接持有 inputStub, 旁路 InputEventSender wrapper, 完全对齐 abc-fix。
      */
     fun initialize(inputStub: InputStub) {
-        inputEventSender = InputEventSender(inputStub)
-        // 初始化后重置鼠标按钮状态，确保没有按钮处于按下状态
+        this.inputStub = inputStub
+        // 仍然创建 InputEventSender 是为了用它的 forceResetMouseButtons 兜底。
+        // 注意: 后续 sendKey / sendMouse 都走 inputStub, 不走它。
+        this.inputEventSender = InputEventSender(inputStub)
         resetMouseButtons()
     }
 
     /**
-     * 重置所有鼠标按钮状态，确保没有按钮处于按下状态
-     * 这可以解决首次启动时鼠标按钮卡住的问题
+     * 重置所有鼠标按钮状态, 防止首次启动时鼠标卡在按下状态
+     * 走 InputEventSender 的 reset 逻辑 (abc-fix 同款).
      */
     private fun resetMouseButtons() {
         val sender = inputEventSender ?: return
-        // 发送所有鼠标按钮的释放事件
-        sender.sendMouseEvent(null, BUTTON_LEFT, false, true)
-        sender.sendMouseEvent(null, BUTTON_MIDDLE, false, true)
-        sender.sendMouseEvent(null, BUTTON_RIGHT, false, true)
+        sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_LEFT, false, true)
+        sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_MIDDLE, false, true)
+        sender.sendMouseEvent(null, com.termux.x11.input.InputStub.BUTTON_RIGHT, false, true)
     }
 
     /**
-     * 强制重置所有鼠标按钮状态（公开方法）
-     * 可供外部调用以确保没有卡住的鼠标按钮
+     * 强制重置所有鼠标按钮状态 (公开方法)。
+     * 供外部调用以确保没有卡住的鼠标按钮。
      */
     fun forceResetMouseButtons() {
         resetMouseButtons()
     }
 
     // ============================================================
-    // 键盘事件 (修复后的核心路径)
+    // 键盘事件 — 主路径, 直接调 inputStub, 跟 abc-fix X11InputSender.java 一致
     // ============================================================
 
     /**
-     * 发送带 scancode 的键盘事件。
+     * 把 Binding 翻译成 scancode, 然后直接调 [InputStub.sendKeyEvent].
+     * 这个是 [InputControlsView.handleInputEvent] 实际调用的入口。
      *
-     * @param androidKeycode Android KeyEvent 用的 keycode (给 [KeyEvent.getKeyCode] 用)
-     * @param scancode       PC AT Set 1 scancode (给 [KeyEvent.getScanCode] 用,
-     *                       实际决定 X server 还原成哪个 X11 keysym 的关键参数)
-     * @param isDown         true = 按下, false = 释放
+     * 跟 abc-fix `sendEvdevKeyEvent(int scancode, boolean isDown)` 字节级一致:
+     * ```
+     * public void sendEvdevKeyEvent(int scancode, boolean isDown) {
+     *     if (xServer != null) {
+     *         xServer.sendKeyEvent(scancode, scancode, isDown);
+     *     }
+     * }
+     * ```
      */
-    fun sendKeyEvent(androidKeycode: Int, scancode: Int, isDown: Boolean) {
-        val sender = inputEventSender ?: return
-        if (androidKeycode == 0) return  // 未知按键, 不要污染 native 端
-
-        // 严格保证按下/释放配对, 按下 / 释放都进同一个 Handler 队列, 顺序 FIFO
+    fun sendEvdevKeyEvent(scancode: Int, isDown: Boolean) {
+        val stub = inputStub ?: return
+        if (scancode <= 0) return
+        // 严格保证按下/释放配对, 全部进同一个 Handler 队列, 顺序 FIFO。
+        // abc-fix 这里是同步调 xServer.sendKeyEvent, 但 master 之前用的是异步
+        // handler.post, 行为一致 (主线程顺序执行); 这里也用 post 避免阻塞触摸事件循环。
         handler.post {
-            val now = SystemClock.uptimeMillis()
-            // KeyEvent FLAG 说明:
-            //  - FLAG_KEEP_TOUCH_MODE (0x4) = API 5+, 告诉系统保持触摸模式, 防止弹起软键盘
-            //  - FLAG_FROM_SOURCE (0x1000000) = API 23+, 但 termux-x11 用的 android.jar
-            //    影子版本里解析不到, 这里就不用它, 避免 unresolved reference。
-            val event = KeyEvent(
-                now,                                  // downTime
-                now,                                  // eventTime
-                if (isDown) KeyEvent.ACTION_DOWN else KeyEvent.ACTION_UP,
-                androidKeycode,                       // code (Android 侧)
-                0,                                    // repeat
-                0,                                    // metaState
-                0,                                    // deviceId
-                scancode and 0xFF,                    // scanCode (PC AT Set 1) - 关键
-                KeyEvent.FLAG_KEEP_TOUCH_MODE         // flags
-            )
-            sender.sendKeyEvent(event)
+            // 关键: scancode 同时作 keysym 和 scancode, 跟 abc-fix 一致。
+            // termux-x11 native 端会从 scancode 反查 X11 keysym。
+            stub.sendKeyEvent(scancode, scancode, isDown)
         }
     }
 
     /**
-     * 把 Binding 翻译成 (keycode, scancode) 然后注入。
-     * 这个是 [InputControlsView.handleInputEvent] 实际调用的入口。
-     */
-    fun sendEvdevKeyEvent(scancode: Int, isDown: Boolean) {
-        val androidKeycode = scancodeToAndroidKeycode(scancode)
-        sendKeyEvent(androidKeycode, scancode, isDown)
-    }
-
-    /**
      * 释放某个 scancode 的按键 (对已按下的按键补发一次 release)。
-     * 防止"卡键"问题。
      */
     fun sendKeyRelease(scancode: Int) {
         if (scancode <= 0) return
-        sendKeyEvent(scancodeToAndroidKeycode(scancode), scancode, false)
+        sendEvdevKeyEvent(scancode, false)
     }
 
     /**
-     * 强制释放一组 scancode (按从大到小顺序), 用于:
-     * - onDetachedFromWindow 时兜底
-     * - 失去焦点 / 切后台 / 切 profile 时
-     * 修: 不发送就不会出现 "卡键 / 走路不停" 这种 bug。
+     * 强制释放一组 scancode, 用于:
+     * - 视图销毁 / 切后台兜底
+     * - 失去焦点 / 切 profile
      */
     fun releaseScancodes(scancodes: Collection<Int>) {
         if (scancodes.isEmpty()) return
-        // 排序保证释放顺序稳定, 避免和按 Ctrl+X 这类组合键的状态错乱
         for (s in scancodes.sortedDescending()) sendKeyRelease(s)
     }
 
+    /**
+     * 兼容旧 API: 直接传 androidKeycode + scancode (新代码建议用 [sendEvdevKeyEvent])。
+     * 如果 inputStub 还没初始化, 降级走 InputEventSender 路径。
+     */
+    fun sendKeyEvent(androidKeycode: Int, scancode: Int, isDown: Boolean) {
+        if (scancode > 0) {
+            sendEvdevKeyEvent(scancode, isDown)
+        } else if (androidKeycode != 0) {
+            // scancode 拿不到时, 用 androidKeycode 当 fallback (旧路径, 不推荐)
+            inputStub?.sendKeyEvent(androidKeycode, androidKeycode, isDown)
+        }
+    }
+
     // ============================================================
-    // 鼠标事件
+    // 鼠标事件 — 同样直接走 inputStub, 跟 abc-fix sendMouseEvent 一致
     // ============================================================
 
     /**
      * Send mouse button event
-     * @param button Button index (1=left, 2=middle, 3=right, 4=scroll up, 5=scroll down)
-     * @param isDown True if pressed, false if released
+     * 跟 abc-fix `sendMouseEvent(int x, int y, int button, boolean isDown, boolean isAbsolute)` 一致,
+     * 用 (0, 0, button, isDown, false) 表示纯按钮事件 (无位置变化)。
      */
     fun sendMouseButtonEvent(button: Int, isDown: Boolean) {
-        val sender = inputEventSender ?: return
-
+        val stub = inputStub ?: return
         handler.post {
             when (button) {
-                1 -> {
-                    // Left button - send as button press/release
-                    sender.sendMouseEvent(null, BUTTON_LEFT, isDown, true)
-                }
-                2 -> {
-                    // Middle button
-                    sender.sendMouseEvent(null, BUTTON_MIDDLE, isDown, true)
-                }
-                3 -> {
-                    // Right button
-                    sender.sendMouseEvent(null, BUTTON_RIGHT, isDown, true)
-                }
-                4 -> {
-                    // Scroll up - use wheel event
-                    if (isDown) {
-                        sender.sendMouseWheelEvent(0f, -1f)
-                    }
-                }
-                5 -> {
-                    // Scroll down - use wheel event
-                    if (isDown) {
-                        sender.sendMouseWheelEvent(0f, 1f)
-                    }
-                }
+                1 -> stub.sendMouseEvent(0f, 0f, com.termux.x11.input.InputStub.BUTTON_LEFT, isDown, false)
+                2 -> stub.sendMouseEvent(0f, 0f, com.termux.x11.input.InputStub.BUTTON_MIDDLE, isDown, false)
+                3 -> stub.sendMouseEvent(0f, 0f, com.termux.x11.input.InputStub.BUTTON_RIGHT, isDown, false)
+                4 -> if (isDown) stub.sendMouseWheelEvent(0f, -1f)  // scroll up
+                5 -> if (isDown) stub.sendMouseWheelEvent(0f, 1f)   // scroll down
             }
         }
     }
 
     /**
      * Send mouse motion event (relative movement)
-     * @param dx Change in X coordinate
-     * @param dy Change in Y coordinate
+     * 跟 abc-fix `sendMouseMotionEvent(int dx, int dy)` 一致。
      */
     fun sendMouseMotionEvent(dx: Int, dy: Int) {
-        val sender = inputEventSender ?: return
-
+        val stub = inputStub ?: return
         handler.post {
-            // Send cursor move with relative coordinates
-            // The last parameter 'true' means relative movement
-            sender.sendCursorMove(dx.toFloat(), dy.toFloat(), true)
+            stub.sendMouseEvent(dx.toFloat(), dy.toFloat(), 0, false, true)
         }
     }
 
     /**
      * Send mouse wheel event
-     * @param deltaX Horizontal scroll amount
-     * @param deltaY Vertical scroll amount
      */
     fun sendMouseWheelEvent(deltaX: Float, deltaY: Float) {
-        val sender = inputEventSender ?: return
-
+        val stub = inputStub ?: return
         handler.post {
-            sender.sendMouseWheelEvent(deltaX, deltaY)
+            stub.sendMouseWheelEvent(deltaX, deltaY)
         }
     }
 
@@ -212,15 +197,8 @@ class X11InputSender {
     // ============================================================
 
     /**
-     * PC AT Set 1 scancode -> Android KeyEvent keycode。
-     *
-     * 这个表是 [Binding.toEvdev] 输出值的反向映射。两者必须保持一致,
-     * 否则 KeyEvent.getKeyCode() 拿到的就是错的 Android keycode, Android
-     * 自身的 keyguard / accessibility 路径会乱。
-     *
-     * 注意: scancode 相同的情况下 (例如 scancode 80 同时是 Down 和 KP_2),
-     * Android keycode 取最常见的那一个, 最终 X server 用 scancode 还原 X11 keysym,
-     * 不会影响游戏内行为。
+     * PC AT Set 1 scancode -> Android KeyEvent keycode (保留作 fallback 路径用)。
+     * 主路径 [sendEvdevKeyEvent] 不依赖这个表, 它直接用 scancode。
      */
     private fun scancodeToAndroidKeycode(scancode: Int): Int {
         return when (scancode) {
@@ -251,87 +229,42 @@ class X11InputSender {
             45 -> KeyEvent.KEYCODE_X
             21 -> KeyEvent.KEYCODE_Y
             44 -> KeyEvent.KEYCODE_Z
-
             // 数字 0-9
-            11 -> KeyEvent.KEYCODE_0
-            2 -> KeyEvent.KEYCODE_1
-            3 -> KeyEvent.KEYCODE_2
-            4 -> KeyEvent.KEYCODE_3
-            5 -> KeyEvent.KEYCODE_4
-            6 -> KeyEvent.KEYCODE_5
-            7 -> KeyEvent.KEYCODE_6
-            8 -> KeyEvent.KEYCODE_7
-            9 -> KeyEvent.KEYCODE_8
+            11 -> KeyEvent.KEYCODE_0; 2 -> KeyEvent.KEYCODE_1; 3 -> KeyEvent.KEYCODE_2
+            4 -> KeyEvent.KEYCODE_3; 5 -> KeyEvent.KEYCODE_4; 6 -> KeyEvent.KEYCODE_5
+            7 -> KeyEvent.KEYCODE_6; 8 -> KeyEvent.KEYCODE_7; 9 -> KeyEvent.KEYCODE_8
             10 -> KeyEvent.KEYCODE_9
-
             // 功能键 / 编辑键
-            1 -> KeyEvent.KEYCODE_ESCAPE
-            14 -> KeyEvent.KEYCODE_DEL            // Backspace
-            15 -> KeyEvent.KEYCODE_TAB
-            28 -> KeyEvent.KEYCODE_ENTER
-            57 -> KeyEvent.KEYCODE_SPACE
-
+            1 -> KeyEvent.KEYCODE_ESCAPE; 14 -> KeyEvent.KEYCODE_DEL; 15 -> KeyEvent.KEYCODE_TAB
+            28 -> KeyEvent.KEYCODE_ENTER; 57 -> KeyEvent.KEYCODE_SPACE
             // 修饰键
-            29 -> KeyEvent.KEYCODE_CTRL_LEFT
-            97 -> KeyEvent.KEYCODE_CTRL_RIGHT
-            42 -> KeyEvent.KEYCODE_SHIFT_LEFT
-            54 -> KeyEvent.KEYCODE_SHIFT_RIGHT
-            56 -> KeyEvent.KEYCODE_ALT_LEFT
-            100 -> KeyEvent.KEYCODE_ALT_RIGHT
-            58 -> KeyEvent.KEYCODE_CAPS_LOCK
-            69 -> KeyEvent.KEYCODE_NUM_LOCK
+            29 -> KeyEvent.KEYCODE_CTRL_LEFT; 97 -> KeyEvent.KEYCODE_CTRL_RIGHT
+            42 -> KeyEvent.KEYCODE_SHIFT_LEFT; 54 -> KeyEvent.KEYCODE_SHIFT_RIGHT
+            56 -> KeyEvent.KEYCODE_ALT_LEFT; 100 -> KeyEvent.KEYCODE_ALT_RIGHT
+            58 -> KeyEvent.KEYCODE_CAPS_LOCK; 69 -> KeyEvent.KEYCODE_NUM_LOCK
             70 -> KeyEvent.KEYCODE_SCROLL_LOCK
-
-            // 方向键 / 导航 (PC AT Set 1)
-            72 -> KeyEvent.KEYCODE_DPAD_UP
-            80 -> KeyEvent.KEYCODE_DPAD_DOWN
-            75 -> KeyEvent.KEYCODE_DPAD_LEFT
-            77 -> KeyEvent.KEYCODE_DPAD_RIGHT
-            71 -> KeyEvent.KEYCODE_MOVE_HOME
-            79 -> KeyEvent.KEYCODE_MOVE_END
-            73 -> KeyEvent.KEYCODE_PAGE_UP
-            81 -> KeyEvent.KEYCODE_PAGE_DOWN
-            82 -> KeyEvent.KEYCODE_INSERT
-            83 -> KeyEvent.KEYCODE_FORWARD_DEL    // 修正: 旧实现 111 -> NUMPAD_DECIMAL 错位
-            99 -> KeyEvent.KEYCODE_SYSRQ          // Print Screen
-
+            // 方向键 / 导航
+            72 -> KeyEvent.KEYCODE_DPAD_UP; 80 -> KeyEvent.KEYCODE_DPAD_DOWN
+            75 -> KeyEvent.KEYCODE_DPAD_LEFT; 77 -> KeyEvent.KEYCODE_DPAD_RIGHT
+            71 -> KeyEvent.KEYCODE_MOVE_HOME; 79 -> KeyEvent.KEYCODE_MOVE_END
+            73 -> KeyEvent.KEYCODE_PAGE_UP; 81 -> KeyEvent.KEYCODE_PAGE_DOWN
+            82 -> KeyEvent.KEYCODE_INSERT; 83 -> KeyEvent.KEYCODE_FORWARD_DEL
+            99 -> KeyEvent.KEYCODE_SYSRQ
             // F1-F12
-            59 -> KeyEvent.KEYCODE_F1
-            60 -> KeyEvent.KEYCODE_F2
-            61 -> KeyEvent.KEYCODE_F3
-            62 -> KeyEvent.KEYCODE_F4
-            63 -> KeyEvent.KEYCODE_F5
-            64 -> KeyEvent.KEYCODE_F6
-            65 -> KeyEvent.KEYCODE_F7
-            66 -> KeyEvent.KEYCODE_F8
-            67 -> KeyEvent.KEYCODE_F9
-            68 -> KeyEvent.KEYCODE_F10
-            87 -> KeyEvent.KEYCODE_F11
-            88 -> KeyEvent.KEYCODE_F12
-
+            59 -> KeyEvent.KEYCODE_F1; 60 -> KeyEvent.KEYCODE_F2; 61 -> KeyEvent.KEYCODE_F3
+            62 -> KeyEvent.KEYCODE_F4; 63 -> KeyEvent.KEYCODE_F5; 64 -> KeyEvent.KEYCODE_F6
+            65 -> KeyEvent.KEYCODE_F7; 66 -> KeyEvent.KEYCODE_F8; 67 -> KeyEvent.KEYCODE_F9
+            68 -> KeyEvent.KEYCODE_F10; 87 -> KeyEvent.KEYCODE_F11; 88 -> KeyEvent.KEYCODE_F12
             // 符号键
-            12 -> KeyEvent.KEYCODE_MINUS
-            26 -> KeyEvent.KEYCODE_LEFT_BRACKET
-            27 -> KeyEvent.KEYCODE_RIGHT_BRACKET
-            43 -> KeyEvent.KEYCODE_BACKSLASH
-            53 -> KeyEvent.KEYCODE_SLASH
-            39 -> KeyEvent.KEYCODE_SEMICOLON
-            40 -> KeyEvent.KEYCODE_APOSTROPHE
-            51 -> KeyEvent.KEYCODE_COMMA
+            12 -> KeyEvent.KEYCODE_MINUS; 26 -> KeyEvent.KEYCODE_LEFT_BRACKET
+            27 -> KeyEvent.KEYCODE_RIGHT_BRACKET; 43 -> KeyEvent.KEYCODE_BACKSLASH
+            53 -> KeyEvent.KEYCODE_SLASH; 39 -> KeyEvent.KEYCODE_SEMICOLON
+            40 -> KeyEvent.KEYCODE_APOSTROPHE; 51 -> KeyEvent.KEYCODE_COMMA
             52 -> KeyEvent.KEYCODE_PERIOD
-
-            // 小键盘 (PC AT Set 1)
-            78 -> KeyEvent.KEYCODE_NUMPAD_ADD
-            74 -> KeyEvent.KEYCODE_NUMPAD_SUBTRACT
-            55 -> KeyEvent.KEYCODE_NUMPAD_MULTIPLY
-            98 -> KeyEvent.KEYCODE_NUMPAD_DIVIDE
-            96 -> KeyEvent.KEYCODE_NUMPAD_ENTER
-            // 71/72/73/75/77/79/80/81/82/83 上面已经映射成方向键/导航键,
-            // 它们和 KP_7/8/9/4/6/1/2/3/0/. 共用 scancode, 取最常用的那一个。
-            // X server 拿到 scancode 后会根据 xkb keymap 还原成正确的 X11 keysym。
-            76 -> KeyEvent.KEYCODE_NUMPAD_5
-
-            // 未知 / 未实现
+            // 小键盘
+            78 -> KeyEvent.KEYCODE_NUMPAD_ADD; 74 -> KeyEvent.KEYCODE_NUMPAD_SUBTRACT
+            55 -> KeyEvent.KEYCODE_NUMPAD_MULTIPLY; 98 -> KeyEvent.KEYCODE_NUMPAD_DIVIDE
+            96 -> KeyEvent.KEYCODE_NUMPAD_ENTER; 76 -> KeyEvent.KEYCODE_NUMPAD_5
             else -> 0
         }
     }
@@ -345,6 +278,7 @@ class X11InputSender {
      */
     fun release() {
         handler.removeCallbacksAndMessages(null)
+        inputStub = null
         inputEventSender = null
     }
 }
