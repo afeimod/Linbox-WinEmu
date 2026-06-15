@@ -144,59 +144,22 @@ enum class Binding {
     }
 
     /**
-     * Convert Binding to Linux evdev keycode
-     * This is needed because the X11InputSender expects evdev keycodes,
-     * but the XKeycode enum uses X11 keycode values.
+     * Convert Binding to PC AT Set 1 scancode.
+     *
+     * 历史背景 (参见 abc-fix X11InputSender.java 头部注释 "v7 键位修复"):
+     * 旧实现内部把 scancode 数值跟 Linux evdev 混着写, 字母数字侥幸一致,
+     * 但方向键 / Home / PgUp / PgDn / PrtScn / DEL / 小键盘 全部错位 (例如
+     * KEY_LEFT 返回 105 是 Linux evdev, 但走 X11 时是 PC AT 75)。
+     * 而且在 X11InputSender 那层只把 scancode 转成 Android keycode, 没有
+     * 透传到 KeyEvent.scanCode, 导致 termux-x11 native 端拿到的 scancode
+     * 永远是 0, 表现出来就是 "所有键位都乱了, 包括方向键"。
+     *
+     * 修法: 跟 abc-fix 保持一致, 用 PC AT Set 1 scancode 全量表, 保证
+     * termux-x11 native 端能从 scancode 直接还原出 X11 keysym。
      */
     fun toEvdev(): Int {
         return when (this) {
-            // Navigation cluster
-            KEY_UP -> 72
-            KEY_DOWN -> 80
-            KEY_LEFT -> 105
-            KEY_RIGHT -> 106
-            KEY_HOME -> 102
-            KEY_PRTSCN -> 127
-            KEY_PG_UP -> 112
-            KEY_PG_DOWN -> 117
-            
-            // Modifiers
-            KEY_CTRL_L -> 29
-            KEY_CTRL_R -> 97
-            KEY_SHIFT_L -> 42
-            KEY_SHIFT_R -> 54
-            KEY_ALT_L -> 56
-            KEY_ALT_R -> 100
-            
-            // Lock keys
-            KEY_CAPS_LOCK -> 58
-            KEY_NUM_LOCK -> 69
-            
-            // Special keys
-            KEY_ENTER -> 28
-            KEY_ESC -> 1
-            KEY_BKSP -> 14
-            KEY_DEL -> 111
-            KEY_TAB -> 15
-            KEY_SPACE -> 57
-            
-            // Numbers 1-9, 0
-            KEY_1 -> 2
-            KEY_2 -> 3
-            KEY_3 -> 4
-            KEY_4 -> 5
-            KEY_5 -> 6
-            KEY_6 -> 7
-            KEY_7 -> 8
-            KEY_8 -> 9
-            KEY_9 -> 10
-            KEY_0 -> 11
-            
-            // Operators
-            KEY_MINUS -> 12
-            KEY_KP_ADD -> 86
-            
-            // Letters A-Z
+            // ========== 字母 A-Z (PC AT Set 1) ==========
             KEY_A -> 30
             KEY_B -> 48
             KEY_C -> 46
@@ -223,18 +186,46 @@ enum class Binding {
             KEY_X -> 45
             KEY_Y -> 21
             KEY_Z -> 44
-            
-            // Symbols
-            KEY_BRACKET_LEFT -> 26
-            KEY_BRACKET_RIGHT -> 27
-            KEY_BACKSLASH -> 43
-            KEY_SLASH -> 53
-            KEY_SEMICOLON -> 39
-            KEY_COMMA -> 51
-            KEY_PERIOD -> 52
-            KEY_APOSTROPHE -> 40
-            
-            // Function keys F1-F12
+
+            // ========== 数字 0-9 (PC AT Set 1) ==========
+            KEY_0 -> 11
+            KEY_1 -> 2
+            KEY_2 -> 3
+            KEY_3 -> 4
+            KEY_4 -> 5
+            KEY_5 -> 6
+            KEY_6 -> 7
+            KEY_7 -> 8
+            KEY_8 -> 9
+            KEY_9 -> 10
+
+            // ========== 功能键 / 编辑键 ==========
+            KEY_ESC -> 1
+            KEY_TAB -> 15
+            KEY_SPACE -> 57
+            KEY_ENTER -> 28
+            KEY_BKSP -> 14
+            KEY_DEL -> 83           // 修正: 旧实现写 111 (Linux evdev) 是错的
+            KEY_HOME -> 71          // 修正: 旧实现写 102 (Linux evdev)
+            KEY_PG_UP -> 73         // 修正: 旧实现写 112 (Linux evdev, 112 实际是 KP_MINUS)
+            KEY_PG_DOWN -> 81       // 修正: 旧实现写 117 (Linux evdev, 117 实际是 KP_COMMA)
+            KEY_PRTSCN -> 99        // 修正: 旧实现写 127 (Linux evdev, 127 实际是 KEY_COMPOSE)
+            KEY_UP -> 72
+            KEY_DOWN -> 80
+            KEY_LEFT -> 75          // 修正: 旧实现写 105 (Linux evdev)
+            KEY_RIGHT -> 77         // 修正: 旧实现写 106 (Linux evdev)
+
+            // ========== 修饰键 ==========
+            KEY_SHIFT_L -> 42
+            KEY_SHIFT_R -> 54
+            KEY_CTRL_L -> 29
+            KEY_CTRL_R -> 97
+            KEY_ALT_L -> 56
+            KEY_ALT_R -> 100
+            KEY_CAPS_LOCK -> 58
+            KEY_NUM_LOCK -> 69
+
+            // ========== F1-F12 ==========
             KEY_F1 -> 59
             KEY_F2 -> 60
             KEY_F3 -> 61
@@ -247,20 +238,33 @@ enum class Binding {
             KEY_F10 -> 68
             KEY_F11 -> 87
             KEY_F12 -> 88
-            
-            // Numpad keys
-            KEY_KP_0 -> 90
-            KEY_KP_1 -> 87
-            KEY_KP_2 -> 88
-            KEY_KP_3 -> 89
-            KEY_KP_4 -> 83
-            KEY_KP_5 -> 84
-            KEY_KP_6 -> 85
-            KEY_KP_7 -> 79
-            KEY_KP_8 -> 80
-            KEY_KP_9 -> 81
-            
-            // None
+
+            // ========== 符号键 ==========
+            KEY_MINUS -> 12
+            KEY_BRACKET_LEFT -> 26
+            KEY_BRACKET_RIGHT -> 27
+            KEY_BACKSLASH -> 43
+            KEY_SLASH -> 53
+            KEY_SEMICOLON -> 39
+            KEY_COMMA -> 51
+            KEY_PERIOD -> 52
+            KEY_APOSTROPHE -> 40
+
+            // ========== 小键盘 (PC AT Set 1) ==========
+            // 旧实现这堆全部写错, 这里按 abc-fix 全部修正
+            KEY_KP_0 -> 82
+            KEY_KP_1 -> 79
+            KEY_KP_2 -> 80
+            KEY_KP_3 -> 81
+            KEY_KP_4 -> 75
+            KEY_KP_5 -> 76
+            KEY_KP_6 -> 77
+            KEY_KP_7 -> 71
+            KEY_KP_8 -> 72
+            KEY_KP_9 -> 73
+            KEY_KP_ADD -> 78        // 修正: 旧实现写 86
+
+            // None / Mouse / Gamepad: toEvdev() 不该被这些 binding 调用
             else -> 0
         }
     }
