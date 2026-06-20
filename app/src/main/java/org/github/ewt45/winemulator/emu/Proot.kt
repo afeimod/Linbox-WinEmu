@@ -148,21 +148,28 @@ class Proot {
 
                 val bridgeDir = File(tmpdir, "linbox-glibc")
                 bridgeDir.mkdirs()
-                val mode = when (Consts.Pref.glibc_bridge_mode.get()) {
-                    "unix_socket" -> GlibcWineBridge.Mode.UNIX_SOCKET
-                    "fifo" -> GlibcWineBridge.Mode.FIFO
-                    else -> GlibcWineBridge.Mode.AUTO
-                }
                 val bridge = GlibcWineBridge(
                     fs = imagefs,
                     launcher = launcher,
                     prootEndpointDir = bridgeDir,
-                    mode = mode
+                    mode = GlibcWineBridge.Mode.FIFO
                 )
-                bridge.start()
-                activeBridge = bridge
-                bridgeEndpoint = bridge.prootEndpoint
-                Log.i(TAG, "glibc-bridge started, endpoint=$bridgeEndpoint")
+                // Block until the fifos are created and the request loop is
+                // accepting. Without this, prootEndpoint could be empty when
+                // the sh script reads $LINBOX_GLIBC_ENDPOINT and end up using
+                // a default that points at a never-created socket/fifo.
+                val ok = bridge.start()
+                if (!ok) {
+                    Log.e(TAG, "bridge failed to start: ${bridge.startError()}")
+                } else {
+                    activeBridge = bridge
+                    // Use proot-internal paths (/tmp/linbox-glibc/in|/tmp/linbox-glibc/out)
+                    // because the sh script runs inside the proot container and
+                    // sees the bind-mounted dir at /tmp/linbox-glibc, not the
+                    // Android path /data/user/0/.../cache/tmp/linbox-glibc.
+                    bridgeEndpoint = "/tmp/linbox-glibc/linbox-bridge.in|/tmp/linbox-glibc/linbox-bridge.out"
+                    Log.i(TAG, "glibc-bridge started, endpoint=$bridgeEndpoint")
+                }
 
                 // 把 bridge 端点目录挂进 proot(FIFO 模式时需要,socket 模式只是保险)
                 prootCmd.add("--bind=${bridgeDir.absolutePath}:/tmp/linbox-glibc")
