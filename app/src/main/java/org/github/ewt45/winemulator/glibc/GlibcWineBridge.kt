@@ -148,38 +148,36 @@ class GlibcWineBridge(
         val req = File(prootEndpointDir, "linbox-bridge.in")
         val resp = File(prootEndpointDir, "linbox-bridge.out")
         listOf(req, resp).forEach { it.delete() }
-        // mkfifo via libc mknod syscalls. Android's java.io.File doesn't
-        // expose mkfifo; we need to either:
-        //   1. Runtime.exec("/system/bin/mkfifo", path)  — works on most
-        //      Android versions but is fragile;
-        //   2. android.system.Os.mknod(path, S_IFIFO|0o666, 0)  — clean,
-        //      but only available API 21+;
-        //   3. Use a small JNI helper.
-        // We try (2) first, fall back to (1).
-        try {
-            android.system.Os.mknod(req.absolutePath,
-                android.system.OsConstants.S_IFIFO or 0x1B6 /*0666*/, 0)
-            android.system.Os.mknod(resp.absolutePath,
-                android.system.OsConstants.S_IFIFO or 0x1B6, 0)
-        } catch (e: Exception) {
-            Log.w(TAG, "Os.mknod failed, trying Runtime.exec: ${e.message}")
-            try {
-                val p = Runtime.getRuntime().exec(arrayOf("sh", "-c",
-                    "cd '${prootEndpointDir.absolutePath}' && " +
-                    "rm -f '${req.name}' '${resp.name}' && " +
-                    "mkfifo -m 666 '${req.name}' '${resp.name}'"))
-                val code = p.waitFor()
-                if (code != 0) {
-                    Log.e(TAG, "mkfifo via sh exited with code=$code")
-                    return null
-                }
-            } catch (e2: Exception) {
-                Log.e(TAG, "mkfifo via sh also failed", e2)
+        // Android's android.system.Os does NOT expose mknod / mkfifo, and
+        // there's no public NDK helper. We shell out to /system/bin/mkfifo.
+        // Toybox / busybox on most Android versions provides mkfifo. The
+        // common failure mode is /system/bin/sh not being on PATH for the
+        // app process — we use the absolute path /system/bin/mkfifo which
+        // is on every Android 7+ device.
+        val mkfifo = try {
+            val p = ProcessBuilder("/system/bin/sh", "-c",
+                "rm -f '${req.absolutePath}' '${resp.absolutePath}' && " +
+                "/system/bin/mkfifo '${req.absolutePath}' && " +
+                "/system/bin/mkfifo '${resp.absolutePath}' && " +
+                "chmod 666 '${req.absolutePath}' '${resp.absolutePath}'")
+            p.environment()["HOME"] = prootEndpointDir.absolutePath
+            val proc = p.start()
+            val code = proc.waitFor()
+            if (code != 0) {
+                val err = proc.errorStream.bufferedReader().readText()
+                Log.e(TAG, "mkfifo failed code=$code err=$err")
                 return null
             }
+            code
+        } catch (e: Exception) {
+            Log.e(TAG, "mkfifo exception", e)
+            return null
         }
         // Sanity check.
-        if (!req.exists() || !resp.exists()) return null
+        if (!req.exists() || !resp.exists()) {
+            Log.e(TAG, "mkfifo returned ok but files don't exist (code=$mkfifo)")
+            return null
+        }
         return Pair(req, resp)
     }
 

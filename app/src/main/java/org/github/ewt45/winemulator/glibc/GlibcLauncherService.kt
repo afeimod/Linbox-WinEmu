@@ -63,12 +63,7 @@ class GlibcLauncherService : Service() {
 
         val bridgeDir = File(File(cacheDir, "tmp"), "linbox-glibc")
         bridgeDir.mkdirs()
-        val mode = when (modeStr) {
-            "unix_socket" -> GlibcWineBridge.Mode.UNIX_SOCKET
-            "fifo" -> GlibcWineBridge.Mode.FIFO
-            else -> GlibcWineBridge.Mode.AUTO
-        }
-        val b = GlibcWineBridge(fs, l, bridgeDir, mode = mode)
+        val b = GlibcWineBridge(fs, l, bridgeDir, mode = GlibcWineBridge.Mode.FIFO)
         b.start()
         bridge = b
     }
@@ -143,7 +138,7 @@ class GlibcLauncherService : Service() {
         launcher?.stop()
     }
 
-    fun bridgeStatus(): String = bridge?.prootEndpoint ?: "(not started)"
+    fun bridgeStatus(): String = bridge?.endpoint ?: "(not started)"
 
     companion object {
         const val EXTRA_GLIBC_ARGS = "glibc_args"
