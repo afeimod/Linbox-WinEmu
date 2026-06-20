@@ -161,6 +161,11 @@ class Proot {
                 val ok = bridge.start()
                 if (!ok) {
                     Log.e(TAG, "bridge failed to start: ${bridge.startError()}")
+                    // Bridge is dead — proot still starts, but glibc-run inside
+                    // proot will not work. Crucially, do NOT add a --bind line
+                    // pointing at the (possibly empty) bridgeDir, because proot
+                    // will fail to start when binding a non-existent path.
+                    bridge.stop()
                 } else {
                     activeBridge = bridge
                     // Use proot-internal paths (/tmp/linbox-glibc/in|/tmp/linbox-glibc/out)
@@ -169,10 +174,10 @@ class Proot {
                     // Android path /data/user/0/.../cache/tmp/linbox-glibc.
                     bridgeEndpoint = "/tmp/linbox-glibc/linbox-bridge.in|/tmp/linbox-glibc/linbox-bridge.out"
                     Log.i(TAG, "glibc-bridge started, endpoint=$bridgeEndpoint")
+                    // Only add the --bind if bridge actually started, so proot
+                    // doesn't see a missing dir.
+                    prootCmd.add("--bind=${bridgeDir.absolutePath}:/tmp/linbox-glibc")
                 }
-
-                // 把 bridge 端点目录挂进 proot(FIFO 模式时需要,socket 模式只是保险)
-                prootCmd.add("--bind=${bridgeDir.absolutePath}:/tmp/linbox-glibc")
             } catch (e: Exception) {
                 Log.e(TAG, "failed to start glibc-bridge (continuing without it)", e)
             }

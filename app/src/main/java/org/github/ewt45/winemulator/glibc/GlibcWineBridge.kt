@@ -148,37 +148,58 @@ class GlibcWineBridge(
         val req = File(prootEndpointDir, "linbox-bridge.in")
         val resp = File(prootEndpointDir, "linbox-bridge.out")
         listOf(req, resp).forEach { it.delete() }
-        // Android's android.system.Os does NOT expose mknod / mkfifo, and
-        // there's no public NDK helper. We shell out to /system/bin/mkfifo.
-        // Toybox / busybox on most Android versions provides mkfifo. The
-        // common failure mode is /system/bin/sh not being on PATH for the
-        // app process — we use the absolute path /system/bin/mkfifo which
-        // is on every Android 7+ device.
-        val mkfifo = try {
-            val p = ProcessBuilder("/system/bin/sh", "-c",
-                "rm -f '${req.absolutePath}' '${resp.absolutePath}' && " +
-                "/system/bin/mkfifo '${req.absolutePath}' && " +
-                "/system/bin/mkfifo '${resp.absolutePath}' && " +
-                "chmod 666 '${req.absolutePath}' '${resp.absolutePath}'")
-            p.environment()["HOME"] = prootEndpointDir.absolutePath
-            val proc = p.start()
-            val code = proc.waitFor()
-            if (code != 0) {
-                val err = proc.errorStream.bufferedReader().readText()
-                Log.e(TAG, "mkfifo failed code=$code err=$err")
-                return null
+
+        // Try a few mkfifo strategies. Android's android.system.Os does NOT
+        // expose mknod. /system/bin/mkfifo works on most Android versions but
+        // is sometimes stripped (Android 14+ GKI in some profiles). The
+        // fallback opens an FD pair via a Java-only path? There isn't one
+        // for fifos in pure Java — we have to delegate to /system/bin/sh.
+        // If every fallback fails, the caller is told so and the proot
+        // command line is built WITHOUT the --bind so proot still starts.
+        val attempts = listOf(
+            "/system/bin/mkfifo -m 666 '${req.absolutePath}' '${resp.absolutePath}'",
+            "/vendor/bin/mkfifo -m 666 '${req.absolutePath}' '${resp.absolutePath}'",
+            "/system/bin/toolbox mkfifo '${req.absolutePath}' '${resp.absolutePath}'",
+            "which mkfifo && mkfifo -m 666 '${req.absolutePath}' '${resp.absolutePath}'"
+        )
+        var lastErr = "(no attempt)"
+        for (cmd in attempts) {
+            try {
+                val p = ProcessBuilder("/system/bin/sh", "-c",
+                    "rm -f '${req.absolutePath}' '${resp.absolutePath}'; $cmd")
+                val proc = p.start()
+                val code = proc.waitFor()
+                if (code == 0 && req.exists() && resp.exists()) {
+                    Log.i(TAG, "mkfifo via '$cmd' succeeded")
+                    // chmod 666 (defensive, in case -m wasn't honored)
+                    runCatching {
+                        android.system.Os.chmod(req.absolutePath, 0x1B6)
+                        android.system.Os.chmod(resp.absolutePath, 0x1B6)
+                    }
+                    return Pair(req, resp)
+                }
+                lastErr = "code=$code"
+                Log.w(TAG, "mkfifo attempt '$cmd' failed: $lastErr")
+            } catch (e: Exception) {
+                lastErr = "${e.javaClass.simpleName}: ${e.message}"
+                Log.w(TAG, "mkfifo attempt '$cmd' threw: $lastErr")
             }
-            code
+        }
+        Log.e(TAG, "all mkfifo attempts failed; lastErr=$lastErr")
+        // Last-ditch: drop plain files in so the bind still has something
+        // (proot won't crash on bind; glibc-run will just see "not a fifo").
+        // Better than proot dying.
+        try {
+            req.createNewFile()
+            resp.createNewFile()
+            android.system.Os.chmod(req.absolutePath, 0x1B6)
+            android.system.Os.chmod(resp.absolutePath, 0x1B6)
+            Log.w(TAG, "fallback: created plain files (not real fifos); glibc-run will not work")
+            return Pair(req, resp)
         } catch (e: Exception) {
-            Log.e(TAG, "mkfifo exception", e)
+            Log.e(TAG, "fallback createNewFile also failed", e)
             return null
         }
-        // Sanity check.
-        if (!req.exists() || !resp.exists()) {
-            Log.e(TAG, "mkfifo returned ok but files don't exist (code=$mkfifo)")
-            return null
-        }
-        return Pair(req, resp)
     }
 
     /**
