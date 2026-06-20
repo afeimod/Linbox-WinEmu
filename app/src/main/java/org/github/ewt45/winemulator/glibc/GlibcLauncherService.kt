@@ -78,7 +78,8 @@ class GlibcLauncherService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startInForeground()
         intent?.getStringExtra(EXTRA_GLIBC_ARGS)?.let { args ->
-            val fs = launcher?.fs() ?: return@let
+            val l = launcher ?: return@let
+            val fs = l.fs()
             // Prefer drive_c if WINEPREFIX has been initialised; fall back to
             // the prefix root or fs.root so first-launch works.
             val driveC = File(fs.winePrefixDir, "drive_c")
@@ -87,7 +88,7 @@ class GlibcLauncherService : Service() {
                 fs.winePrefixDir.isDirectory -> fs.winePrefixDir
                 else -> fs.root
             }
-            val pid = launcher.launch(
+            val pid = l.launch(
                 args = args,
                 workingDir = cwd,
                 logFilePath = File(File(cacheDir, "tmp"), "linbox-glibc/wine.log").absolutePath
