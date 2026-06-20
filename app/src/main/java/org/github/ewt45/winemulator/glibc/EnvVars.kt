@@ -7,10 +7,16 @@ import java.util.LinkedHashMap
  *
  * Mirrors the winlator-glibc EnvVars.java semantics:
  *  - put(k, v) replaces existing value
- *  - putAll(other) copies entries from another EnvVars / Map
+ *  - mergeAll(other) copies entries from another EnvVars / Map
  *  - toStringArray() returns the envp array used by ProcessBuilder / execve
  *
  * LinkedHashMap is used so the output is deterministic (helps for log diffing).
+ *
+ * Note: we deliberately do NOT override `putAll(Map)` because the inherited
+ * signature from HashMap is `putAll(Map<out String, out String>)` and at the
+ * JVM bytecode level both signatures erase to `putAll(Map)`, which the Kotlin
+ * compiler flags as an "accidental override". Callers should use [mergeAll]
+ * or the inherited `putAll` directly.
  */
 class EnvVars : LinkedHashMap<String, String>() {
 
@@ -21,7 +27,8 @@ class EnvVars : LinkedHashMap<String, String>() {
         return super.put(k, v)
     }
 
-    fun putAll(other: Map<String, String>) {
+    /** Copy entries from another map into this one. */
+    fun mergeAll(other: Map<String, String>) {
         for ((k, v) in other) put(k, v)
     }
 

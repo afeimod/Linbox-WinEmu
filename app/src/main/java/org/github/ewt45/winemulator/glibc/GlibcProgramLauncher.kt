@@ -71,7 +71,7 @@ class GlibcProgramLauncher(
         env.put("BOX64_DYNAREC", "1")
         env.put("BOX64_MMAP32", "1")
         val preset = Box64Preset.fromKey(currentPresetKey)
-        env.putAll(preset.env)
+        env.mergeAll(preset.env)
 
         // X11 / locale / wine runtime
         env.put("HOME", fs.homeDir.absolutePath)
@@ -108,7 +108,7 @@ class GlibcProgramLauncher(
         val sysvshm = File(fs.libDir, "libandroid-sysvshm.so")
         if (sysvshm.exists()) env.put("LD_PRELOAD", "libandroid-sysvshm.so")
 
-        if (extraEnv != null) env.putAll(extraEnv)
+        if (extraEnv != null) env.mergeAll(extraEnv)
         return env
     }
 
