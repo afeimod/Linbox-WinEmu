@@ -73,15 +73,16 @@ object ProcessHelper {
         Log.d(TAG, "exec cmd=$cmdStr cwd=$workingDir env=${envp?.size ?: 0}")
         var pid = -1
         try {
-            val pb = ProcessBuilder(cmd)
+            val pb = ProcessBuilder(*cmd)
             if (workingDir != null) pb.directory(workingDir)
             if (envp != null) {
                 // ProcessBuilder.environment() merges with inherited env, which we don't want.
                 // Clear and re-populate to get an exact envp.
-                pb.environment().clear()
+                val env = pb.environment()
+                env.clear()
                 for (kv in envp) {
                     val idx = kv.indexOf('=')
-                    if (idx > 0) pb.environment()[kv.substring(0, idx)] = kv.substring(idx + 1)
+                    if (idx > 0) env[kv.substring(0, idx)] = kv.substring(idx + 1)
                 }
             }
             val proc = pb.redirectErrorStream(true).start()

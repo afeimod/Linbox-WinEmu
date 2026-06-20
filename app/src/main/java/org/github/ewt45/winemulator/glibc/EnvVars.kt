@@ -14,11 +14,11 @@ import java.util.LinkedHashMap
  */
 class EnvVars : LinkedHashMap<String, String>() {
 
-    fun put(k: String, v: String) {
+    override fun put(k: String, v: String): String? {
         if (k.contains("=")) {
             throw IllegalArgumentException("env key must not contain '=': $k")
         }
-        super.put(k, v)
+        return super.put(k, v)
     }
 
     fun putAll(other: Map<String, String>) {

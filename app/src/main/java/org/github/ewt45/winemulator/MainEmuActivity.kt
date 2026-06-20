@@ -209,6 +209,7 @@ class MainEmuActivity : MainActivity() {
         // 清理 glibc-bridge
         org.github.ewt45.winemulator.emu.Proot.activeBridge?.stop()
         org.github.ewt45.winemulator.emu.Proot.activeBridge = null
+        org.github.ewt45.winemulator.emu.Proot.currentProotContext = null
         stopService(startX11Intent)
         // FIXME 目前release构建 finish 无法结束 service 进程 导致下次启动 xserver启动失败。需要手动强制结束进程
         android.os.Process.killProcess(getX11ServicePid())

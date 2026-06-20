@@ -12,7 +12,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.github.ewt45.winemulator.Consts
-import org.github.ewt45.winemulator.R
+import a.io.github.ewt45.winemulator.R
 import java.io.File
 
 /**
@@ -78,11 +78,20 @@ class GlibcLauncherService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         startInForeground()
         intent?.getStringExtra(EXTRA_GLIBC_ARGS)?.let { args ->
-            val pid = launcher?.launch(
+            val fs = launcher?.fs() ?: return@let
+            // Prefer drive_c if WINEPREFIX has been initialised; fall back to
+            // the prefix root or fs.root so first-launch works.
+            val driveC = File(fs.winePrefixDir, "drive_c")
+            val cwd = when {
+                driveC.isDirectory -> driveC
+                fs.winePrefixDir.isDirectory -> fs.winePrefixDir
+                else -> fs.root
+            }
+            val pid = launcher.launch(
                 args = args,
-                workingDir = File(launcher!!.fs().winePrefixDir, "drive_c"),
+                workingDir = cwd,
                 logFilePath = File(File(cacheDir, "tmp"), "linbox-glibc/wine.log").absolutePath
-            ) ?: -1
+            )
             Log.i(TAG, "launched wine, pid=$pid, args=$args")
         }
         return START_STICKY
@@ -118,7 +127,13 @@ class GlibcLauncherService : Service() {
     /** Public API for UI to start a wine command. Returns the pid or -1. */
     fun launch(args: String, workingDir: File? = null, logFile: String? = null): Int {
         val l = launcher ?: return -1
-        val wd = workingDir ?: File(l.fs().winePrefixDir, "drive_c")
+        val fs = l.fs()
+        val driveC = File(fs.winePrefixDir, "drive_c")
+        val wd = workingDir ?: when {
+            driveC.isDirectory -> driveC
+            fs.winePrefixDir.isDirectory -> fs.winePrefixDir
+            else -> fs.root
+        }
         val log = logFile ?: File(File(cacheDir, "tmp"), "linbox-glibc/wine.log").absolutePath
         return l.launch(args, workingDir = wd, logFilePath = log)
     }

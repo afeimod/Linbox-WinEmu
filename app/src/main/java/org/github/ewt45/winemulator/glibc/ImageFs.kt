@@ -47,13 +47,15 @@ class ImageFs private constructor(private val rootDir: File) {
     val wineBinDir: File get() = File(wineDir, "bin")
     val wineLibDir: File get() = File(wineDir, "lib")
     val wineLib64Dir: File get() = File(wineDir, "lib64")
-    val wineDllDir: File get() = File(wineLibDir, "wine")
-        get() {
-            // winlator resolution order: lib/wine/ first, then lib64/wine/
-            val p = field
-            if (p.exists()) return p
-            return File(wineLib64Dir, "wine")
-        }
+    /**
+     * Resolve the wine PE module dir.
+     * winlator resolution order: lib/wine/ first, then lib64/wine/.
+     */
+    fun wineDllDir(): File {
+        val primary = File(wineLibDir, "wine")
+        if (primary.exists()) return primary
+        return File(wineLib64Dir, "wine")
+    }
     val homeDir: File get() = File(rootDir, "home/xuser")
     val winePrefixDir: File get() = File(homeDir, ".wine")
     val box64Bin: File get() = File(localBinDir, "box64")

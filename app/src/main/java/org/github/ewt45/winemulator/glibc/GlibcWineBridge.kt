@@ -5,7 +5,6 @@ import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
-import java.net.ServerSocket
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.Executors
 
@@ -46,7 +45,7 @@ class GlibcWineBridge(
     enum class Mode { AUTO, UNIX_SOCKET, FIFO }
 
     private val TAG = "GlibcBridge"
-    @Volatile private var server: ServerSocket? = null
+    @Volatile private var server: android.net.LocalServerSocket? = null
     @Volatile private var running: Boolean = false
     private val jobs = ConcurrentHashMap<String, JobState>()
 
@@ -87,22 +86,10 @@ class GlibcWineBridge(
         val sockFile = File(prootEndpointDir, "linbox-bridge.sock")
         sockFile.delete()
         Executors.newSingleThreadExecutor().execute {
-            try {
-                val srv = ServerSocket(0, 50,
-                        java.net.InetSocketAddress(java.net.InetAddress.getByName("127.0.0.1"), 0).address.let {
-                            // ServerSocket(AF_UNIX) isn't directly available on Android;
-                            // use the loopback abstract namespace via /dev/socket
-                            // — actually we use a localhost TCP socket as fallback.
-                            // Real AF_UNIX support is in LocalServerSocket (API 24+).
-                            it
-                        })
-                Log.e(TAG, "fallback TCP server in use — UNEXPECTED")
-                srv.close()
-            } catch (e: Exception) {
-                Log.d(TAG, "TCP fallback not taken", e)
-            }
-
-            // Real implementation: LocalServerSocket on the abstract namespace
+            // Real implementation: LocalServerSocket on the abstract namespace.
+            // (java.net.ServerSocket is for TCP only — AF_UNIX isn't in the
+            //  public JDK on Android. LocalServerSocket uses the Android-specific
+            //  abstract namespace that proot can see via socat - UNIX-CONNECT:abstract:NAME.)
             try {
                 val localSrv = android.net.LocalServerSocket("linbox-glibc-bridge")
                 server = localSrv
@@ -140,8 +127,8 @@ class GlibcWineBridge(
         Executors.newSingleThreadExecutor().execute {
             try {
                 // Open response first to avoid blocking on the read side
-                val respOut = respFifo.outputStream().buffered()
-                val reqIn = reqFifo.inputStream().bufferedReader()
+                val respOut = respFifo.outputStream()
+                val reqIn = reqFifo.inputStream()
                 handleClient(reqIn, respOut)
             } catch (e: Exception) {
                 Log.e(TAG, "fifo loop crashed", e)
@@ -150,7 +137,7 @@ class GlibcWineBridge(
     }
 
     private fun acceptLoop(handle: (android.net.LocalSocket) -> Unit) {
-        val srv = server as? android.net.LocalServerSocket ?: return
+        val srv = server ?: return
         while (running) {
             val client = try { srv.accept() } catch (e: Exception) { break }
             Executors.newSingleThreadExecutor().execute { runCatching { handle(client) } }

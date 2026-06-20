@@ -88,7 +88,7 @@ class GlibcProgramLauncher(
         ldPath.append("${fs.wineLibDir.absolutePath}:")
         ldPath.append("${fs.libDir.absolutePath}:")
         // WINEDLLPATH — wine's PE unixlibs
-        val wineDll = fs.wineDllDir
+        val wineDll = fs.wineDllDir()
         if (wineDll.exists()) env.put("WINEDLLPATH", wineDll.absolutePath)
         env.put("LD_LIBRARY_PATH", ldPath.toString())
         // BOX64_LD_LIBRARY_PATH — what box64 itself uses to resolve x86_64 NEEDED

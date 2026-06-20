@@ -43,62 +43,19 @@ class Proot {
         /** 当前活跃的 glibc-bridge 实例。由 [attach] 设置,Activity onDestroy 时清理。 */
         @Volatile var activeBridge: GlibcWineBridge? = null
 
-        /** glibc-run 桥脚本内容(嵌入在代码里,启动 proot 时写到 rootfs)。 */
-        val GLIBC_RUN_SH: String = """
-            #!/bin/sh
-            # /usr/local/bin/glibc-run — invoked inside the proot container.
-            # Forwards a wine command to the Android-side GlibcWineBridge.
-            set -e
-            ENDPOINT="${'$'}{LINBOX_GLIBC_ENDPOINT:-abstract:linbox-glibc-bridge}"
-            KEY="glibc-${'$'}{$}-$(date +%s%N)"
-            if [ "$#" -eq 0 ]; then
-                echo "usage: $0 <wine-args...>" >&2
-                exit 2
-            fi
-            PAYLOAD="EXEC	${'$'}{KEY}	${'$'}{*}"
-            USE_SOCKET=0
-            case "$ENDPOINT" in
-                abstract:*|/*)
-                    if command -v socat >/dev/null 2>&1; then USE_SOCKET=1
-                    elif command -v ncat >/dev/null 2>&1; then USE_SOCKET=1
-                    fi
-                    ;;
-            esac
-            if [ "$USE_SOCKET" -eq 1 ]; then
-                SOCK="$ENDPOINT"
-                case "$SOCK" in abstract:*) SOCK="abstract:${'$'}{SOCK#abstract:}";; esac
-                if command -v socat >/dev/null 2>&1; then
-                    printf '%s\n' "$PAYLOAD" | socat - "UNIX-CONNECT:$SOCK"
-                    exit ${'$'}?
-                fi
-                if command -v ncat >/dev/null 2>&1; then
-                    printf '%s\n' "$PAYLOAD" | ncat -U -- "$SOCK"
-                    exit ${'$'}?
-                fi
-                echo "no socat/ncat available" >&2
-                exit 3
-            fi
-            IN_FIFO="${'$'}{ENDPOINT%|*}"
-            OUT_FIFO="${'$'}{ENDPOINT#*|}"
-            exec 3>"$OUT_FIFO"
-            exec 4<"$IN_FIFO"
-            printf '%s\n' "$PAYLOAD" >&4
-            EXIT_CODE=0
-            while IFS= read -r line <&4; do
-                verb=$(printf '%s' "$line" | cut -f1)
-                rest=$(printf '%s' "$line" | cut -f3-)
-                case "$verb" in
-                    OK)  : ;;
-                    OUT) printf '%s\n' "$rest" ;;
-                    END) EXIT_CODE="$rest"; break ;;
-                    ERR) printf 'ERROR: %s\n' "$rest" >&2; EXIT_CODE=1; break ;;
-                    *)   printf '%s\n' "$line" ;;
-                esac
-            done
-            exec 4<&-
-            exec 3>&-
-            exit "$EXIT_CODE"
-        """.trimIndent()
+        /**
+         * Tracks the Context used to launch proot, so [installGlibcRunSh]
+         * can read the glibc-run.sh asset. Set by [attach]; cleared in
+         * onDestroy by MainEmuActivity.
+         */
+        @Volatile var currentProotContext: android.content.Context? = null
+
+        /**
+         * glibc-run 桥脚本,存在 APK assets 里 (assets/glibc-bridge/glibc-run.sh)。
+         * 启动 proot 时会从 assets 读出来写到 rootfs/usr/local/bin/glibc-run。
+         * 这个独立 sh 文件容易修改和调试，避免把 shell 代码嵌进 Kotlin。
+         */
+        const val GLIBC_RUN_ASSET_PATH = "glibc-bridge/glibc-run.sh"
     }
 
     /**
@@ -118,9 +75,11 @@ class Proot {
         return@withContext attachInternal(ctx)
     }
 
-    private fun attachInternal(ctx: Context?): ProcessBuilder {
+    private suspend fun attachInternal(ctx: Context?): ProcessBuilder {
         val rootfs = Consts.rootfsCurrDir
         val tmpdir = Consts.tmpDir
+        // Set the context so installGlibcRunSh can read the asset.
+        currentProotContext = ctx
         val lang = Consts.Pref.general_rootfs_lang.get()
 
         rootfsCurrL2sDir.mkdirs()
@@ -254,15 +213,19 @@ class Proot {
     }
 
     /**
-     * 把 glibc-run sh 脚本写到 rootfs/usr/local/bin/,只在文件长度变化时
-     * 才重写,避免每次启动都改时间戳触发 rootfs 同步。
+     * 把 glibc-run sh 脚本从 APK assets 写到 rootfs/usr/local/bin/。
+     * 只在文件内容变化时才重写,避免每次启动都改时间戳触发 rootfs 同步。
      */
     private fun installGlibcRunSh(rootfs: File) {
         try {
             val target = File(rootfs, "usr/local/bin/glibc-run")
-            if (target.exists() && target.length() == GLIBC_RUN_SH.length.toLong()) return
             target.parentFile?.mkdirs()
-            target.writeText(GLIBC_RUN_SH, Charsets.UTF_8)
+            // Read from the current process's assets; if not available (called
+            // from a non-Context thread), fall back to skipping install.
+            val ctx = currentProotContext ?: return
+            val content = ctx.assets.open(GLIBC_RUN_ASSET_PATH).use { it.readBytes() }
+            if (target.exists() && target.length() == content.size.toLong()) return
+            target.writeBytes(content)
             target.setExecutable(true, false)
         } catch (e: Exception) {
             Log.w(TAG, "installGlibcRunSh failed: ${e.message}")
