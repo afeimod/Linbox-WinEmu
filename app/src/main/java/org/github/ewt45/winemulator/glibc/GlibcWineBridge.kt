@@ -183,7 +183,36 @@ class GlibcWineBridge(
     private fun launchJob(key: String, argv: String, writer: OutputStreamWriter) {
         val job = JobState(key, writer)
         jobs[key] = job
-        writer.write("OK\t$key\tlaunching\n"); writer.flush()
+        // Sanity-check the imagefs layout BEFORE writing the "launching" ack,
+        // so the proot shell gets a useful error if anything is missing.
+        val missing = mutableListOf<String>()
+        if (!fs.root.isDirectory) missing += "imagefs root dir (${fs.root})"
+        if (!fs.box64Bin.exists()) missing += "box64 binary (${fs.box64Bin})"
+        if (!fs.box64Bin.canExecute()) missing += "box64 not executable (${fs.box64Bin})"
+        if (!fs.resolveWineBin().exists()) missing += "wine binary (${fs.resolveWineBin()})"
+        if (!fs.resolveWineBin().canExecute()) missing += "wine not executable (${fs.resolveWineBin()})"
+        if (!File(fs.libDir, "ld-linux-aarch64.so.1").exists()) {
+            missing += "aarch64 glibc loader (${File(fs.libDir, "ld-linux-aarch64.so.1")})"
+        }
+        if (missing.isNotEmpty()) {
+            val msg = "imagefs incomplete: " + missing.joinToString("; ")
+            Log.e(TAG, "launchJob: $msg")
+            writer.write("ERR\t$key\t$msg\n"); writer.flush()
+            jobs.remove(key)
+            return
+        }
+        // Smoke test: actually run box64 --version right now. If box64 itself
+        // doesn't run, wine definitely won't. Surface the actual error.
+        val box64Test = launcher.smokeTestBox64()
+        if (box64Test == null || box64Test.startsWith("box64 failed") || box64Test.startsWith("box64 exit")) {
+            val msg = "box64 smoke test failed: $box64Test"
+            Log.e(TAG, "launchJob: $msg")
+            writer.write("ERR\t$key\t$msg\n"); writer.flush()
+            jobs.remove(key)
+            return
+        }
+        Log.i(TAG, "launchJob: box64 OK -> $box64Test")
+        writer.write("OK\t$key\tlaunching (box64=$box64Test)\n"); writer.flush()
         // Run wine via launcher, capture exit code
         val pid = launcher.launch(
             args = argv,
@@ -198,7 +227,9 @@ class GlibcWineBridge(
             }
         )
         if (pid < 0) {
-            writer.write("ERR\t$key\tlauncher failed\n"); writer.flush()
+            val reason = launcher.lastLaunchError ?: "unknown launcher failure"
+            Log.e(TAG, "launchJob: launcher failed: $reason")
+            writer.write("ERR\t$key\t$reason\n"); writer.flush()
             jobs.remove(key)
         }
     }

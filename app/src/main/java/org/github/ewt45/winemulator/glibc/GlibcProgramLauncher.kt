@@ -135,7 +135,36 @@ class GlibcProgramLauncher(
     fun launch(args: String, extraEnv: EnvVars? = null, workingDir: File? = null,
                logFilePath: String? = null, onExit: ((Int) -> Unit)? = null): Int {
         if (!ensureInstalled()) {
-            Log.e(TAG, "launch: imagefs not installed (assets missing?)")
+            // The caller (GlibcWineBridge) needs a specific reason to surface
+            // to the proot shell, not just a silent -1. We log heavily here
+            // and let launchJob format the reason from the log.
+            val reason = buildString {
+                append("imagefs not installed (")
+                append("rootDir=${fs.root} exists=${fs.root.isDirectory}, ")
+                append("box64=${fs.box64Bin} exists=${fs.box64Bin.exists()} exec=${fs.box64Bin.canExecute()}, ")
+                append("wine64=${fs.wine64Bin} exists=${fs.wine64Bin.exists()}, ")
+                append("aarch64-ld=${File(fs.libDir, "ld-linux-aarch64.so.1")} exists=${File(fs.libDir, "ld-linux-aarch64.so.1").exists()}, ")
+                append("marker=${fs.versionFile()} exists=${fs.versionFile().exists()}")
+                append(")")
+            }
+            Log.e(TAG, "launch: $reason")
+            lastLaunchError = reason
+            return -1
+        }
+        // Pre-flight: box64 and wine must be executable. Otherwise wine crashes
+        // silently with "exec format error" or "permission denied" and the
+        // proot side never gets a useful error.
+        if (!fs.box64Bin.canExecute()) {
+            val reason = "box64 not executable: ${fs.box64Bin.absolutePath} (mode=${fs.box64Bin.canRead()})"
+            Log.e(TAG, "launch: $reason")
+            lastLaunchError = reason
+            return -1
+        }
+        val wineBin = fs.resolveWineBin()
+        if (!wineBin.canExecute()) {
+            val reason = "wine not executable: ${wineBin.absolutePath}"
+            Log.e(TAG, "launch: $reason")
+            lastLaunchError = reason
             return -1
         }
         val cmd = buildCommand(args)
@@ -143,8 +172,41 @@ class GlibcProgramLauncher(
         Log.i(TAG, "launching: $cmd")
         Log.d(TAG, "env: ${env.toStringArray().joinToString(" ")}")
         currentPid = ProcessHelper.exec(cmd, env.toStringArray(), workingDir, onExit, logFilePath)
+        if (currentPid <= 0) {
+            lastLaunchError = "ProcessHelper.exec returned $currentPid for: $cmd"
+        } else {
+            lastLaunchError = null
+        }
         return currentPid
     }
+
+    /**
+     * Sanity-test: just exec box64 itself with --version. Returns true if
+     * box64 actually runs (we get exit code 0 and its version string).
+     * Use this from the bridge to give the user a useful "is box64
+     * functional?" answer before blaming wine.
+     */
+    fun smokeTestBox64(): String? {
+        return try {
+            val pb = ProcessBuilder(fs.box64Bin.absolutePath, "--version")
+            pb.environment()["LD_LIBRARY_PATH"] = fs.libDir.absolutePath
+            pb.environment()["BOX64_LD_LIBRARY_PATH"] = fs.libDir.absolutePath
+            pb.redirectErrorStream(true)
+            val proc = pb.start()
+            val out = proc.inputStream.bufferedReader().readText()
+            val code = proc.waitFor()
+            if (code == 0) out.trim() else "box64 exit $code: ${out.trim()}"
+        } catch (e: Exception) {
+            "box64 failed to start: ${e.javaClass.simpleName}: ${e.message}"
+        }
+    }
+
+    /**
+     * Detailed failure reason for the last [launch] that returned -1. Read by
+     * [GlibcWineBridge.launchJob] to surface to the proot shell.
+     */
+    @Volatile var lastLaunchError: String? = null
+        private set
 
     fun stop() {
         if (currentPid > 0) {

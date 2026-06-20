@@ -58,18 +58,31 @@ fi
 
 # ============================================================
 # Transport B: two FIFOs
+#
+# Naming matches the Android bridge:
+#   IN_FIFO  = req fifo — sh WRITES, bridge READS
+#   OUT_FIFO = resp fifo — bridge WRITES, sh READS
+#
+# fd 3: read+write on OUT_FIFO (so we never see EOF if the bridge flushes
+#      between writes; also avoids the "write end closed → SIGPIPE" trap)
+# fd 4: write-only on IN_FIFO (this is where we send the EXEC payload)
+# fd 5: read-only on IN_FIFO  (kept open so our writer on fd 4 doesn't
+#      get SIGPIPE if the bridge side closes its reader — Linux sends
+#      SIGPIPE to the writer as soon as the last reader is gone)
 # ============================================================
 IN_FIFO="${ENDPOINT%|*}"
 OUT_FIFO="${ENDPOINT#*|}"
 
-# Open the response fifo for writing FIRST so the bridge doesn't block.
-exec 3>"$OUT_FIFO"
-exec 4<"$IN_FIFO"
+# Open OUT_FIFO first for reading, so the bridge's blocking open(OUT, O_WRONLY)
+# can return. Then open IN_FIFO write end (bridge has it open for read).
+exec 3<>"$OUT_FIFO"
+exec 4>"$IN_FIFO"
+exec 5<"$IN_FIFO"
 
 printf '%s\n' "$PAYLOAD" >&4
 
 EXIT_CODE=0
-while IFS= read -r line <&4; do
+while IFS= read -r line <&3; do
     verb=$(printf '%s' "$line" | cut -f1)
     rest=$(printf '%s' "$line" | cut -f3-)
     case "$verb" in
@@ -81,6 +94,7 @@ while IFS= read -r line <&4; do
     esac
 done
 
-exec 4<&-
-exec 3>&-
+exec 3<&-
+exec 4>&-
+exec 5<&-
 exit "$EXIT_CODE"
