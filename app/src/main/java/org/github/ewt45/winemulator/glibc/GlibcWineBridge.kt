@@ -6,185 +6,248 @@ import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 /**
- * The "fifo / ssh bridge" that lets the proot shell invoke box64+wine running
- * in the Android process.
+ * Bridge for forwarding wine commands from the proot shell to the Android process.
  *
- * Wire protocol (line-based over either a UNIX socket or two named pipes):
+ * The proot shell runs `glibc-run <args>` which sends a one-line EXEC request
+ * over the bridge. The bridge owns a real wine launcher that runs
+ * `box64 wine64 <args>` outside of proot (no ptrace, full box64 dynarec speed).
  *
- *   request  (proot -> android) :  "EXEC\t<key>\t<argv...>"
- *                                  "ENV \t<key>\t<K=V>"
- *                                  "BYE \t<key>"
- *   response (android -> proot):  "OK  \t<key>\t<pid>"
- *                                  "OUT \t<key>\t<line>"
- *                                  "END \t<key>\t<exitCode>"
- *                                  "ERR \t<key>\t<message>"
+ * Transport: two named pipes (fifos) in [prootEndpointDir]. The directory is
+ * bind-mounted into the proot container at /tmp/linbox-glibc so the shell can
+ * reach the same fifo paths. (See Proot.kt installGlibcRunSh + the
+ * --bind=...: /tmp/linbox-glibc flag in attachInternal.)
  *
- * The proot side gets a small sh script (`/usr/local/bin/glibc-run`) that:
- *   1. opens the socket/fifo
- *   2. sends EXEC + args
- *   3. reads OUT lines until END, prints them to stdout
- *   4. exits with the wine exit code
+ * Why not LocalServerSocket (abstract Unix socket)?
+ *   - `android.net.LocalServerSocket("name")` uses Android's private
+ *     /dev/socket/ namespace, NOT the standard abstract namespace. proot
+ *     cannot reach it because /dev/socket is not visible inside the
+ *     container's mount namespace.
+ *   - true abstract namespace sockets need JNI + native code (winlator does
+ *     this via libwinlator.so). We don't have that here.
+ *   - Two named pipes work everywhere with no JNI and no namespace juggling.
  *
- * That way users can type `glibc-run /path/to/game.exe` in their proot
- * shell and it Just Works, but the actual wine process is the Android one
- * (no ptrace, full box64 dynarec speed).
+ * Threading: the bridge owns a single executor thread that runs
+ * [acceptFifoLoop] which blocks on the request fifo. Each accepted request
+ * is processed inline in that loop (writing to the response fifo is
+ * synchronous). A separate [processExecutor] runs the actual box64 wine
+ * subprocess so the bridge loop can read OK/ERR/END responses and forward
+ * them. start() blocks until the bridge is ready (or fails) so callers
+ * (e.g. Proot.attachInternal) know whether the endpoint string is valid.
  */
 class GlibcWineBridge(
     private val fs: ImageFs,
     private val launcher: GlibcProgramLauncher,
     /** Path inside the proot rootfs where the bridge endpoint will be visible. */
     private val prootEndpointDir: File,
-    /** Inside-proot user name we expose to bridge clients. */
-    private val prootUser: String = "root",
-    /** Endpoint type. AUTO = prefer unix-socket, fall back to fifo. */
-    private val mode: Mode = Mode.AUTO
+    /** Transport mode. FIFO is the only one we support — kept as enum for future. */
+    private val mode: Mode = Mode.FIFO
 ) {
-    enum class Mode { AUTO, UNIX_SOCKET, FIFO }
+    enum class Mode { FIFO }
 
-    private val TAG = "GlibcBridge"
-    @Volatile private var server: android.net.LocalServerSocket? = null
-    @Volatile private var running: Boolean = false
+    companion object {
+        private const val TAG = "GlibcBridge"
+    }
+
     private val jobs = ConcurrentHashMap<String, JobState>()
+    @Volatile private var running: Boolean = false
+    private val readyLatch = CountDownLatch(1)
+    @Volatile private var startError: String? = null
+    @Volatile private var reqFifoFile: File? = null
+    @Volatile private var respFifoFile: File? = null
+    private val processExecutor = Executors.newCachedThreadPool()
 
-    /** Starts the bridge. Idempotent. */
-    fun start() {
-        if (running) return
+    init {
+        Log.i(TAG, "GlibcWineBridge created, mode=$mode, endpointDir=$prootEndpointDir")
+    }
+
+    /**
+     * Start the bridge. **Blocks** until the fifos are created and the
+     * request-loop is listening, or until an error is hit. Returns true on
+     * success. After this call, [endpoint] is non-empty and safe to pass to
+     * the proot container.
+     */
+    fun start(): Boolean {
+        if (running) return startError == null
         running = true
-        prootEndpointDir.mkdirs()
-        when (mode) {
-            Mode.UNIX_SOCKET, Mode.AUTO -> tryStartUnixSocket()
-            Mode.FIFO -> startFifoLoop()
+        return try {
+            // Synchronous fifo creation. mkfifo is a syscall; we run it on
+            // a worker thread but waitFor it so start() blocks until done.
+            val (req, resp) = createFifos() ?: run {
+                startError = "failed to create fifos under $prootEndpointDir"
+                readyLatch.countDown()
+                Log.e(TAG, startError!!)
+                return false
+            }
+            reqFifoFile = req
+            respFifoFile = resp
+            Log.i(TAG, "fifos created: req=${req.absolutePath} resp=${resp.absolutePath}")
+            // Now kick off the request-accept loop asynchronously. The
+            // readyLatch is counted down *after* the loop is set up and the
+            // read side of reqFifo is opened (otherwise the loop might miss
+            // requests sent before it's ready).
+            Executors.newSingleThreadExecutor().execute {
+                try {
+                    acceptFifoLoop(req, resp)
+                } catch (e: Exception) {
+                    Log.e(TAG, "acceptFifoLoop crashed", e)
+                }
+            }
+            // Give the loop a brief moment to open the read end of reqFifo
+            // before we declare "ready". Without this, a shell that races
+            // us could `printf >&4` into a fifo that has no reader yet
+            // and get SIGPIPE / EIO.
+            Thread.sleep(100)
+            readyLatch.countDown()
+            true
+        } catch (e: Exception) {
+            startError = "start failed: ${e.message}"
+            Log.e(TAG, startError!!, e)
+            readyLatch.countDown()
+            false
         }
     }
+
+    /**
+     * The proot-side endpoint string, in the format the sh script expects:
+     *   "/path/to/in|/path/to/out"
+     * Empty until [start] succeeds.
+     */
+    val endpoint: String
+        get() {
+            val r = reqFifoFile?.absolutePath ?: return ""
+            val w = respFifoFile?.absolutePath ?: return ""
+            return "$r|$w"
+        }
 
     fun stop() {
         running = false
-        try { server?.close() } catch (_: Exception) {}
-        server = null
-        for ((_, job) in jobs) {
-            launcher.stop()
-            job.cancel()
-        }
+        // best-effort cleanup
+        reqFifoFile?.delete()
+        respFifoFile?.delete()
+        for ((_, job) in jobs) launcher.stop()
         jobs.clear()
-        // best-effort cleanup of the unix socket file
-        File(prootEndpointDir, "linbox-bridge.sock").takeIf { it.exists() }?.delete()
+        processExecutor.shutdownNow()
     }
 
-    fun isRunning(): Boolean = running
+    fun isRunning(): Boolean = running && startError == null
 
-    /**
-     * Path string the proot sh script should use to talk to the bridge.
-     * Resolved at start() time so we can return either a socket path or a
-     * fifo path.
-     */
-    @Volatile var prootEndpoint: String = ""
-
-    private fun tryStartUnixSocket() {
-        val sockFile = File(prootEndpointDir, "linbox-bridge.sock")
-        sockFile.delete()
-        Executors.newSingleThreadExecutor().execute {
-            // Real implementation: LocalServerSocket on the abstract namespace.
-            // (java.net.ServerSocket is for TCP only — AF_UNIX isn't in the
-            //  public JDK on Android. LocalServerSocket uses the Android-specific
-            //  abstract namespace that proot can see via socat - UNIX-CONNECT:abstract:NAME.)
-            try {
-                val localSrv = android.net.LocalServerSocket("linbox-glibc-bridge")
-                server = localSrv
-                prootEndpoint = "abstract:linbox-glibc-bridge"
-                Log.i(TAG, "bridge listening on $prootEndpoint")
-                acceptLoop { socket ->
-                    handleClient(socket.inputStream, socket.outputStream)
-                }
-            } catch (e: Exception) {
-                Log.w(TAG, "LocalServerSocket failed, falling back to fifo", e)
-                if (mode == Mode.AUTO) startFifoLoop() else stop()
-            }
-        }
+    /** Block until [start] is finished (success or failure). */
+    fun awaitReady(timeoutMs: Long = 5000): Boolean {
+        return readyLatch.await(timeoutMs, TimeUnit.MILLISECONDS) && startError == null
     }
 
-    private fun startFifoLoop() {
-        val reqFifo = File(prootEndpointDir, "linbox-bridge.in")
-        val respFifo = File(prootEndpointDir, "linbox-bridge.out")
-        listOf(reqFifo, respFifo).forEach { it.delete() }
+    fun startError(): String? = startError
+
+    private fun createFifos(): Pair<File, File>? {
+        if (!prootEndpointDir.exists()) prootEndpointDir.mkdirs()
+        val req = File(prootEndpointDir, "linbox-bridge.in")
+        val resp = File(prootEndpointDir, "linbox-bridge.out")
+        listOf(req, resp).forEach { it.delete() }
+        // mkfifo via libc mknod syscalls. Android's java.io.File doesn't
+        // expose mkfifo; we need to either:
+        //   1. Runtime.exec("/system/bin/mkfifo", path)  — works on most
+        //      Android versions but is fragile;
+        //   2. android.system.Os.mknod(path, S_IFIFO|0o666, 0)  — clean,
+        //      but only available API 21+;
+        //   3. Use a small JNI helper.
+        // We try (2) first, fall back to (1).
         try {
-            // mkfifo via Runtime.exec
-            Runtime.getRuntime().exec(arrayOf("sh", "-c",
-                "mkdir -p '${prootEndpointDir.absolutePath}' && " +
-                "rm -f '${reqFifo.absolutePath}' '${respFifo.absolutePath}' && " +
-                "mkfifo '${reqFifo.absolutePath}' && " +
-                "mkfifo '${respFifo.absolutePath}' && " +
-                "chmod 666 '${reqFifo.absolutePath}' '${respFifo.absolutePath}'"
-            )).waitFor()
+            android.system.Os.mknod(req.absolutePath,
+                android.system.OsConstants.S_IFIFO or 0x1B6 /*0666*/, 0)
+            android.system.Os.mknod(resp.absolutePath,
+                android.system.OsConstants.S_IFIFO or 0x1B6, 0)
         } catch (e: Exception) {
-            Log.e(TAG, "mkfifo failed", e)
-            stop()
-            return
-        }
-        prootEndpoint = "${reqFifo.absolutePath}|${respFifo.absolutePath}"
-        Executors.newSingleThreadExecutor().execute {
+            Log.w(TAG, "Os.mknod failed, trying Runtime.exec: ${e.message}")
             try {
-                // Open response first to avoid blocking on the read side
-                val respOut = respFifo.outputStream()
-                val reqIn = reqFifo.inputStream()
-                handleClient(reqIn, respOut)
-            } catch (e: Exception) {
-                Log.e(TAG, "fifo loop crashed", e)
+                val p = Runtime.getRuntime().exec(arrayOf("sh", "-c",
+                    "cd '${prootEndpointDir.absolutePath}' && " +
+                    "rm -f '${req.name}' '${resp.name}' && " +
+                    "mkfifo -m 666 '${req.name}' '${resp.name}'"))
+                val code = p.waitFor()
+                if (code != 0) {
+                    Log.e(TAG, "mkfifo via sh exited with code=$code")
+                    return null
+                }
+            } catch (e2: Exception) {
+                Log.e(TAG, "mkfifo via sh also failed", e2)
+                return null
             }
         }
-    }
-
-    private fun acceptLoop(handle: (android.net.LocalSocket) -> Unit) {
-        val srv = server ?: return
-        while (running) {
-            val client = try { srv.accept() } catch (e: Exception) { break }
-            Executors.newSingleThreadExecutor().execute { runCatching { handle(client) } }
-        }
+        // Sanity check.
+        if (!req.exists() || !resp.exists()) return null
+        return Pair(req, resp)
     }
 
     /**
-     * Wire-protocol handler. One thread per client. Closes when client
-     * disconnects.
+     * Synchronous request loop. Opens reqFifo for reading (blocks until
+     * a writer connects), reads one EXEC line, dispatches to a worker, then
+     * loops.
      */
-    private fun handleClient(input: java.io.InputStream, output: java.io.OutputStream) {
-        val reader = BufferedReader(InputStreamReader(input))
-        val writer = OutputStreamWriter(output)
+    private fun acceptFifoLoop(req: File, resp: File) {
+        Log.i(TAG, "acceptFifoLoop: opening ${req.absolutePath} for reading")
+        // We open the request fifo for READING inside an executor, but the
+        // sh script must have already opened it for writing (so the read
+        // open doesn't block). For the very first client, the sh script
+        // does `exec 5<"$IN_FIFO"` which keeps a reader open continuously,
+        // so the Android-side `FileInputStream(req)` will not block. Good.
+        val reqStream = req.inputStream()
+        val respStream = resp.outputStream()
+        val reader = BufferedReader(InputStreamReader(reqStream))
+        Log.i(TAG, "acceptFifoLoop: ready to read EXEC requests")
         try {
             while (running) {
-                val line = reader.readLine() ?: break
-                val parts = line.split("\t", limit = 3)
-                if (parts.size < 2) {
-                    writer.write("ERR\t-\tmalformed request\n"); writer.flush()
-                    continue
-                }
-                val verb = parts[0]
-                val key = parts[1]
-                when (verb) {
-                    "EXEC" -> {
-                        val argv = if (parts.size >= 3) parts[2] else ""
-                        launchJob(key, argv, writer)
-                    }
-                    "BYE" -> {
-                        jobs[key]?.cancel()
-                        writer.write("OK\t$key\tbye\n"); writer.flush()
-                    }
-                    else -> {
-                        writer.write("ERR\t$key\tunknown verb: $verb\n"); writer.flush()
-                    }
-                }
+                val line = try { reader.readLine() } catch (e: Exception) {
+                    Log.w(TAG, "readLine failed: ${e.message}")
+                    break
+                } ?: break
+                if (line.isBlank()) continue
+                Log.d(TAG, "got line: ${line.take(80)}")
+                handleClientLine(line, respStream)
             }
-        } catch (e: Exception) {
-            Log.d(TAG, "client disconnected: ${e.message}")
+        } finally {
+            try { reqStream.close() } catch (_: Exception) {}
+            try { respStream.close() } catch (_: Exception) {}
+        }
+        Log.i(TAG, "acceptFifoLoop exited")
+    }
+
+    private fun handleClientLine(line: String, respOut: java.io.OutputStream) {
+        val parts = line.split("\t", limit = 3)
+        if (parts.size < 2) {
+            writeResp(respOut, "ERR\t-\tmalformed request")
+            return
+        }
+        val verb = parts[0]
+        val key = parts[1]
+        val argv = if (parts.size >= 3) parts[2] else ""
+        when (verb) {
+            "EXEC" -> launchJob(key, argv, respOut)
+            "BYE" -> {
+                jobs.remove(key)
+                writeResp(respOut, "OK\t$key\tbye")
+            }
+            else -> writeResp(respOut, "ERR\t$key\tunknown verb: $verb")
         }
     }
 
-    private fun launchJob(key: String, argv: String, writer: OutputStreamWriter) {
-        val job = JobState(key, writer)
-        jobs[key] = job
-        // Sanity-check the imagefs layout BEFORE writing the "launching" ack,
-        // so the proot shell gets a useful error if anything is missing.
+    private fun writeResp(respOut: java.io.OutputStream, line: String) {
+        synchronized(respOut) {
+            try {
+                respOut.write((line + "\n").toByteArray(Charsets.UTF_8))
+                respOut.flush()
+            } catch (e: Exception) {
+                Log.w(TAG, "writeResp failed: ${e.message}")
+            }
+        }
+    }
+
+    private fun launchJob(key: String, argv: String, respOut: java.io.OutputStream) {
+        // Sanity check imagefs.
         val missing = mutableListOf<String>()
         if (!fs.root.isDirectory) missing += "imagefs root dir (${fs.root})"
         if (!fs.box64Bin.exists()) missing += "box64 binary (${fs.box64Bin})"
@@ -197,44 +260,44 @@ class GlibcWineBridge(
         if (missing.isNotEmpty()) {
             val msg = "imagefs incomplete: " + missing.joinToString("; ")
             Log.e(TAG, "launchJob: $msg")
-            writer.write("ERR\t$key\t$msg\n"); writer.flush()
-            jobs.remove(key)
+            writeResp(respOut, "ERR\t$key\t$msg")
             return
         }
-        // Smoke test: actually run box64 --version right now. If box64 itself
-        // doesn't run, wine definitely won't. Surface the actual error.
+        // Smoke test box64
         val box64Test = launcher.smokeTestBox64()
         if (box64Test == null || box64Test.startsWith("box64 failed") || box64Test.startsWith("box64 exit")) {
             val msg = "box64 smoke test failed: $box64Test"
             Log.e(TAG, "launchJob: $msg")
-            writer.write("ERR\t$key\t$msg\n"); writer.flush()
-            jobs.remove(key)
+            writeResp(respOut, "ERR\t$key\t$msg")
             return
         }
         Log.i(TAG, "launchJob: box64 OK -> $box64Test")
-        writer.write("OK\t$key\tlaunching (box64=$box64Test)\n"); writer.flush()
-        // Run wine via launcher, capture exit code
+        writeResp(respOut, "OK\t$key\tlaunching (box64=$box64Test)")
+        // Run wine via launcher. The launcher's exec returns immediately
+        // after fork(); the actual box64/wine lifecycle is tracked in
+        // GlibcProgramLauncher (onExit callback fires on a worker thread).
+        val job = JobState(key)
+        jobs[key] = job
         val pid = launcher.launch(
             args = argv,
             extraEnv = null,
             workingDir = fs.winePrefixDir,
             logFilePath = null,
             onExit = { code ->
-                synchronized(writer) {
-                    try { writer.write("END\t$key\t$code\n"); writer.flush() } catch (_: Exception) {}
-                }
+                Log.i(TAG, "launchJob[$key]: wine exit code=$code")
+                writeResp(respOut, "END\t$key\t$code")
                 jobs.remove(key)
             }
         )
         if (pid < 0) {
             val reason = launcher.lastLaunchError ?: "unknown launcher failure"
-            Log.e(TAG, "launchJob: launcher failed: $reason")
-            writer.write("ERR\t$key\t$reason\n"); writer.flush()
+            Log.e(TAG, "launchJob[$key]: launcher failed: $reason")
+            writeResp(respOut, "ERR\t$key\t$reason")
             jobs.remove(key)
+        } else {
+            Log.i(TAG, "launchJob[$key]: pid=$pid")
         }
     }
 
-    private class JobState(val key: String, val writer: OutputStreamWriter) {
-        fun cancel() { /* launcher.stop is handled at the bridge level */ }
-    }
+    private class JobState(val key: String)
 }

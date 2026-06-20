@@ -31,7 +31,10 @@ PAYLOAD="EXEC	${KEY}	$*"
 
 USE_SOCKET=0
 case "$ENDPOINT" in
-    abstract:*|/*)
+    abstract:*)
+        # Only abstract: namespace uses the socket transport. Fifo
+        # endpoints (which contain '|') and absolute paths ('/...') use
+        # the fifo transport below.
         if command -v socat >/dev/null 2>&1; then USE_SOCKET=1
         elif command -v ncat >/dev/null 2>&1; then USE_SOCKET=1
         fi
