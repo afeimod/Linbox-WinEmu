@@ -9,6 +9,10 @@ import org.apache.commons.compress.compressors.zstandard.ZstdCompressorInputStre
 import java.io.BufferedInputStream
 import java.io.File
 import java.io.FileOutputStream
+import java.nio.file.Files
+import java.nio.file.LinkOption
+import java.nio.file.attribute.PosixFileAttributeView
+import java.nio.file.attribute.PosixFilePermission
 
 /**
  * ImageFsInstaller — winlator-style installer for the imagefs tzst bundle.
@@ -66,12 +70,21 @@ object ImageFsInstaller {
                         TarArchiveInputStream(zstd).use { tar ->
                             var entry: TarArchiveEntry? = tar.nextEntry
                             while (entry != null) {
-                                // Skip PAX/GNU metadata headers — they don't carry file contents.
-                                if (entry.isPaxHeader || entry.isGnuLongLink || entry.isGnuLongName) {
+                                // Skip PAX metadata headers — they don't carry file contents.
+                                // Note: commons-compress 1.21+ has isPaxHeader(). For older
+                                // versions it might be null, but we use 1.27.
+                                if (entry.isPaxHeader) {
                                     entry = tar.nextEntry
                                     continue
                                 }
-                                val outFile = File(destDir, entry.name)
+                                // GNU long-name / long-link entries have names like
+                                // "././@LongLink" or special prefixes; skip them too.
+                                val n = entry.name
+                                if (n.startsWith("././@") || n == "@LongLink" || n == "@LongName") {
+                                    entry = tar.nextEntry
+                                    continue
+                                }
+                                val outFile = File(destDir, n)
                                 if (entry.isDirectory) {
                                     outFile.mkdirs()
                                     chmods.add(PendingChmod(outFile.absolutePath, entry.mode))
@@ -85,10 +98,10 @@ object ImageFsInstaller {
                                     outFile.parentFile?.mkdirs()
                                     FileOutputStream(outFile).use { out ->
                                         while (true) {
-                                            val n = tar.read(buf)
-                                            if (n <= 0) break
-                                            out.write(buf, 0, n)
-                                            totalBytes += n
+                                            val nRead = tar.read(buf)
+                                            if (nRead <= 0) break
+                                            out.write(buf, 0, nRead)
+                                            totalBytes += nRead
                                         }
                                     }
                                     chmods.add(PendingChmod(outFile.absolutePath, entry.mode))
@@ -110,8 +123,8 @@ object ImageFsInstaller {
                     val f = File(sl.linkPath)
                     // If something already exists at the symlink path, drop it
                     // so Os.symlink doesn't fail.
-                    if (f.exists() || Files.exists(f.toPath(),
-                                java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    val fPath = f.toPath()
+                    if (Files.exists(fPath, LinkOption.NOFOLLOW_LINKS)) {
                         f.delete()
                     }
                     // Make sure parent dir exists (some symlinks point into
@@ -211,8 +224,8 @@ object ImageFsInstaller {
         if (Files.isSymbolicLink(srcPath)) {
             // Recreate as a symlink
             val target = Files.readSymbolicLink(srcPath).toString()
-            if (dst.exists() || Files.exists(dst.toPath(),
-                        java.nio.file.LinkOption.NOFOLLOW_LINKS)) dst.delete()
+            val dstPath = dst.toPath()
+            if (Files.exists(dstPath, LinkOption.NOFOLLOW_LINKS)) dst.delete()
             dst.parentFile?.mkdirs()
             try { Os.symlink(target, dst.absolutePath) } catch (e: Exception) {
                 Log.w(TAG, "import symlink failed: $dst -> $target: ${e.message}")
@@ -222,47 +235,43 @@ object ImageFsInstaller {
         if (src.isDirectory) {
             dst.mkdirs()
             // Copy mode bits for the dir itself
-            try { Os.chmod(dst.absolutePath, srcPath.getMode()) } catch (_: Exception) {}
+            try { Os.chmod(dst.absolutePath, readPosixMode(dstPath = dst.toPath())) } catch (_: Exception) {}
             src.listFiles()?.forEach { copyRecursive(it, File(dst, it.name)) }
         } else {
             src.inputStream().use { input ->
                 FileOutputStream(dst).use { out -> input.copyTo(out) }
             }
-            try { Os.chmod(dst.absolutePath, srcPath.getMode()) } catch (_: Exception) {}
+            try { Os.chmod(dst.absolutePath, readPosixMode(dstPath = dst.toPath())) } catch (_: Exception) {}
         }
     }
-}
 
-// Small import aliases to keep the file readable
-private val Files = java.nio.file.Files
-
-/**
- * Read POSIX mode bits from a [java.nio.file.Path]. Returns an int suitable
- * for [android.system.Os.chmod] (e.g. 0o755, 0o644). Falls back to 0o644
- * on non-POSIX filesystems (shouldn't happen on Android / sdcardfs).
- */
-private fun java.nio.file.Path.getMode(): Int {
-    return try {
-        val perms = Files.getPosixFilePermissions(this)
-        var mode = 0
-        // Position in the 9-bit permission field, MSB first.
-        // (matches standard Unix order: rwx rwx rwx = 0o777)
-        val order = listOf(
-            java.nio.file.attribute.PosixFilePermission.OWNER_READ,
-            java.nio.file.attribute.PosixFilePermission.OWNER_WRITE,
-            java.nio.file.attribute.PosixFilePermission.OWNER_EXECUTE,
-            java.nio.file.attribute.PosixFilePermission.GROUP_READ,
-            java.nio.file.attribute.PosixFilePermission.GROUP_WRITE,
-            java.nio.file.attribute.PosixFilePermission.GROUP_EXECUTE,
-            java.nio.file.attribute.PosixFilePermission.OTHERS_READ,
-            java.nio.file.attribute.PosixFilePermission.OTHERS_WRITE,
-            java.nio.file.attribute.PosixFilePermission.OTHERS_EXECUTE,
-        )
-        for ((i, p) in order.withIndex()) {
-            if (p in perms) mode = mode or (1 shl (8 - i))
+    /**
+     * Read POSIX mode bits from a path, returning an int suitable for
+     * [android.system.Os.chmod] (e.g. 0x1A4 = 0644, 0x16D = 0755).
+     * Falls back to 0x1A4 (0644) on non-POSIX filesystems.
+     */
+    private fun readPosixMode(dstPath: java.nio.file.Path): Int {
+        return try {
+            val view = Files.getFileAttributeView(dstPath, PosixFileAttributeView::class.java)
+            val perms = view.readAttributes().permissions()
+            var mode = 0
+            val order = listOf(
+                PosixFilePermission.OWNER_READ,
+                PosixFilePermission.OWNER_WRITE,
+                PosixFilePermission.OWNER_EXECUTE,
+                PosixFilePermission.GROUP_READ,
+                PosixFilePermission.GROUP_WRITE,
+                PosixFilePermission.GROUP_EXECUTE,
+                PosixFilePermission.OTHERS_READ,
+                PosixFilePermission.OTHERS_WRITE,
+                PosixFilePermission.OTHERS_EXECUTE,
+            )
+            for ((i, p) in order.withIndex()) {
+                if (p in perms) mode = mode or (1 shl (8 - i))
+            }
+            mode
+        } catch (e: Exception) {
+            0x1A4  // 0644
         }
-        mode
-    } catch (e: Exception) {
-        0o644
     }
 }
