@@ -93,6 +93,18 @@ object Consts {
         val proot_bool_options by item("proot_bool_options", setOf( "-L", "--link2symlink", "--sysvipc", "--kill-on-exit", /*"--root-id",*/))
         val proot_startup_cmd by item("proot_startup_cmd", "")
 
+        // ============================================================
+        // linbox glibc-bridge preferences
+        // ============================================================
+        /** box64 预设: compatibility | performance | intermediate | disabledynarec */
+        val box64_preset by item("box64_preset", "compatibility")
+        /** bridge 传输: auto | unix_socket | fifo */
+        val glibc_bridge_mode by item("glibc_bridge_mode", "auto")
+        /** 额外环境变量(K=V,逗号分隔),传入 box64+wine */
+        val glibc_extra_env by item("glibc_extra_env", "")
+        /** wine 日志路径(在 imagefs 内部),留空禁用 */
+        val glibc_wine_log by item("glibc_wine_log", "wine.log")
+
         // Input Controls Settings
         val inputcontrols_enabled by item("inputcontrols_enabled", false)
         val inputcontrols_profile_id by item("inputcontrols_profile_id", -1)

@@ -1,5 +1,6 @@
 package org.github.ewt45.winemulator.viewmodel
 
+import android.content.Context
 import android.system.OsConstants.SIGCONT
 import android.system.OsConstants.SIGSTOP
 import android.util.Log
@@ -30,6 +31,11 @@ class TerminalViewModel : ViewModel() {
     private val TAG = "TerminalViewModel"
     private val terminal: Proot = Proot()
     private var process: Process? = null
+    /**
+     * 用于启动 glibc-bridge,必须在 [startTerminal] 之前由 Activity 注入。
+     * 推荐传 applicationContext 避免 Activity 泄漏。
+     */
+    var appContext: Context? = null
 
     /** 输入 */
     private var processWriter: OutputStreamWriter? = null
@@ -118,7 +124,7 @@ class TerminalViewModel : ViewModel() {
         isConnected = true
 
         process = withContext(Dispatchers.IO) {
-            terminal.attach().start()
+            (appContext?.let { terminal.attach(it) } ?: terminal.attach()).start()
         }
 
         //绑定输入输出

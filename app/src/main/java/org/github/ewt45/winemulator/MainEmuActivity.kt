@@ -85,6 +85,9 @@ class MainEmuActivity : MainActivity() {
         startX11Intent = createStartX11Intent()
         super.onCreate(savedInstanceState)
 
+        // 给 TerminalViewModel 注入 applicationContext,以便拉起 glibc-bridge
+        terminalViewModel.appContext = applicationContext
+
         // 初始化X11设置SharedPreferences同步
         settingViewModel.initSharedPreferences(this)
 
@@ -203,6 +206,9 @@ class MainEmuActivity : MainActivity() {
     override fun onDestroy() {
         super.onDestroy()
         terminalViewModel.stopTerminal()
+        // 清理 glibc-bridge
+        org.github.ewt45.winemulator.emu.Proot.activeBridge?.stop()
+        org.github.ewt45.winemulator.emu.Proot.activeBridge = null
         stopService(startX11Intent)
         // FIXME 目前release构建 finish 无法结束 service 进程 导致下次启动 xserver启动失败。需要手动强制结束进程
         android.os.Process.killProcess(getX11ServicePid())

@@ -62,6 +62,12 @@
             android:process=":xserver"
             android:exported="false" />
 
+        <!-- linbox glibc-bridge: 持有 box64+wine 进程 + fifo 端点 -->
+        <service
+            android:name="org.github.ewt45.winemulator.glibc.GlibcLauncherService"
+            android:enabled="true"
+            android:exported="false" />
+
         <!--        mt的文件提供器-->
         <provider
             android:name="bin.mt.file.content.MTDataFilesProvider"
