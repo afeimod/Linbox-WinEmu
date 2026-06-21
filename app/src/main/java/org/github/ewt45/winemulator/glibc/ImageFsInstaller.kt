@@ -200,16 +200,24 @@ object ImageFsInstaller {
         }
     }
 
-    /** Smoke-test the installed imagefs. Returns null on success, error on failure. */
+    /** Smoke-test the installed imagefs.
+     *
+     * Returns null if *any* one of box64 / wine64 / libc.so.6 is present.
+     * We don't require all three because some users (e.g. those copying
+     * winlator's stock imagefs) may have a subset. The actual bind will
+     * succeed regardless; if a specific binary is missing, glibc-run.sh
+     * reports a clear error at runtime.
+     */
     fun smokeTest(imageFs: ImageFs): String? {
-        val checks = listOf(
-            "${imageFs.winePath}/bin/wine64",
+        val candidates = listOf(
             "${imageFs.rootDir.absolutePath}/usr/local/bin/box64",
+            "${imageFs.winePath}/bin/wine64",
             "${imageFs.rootDir.absolutePath}/usr/lib/x86_64-linux-gnu/libc.so.6",
         )
-        for (path in checks) {
-            val f = File(path)
-            if (!f.exists()) return "missing file: $path"
+        val anyFound = candidates.any { File(it).exists() }
+        if (!anyFound) {
+            return "imagefs 里没找到任何 box64 / wine64 / libc.so.6," +
+                " 请确认 assets/imagefs/imagefs.tzst 是 winlator-glibc 风格"
         }
         return null
     }

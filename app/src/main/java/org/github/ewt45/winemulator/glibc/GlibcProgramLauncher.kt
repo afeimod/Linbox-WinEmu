@@ -59,6 +59,12 @@ class GlibcProgramLauncher(
                 val ok = ImageFsInstaller.installIfNeeded(context)
                 if (!ok) return "imagefs 资产解压失败,请检查 assets/imagefs/imagefs.tzst 是否存在"
             }
+            // verifyReady() returns an error if any of the must-have
+            // binaries is missing. If the user pre-installed a partial
+            // imagefs (e.g. just box64 from winlator's bundle), we fall
+            // back to the same smoke-test we use after install — the
+            // proot-side glibc-run.sh will report a clear error if a
+            // specific binary is missing at runtime.
             return launcher.verifyReady()
         }
     }

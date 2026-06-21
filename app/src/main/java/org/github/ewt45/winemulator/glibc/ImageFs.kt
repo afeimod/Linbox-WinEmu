@@ -22,9 +22,21 @@ class ImageFs private constructor(val rootDir: File) {
     var version: Int = 0
         private set
 
-    /** True once the asset bundle has been extracted. */
+    /** True once the asset bundle has been extracted.
+     *
+     * We deliberately do NOT require `.winlator/.img_version` to be
+     * present — winlator's own imagefs.tzst doesn't include that file.
+     * Instead, we look for a couple of sentinel binaries that any
+     * usable imagefs must have. This also means we never overwrite a
+     * pre-existing imagefs that the user installed manually.
+     */
     val isValid: Boolean
-        get() = rootDir.isDirectory && versionFile().exists()
+        get() {
+            if (!rootDir.isDirectory()) return false
+            return File(rootDir, "usr/local/bin/box64").exists() ||
+                   File(rootDir, "usr/lib/x86_64-linux-gnu/libc.so.6").exists() ||
+                   File(rootDir, "opt/wine/bin/wine64").exists()
+        }
 
     /** Where wine lives inside the imagefs. */
     val winePath: String
