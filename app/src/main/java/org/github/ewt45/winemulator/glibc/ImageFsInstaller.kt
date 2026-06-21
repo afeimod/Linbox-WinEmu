@@ -164,14 +164,35 @@ object ImageFsInstaller {
                     // octal unix permissions; commons-compress exposes
                     // `mode` only on the tar-specific subtype.
                     val tarEntry = entry as? org.apache.commons.compress.archivers.tar.TarArchiveEntry
-                    if (tarEntry != null) {
-                        val mode = tarEntry.mode and 0xFFF
+                    val rawMode = tarEntry?.mode ?: 0o644
+                    val mode = rawMode and 0xFFF
+                    try {
+                        android.system.Os.chmod(target.absolutePath, mode)
+                    } catch (e: Exception) {
+                        // Log but don't fail — the glibc-run.sh script
+                        // will retry `chmod +x` from inside proot. That
+                        // retry is the actual line of defense; without
+                        // it Android's "Files" storage routinely strips
+                        // exec bits on extract.
+                        Log.w(TAG, "chmod($mode) on ${target.name} failed: ${e.message}")
+                    }
+                    // Hard guarantee: box64 / box86 / wine / wine64 must
+                    // be executable no matter what the tar said. proot
+                    // can't exec a 0644 file even if the bind-mount shows
+                    // it as +x.
+                    val mustExec = listOf(
+                        "usr/local/bin/box64",
+                        "usr/local/bin/box86",
+                        "opt/wine/bin/wine",
+                        "opt/wine/bin/wine64",
+                        "opt/wine/bin/wineboot",
+                        "opt/wine/bin/wineserver",
+                    )
+                    if (relative in mustExec) {
                         try {
-                            android.system.Os.chmod(target.absolutePath, mode)
-                        } catch (_: Exception) {
-                            // chmod can fail on Android for some paths; the
-                            // installer already ran su anyway so this is
-                            // best-effort.
+                            android.system.Os.chmod(target.absolutePath, 0o755)
+                        } catch (e: Exception) {
+                            Log.w(TAG, "hard chmod 755 on ${target.name} failed: ${e.message}")
                         }
                     }
                 }

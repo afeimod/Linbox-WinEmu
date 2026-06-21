@@ -23,19 +23,48 @@ IMAGEFS=/imagefs
 BOX64="$IMAGEFS/usr/local/bin/box64"
 WINE64="$IMAGEFS/opt/wine/bin/wine64"
 
-# Sanity check. If imagefs wasn't bind-mounted (e.g. the user upgraded
-# from v1 and hasn't reinstalled) bail out with a clear message instead
-# of the cryptic "wine: not found".
-if [ ! -x "$BOX64" ]; then
-    echo "glibc-run: $BOX64 不可执行或不存在" >&2
-    echo "  请检查 linbox 是否把 imagefs bind 到 /imagefs。" >&2
-    echo "  重新安装 glibc 资产包即可。" >&2
+# Diagnostic helper: dump the failing entry with full stat so the user
+# can tell whether the bind mount is missing, the file is missing, or
+# the executable bit was stripped on extract.
+diag() {
+    echo "glibc-run: $1" >&2
+    echo "  ---" >&2
+    echo "  proot sees /imagefs as:" >&2
+    if [ -e /imagefs ]; then
+        ls -la /imagefs 2>&1 | head -10 >&2
+        echo "  contents:" >&2
+        find /imagefs -maxdepth 3 2>&1 | head -20 >&2
+    else
+        echo "  /imagefs does not exist — proot's --bind=...:/imagefs" >&2
+        echo "  did not take effect. Most likely cause: linbox 还没" >&2
+        echo "  解压 assets/imagefs/imagefs.tzst 到 imagefs 目录。" >&2
+        echo "  检查 logcat ImageFsInstaller 看 extract 有没有跑。" >&2
+    fi
+    echo "  ---" >&2
     exit 127
+}
+
+# Sanity check: bind mount present and box64 file is reachable.
+# We deliberately do NOT require -x here: even if the tar extract
+# stripped the executable bit (a known Android+commons-compress gotcha
+# for files on /data/data/.../files/), proot itself runs as our
+# unprivileged app uid and can chmod the file back. Try chmod +x
+# once before giving up.
+if [ ! -d /imagefs ]; then
+    diag "/imagefs 目录不存在"
+fi
+if [ ! -e "$BOX64" ]; then
+    diag "$BOX64 not found (imagefs 装上但 box64 文件缺失)"
+fi
+# Best-effort re-chmod. Ignore errors.
+chmod +x "$BOX64" 2>/dev/null || true
+chmod +x "$WINE64" 2>/dev/null || true
+
+if [ ! -x "$BOX64" ]; then
+    diag "$BOX64 not executable even after chmod +x"
 fi
 if [ ! -x "$WINE64" ]; then
-    echo "glibc-run: $WINE64 不可执行或不存在" >&2
-    echo "  imagefs 内的 wine 没装好,试试重新下载 imagefs 资产。" >&2
-    exit 127
+    diag "$WINE64 not executable even after chmod +x"
 fi
 
 # Point glibc loader at imagefs libs. This is the entire point: wine64
