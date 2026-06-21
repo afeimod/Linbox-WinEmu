@@ -147,9 +147,14 @@ class Proot {
         // reports a clear error to the user instead of hanging.
         if (false && ctx != null) {
             try {
-                val imagefs = ImageFs.find(ctx)
+                // Force smart cast by capturing into a local val. Even
+                // though the if-branch is unreachable at runtime (we've
+                // disabled the whole block), the Kotlin compiler still
+                // needs a non-nullable type to compile this branch.
+                val nonNullCtx: android.content.Context = ctx!!
+                val imagefs = ImageFs.find(nonNullCtx)
                 ImageFs.ensureLayout(imagefs)
-                val launcher = GlibcProgramLauncher(ctx, imagefs)
+                val launcher = GlibcProgramLauncher(nonNullCtx, imagefs)
                 runCatching { launcher.ensureInstalled() }
                         .onFailure { Log.w(TAG, "glibcfs install failed: ${it.message}") }
 
