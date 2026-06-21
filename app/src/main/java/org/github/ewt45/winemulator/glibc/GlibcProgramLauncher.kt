@@ -123,9 +123,153 @@ class GlibcProgramLauncher(
                 android.util.Log.i(TAG, "ensureReady: installIfNeeded=$ok")
                 if (!ok) return "imagefs 资产解压失败,请检查 assets/imagefs/imagefs.tzst 是否存在"
             }
+            // CRITICAL: rewrite PT_INTERP on every binary so box64/wine
+            // can be exec'd from inside proot. proot's chroot rewrite
+            // only applies to argv paths, NOT to linterp paths the
+            // kernel reads from the ELF header. Without this, the
+            // kernel looks for the linterp at the original Android-side
+            // absolute path which doesn't exist in the chroot root.
+            runCatching { rewriteLinterps(launcher.imageFs.rootDir) }
+                .onSuccess { (rewrote, scanned) ->
+                    android.util.Log.i(TAG, "rewriteLinterps: scanned=$scanned rewrote=$rewrote")
+                }
+                .onFailure { android.util.Log.w(TAG, "rewriteLinterps failed: ${it.message}") }
+
             val verify = launcher.verifyReady()
             android.util.Log.i(TAG, "ensureReady: verifyReady=$verify, box64=${launcher.androidBox64Path()}, wine=${launcher.androidWinePath()}")
             return verify
+        }
+
+        /**
+         * Walk the imagefs directory and rewrite the PT_INTERP of every
+         * ELF binary whose linterp currently points at our Android-side
+         * imagefs rootDir, replacing it with the proot-side mount path
+         * `/imagefs/usr/lib/ld-linux-aarch64.so.1`.
+         *
+         * Idempotent: once a linterp already starts with `/imagefs/`,
+         * it's left alone.
+         */
+        private fun rewriteLinterps(rootDir: File): Pair<Int, Int> {
+            val rootPath = rootDir.absolutePath
+            val targetLinterp = "/imagefs/usr/lib/ld-linux-aarch64.so.1"
+            var rewrote = 0
+            var scanned = 0
+            rootDir.walkTopDown()
+                .onEnter { !it.name.startsWith("proc") && !it.name.startsWith("sys") }
+                .filter { it.isFile && it.canExecute() }
+                .forEach { f ->
+                    scanned++
+                    try {
+                        val current = readLinterp(f) ?: return@forEach
+                        if (current.startsWith("$rootPath/") &&
+                            current.endsWith("ld-linux-aarch64.so.1")) {
+                            if (writeLinterp(f, targetLinterp)) rewrote++
+                        }
+                    } catch (_: Exception) {
+                        // Not an ELF or unreadable; skip.
+                    }
+                }
+            return rewrote to scanned
+        }
+
+        private fun readLinterp(file: File): String? {
+            return try {
+                val bytes = file.readBytes()
+                if (bytes.size < 52) return null
+                if (bytes[0] != 0x7F.toByte() ||
+                    bytes[1] != 'E'.code.toByte() ||
+                    bytes[2] != 'L'.code.toByte() ||
+                    bytes[3] != 'F'.code.toByte()) return null
+                val is64 = bytes[4] == 2.toByte()
+                val ePhoff: Long = if (is64) {
+                    java.nio.ByteBuffer.wrap(bytes, 32, 8).long
+                } else {
+                    java.nio.ByteBuffer.wrap(bytes, 28, 4).int.toLong() and 0xFFFFFFFFL
+                }
+                val ePhentsize: Int
+                val ePhnum: Int
+                if (is64) {
+                    ePhentsize = java.nio.ByteBuffer.wrap(bytes, 54, 2).short.toInt() and 0xFFFF
+                    ePhnum = java.nio.ByteBuffer.wrap(bytes, 56, 2).short.toInt() and 0xFFFF
+                } else {
+                    ePhentsize = java.nio.ByteBuffer.wrap(bytes, 42, 2).short.toInt() and 0xFFFF
+                    ePhnum = java.nio.ByteBuffer.wrap(bytes, 44, 2).short.toInt() and 0xFFFF
+                }
+                for (i in 0 until ePhnum) {
+                    val phStart = (ePhoff + i * ePhentsize).toInt()
+                    if (phStart + 56 > bytes.size) return null
+                    val pType = java.nio.ByteBuffer.wrap(bytes, phStart, 4).int
+                    if (pType == 3) {
+                        val pOff: Long = if (is64) {
+                            java.nio.ByteBuffer.wrap(bytes, phStart + 8, 8).long
+                        } else {
+                            java.nio.ByteBuffer.wrap(bytes, phStart + 4, 4).int.toLong() and 0xFFFFFFFFL
+                        }
+                        val pSz: Long = if (is64) {
+                            java.nio.ByteBuffer.wrap(bytes, phStart + 32, 8).long
+                        } else {
+                            java.nio.ByteBuffer.wrap(bytes, phStart + 16, 4).int.toLong() and 0xFFFFFFFFL
+                        }
+                        val end = (pOff + pSz).toInt().coerceAtMost(bytes.size)
+                        val start = pOff.toInt().coerceAtLeast(0)
+                        return String(bytes, start, end - start, Charsets.US_ASCII).trimEnd('\u0000')
+                    }
+                }
+                null
+            } catch (_: Exception) { null }
+        }
+
+        private fun writeLinterp(file: File, newLinterp: String): Boolean {
+            return try {
+                val bytes = file.readBytes()
+                if (bytes.size < 52) return false
+                if (bytes[0] != 0x7F.toByte()) return false
+                val is64 = bytes[4] == 2.toByte()
+                val ePhoff: Long = if (is64) {
+                    java.nio.ByteBuffer.wrap(bytes, 32, 8).long
+                } else {
+                    java.nio.ByteBuffer.wrap(bytes, 28, 4).int.toLong() and 0xFFFFFFFFL
+                }
+                val ePhentsize: Int
+                val ePhnum: Int
+                if (is64) {
+                    ePhentsize = java.nio.ByteBuffer.wrap(bytes, 54, 2).short.toInt() and 0xFFFF
+                    ePhnum = java.nio.ByteBuffer.wrap(bytes, 56, 2).short.toInt() and 0xFFFF
+                } else {
+                    ePhentsize = java.nio.ByteBuffer.wrap(bytes, 42, 2).short.toInt() and 0xFFFF
+                    ePhnum = java.nio.ByteBuffer.wrap(bytes, 44, 2).short.toInt() and 0xFFFF
+                }
+                val pInterpOffsetInPhdr: Int
+                val pFileszOffsetInPhdr: Int
+                if (is64) { pInterpOffsetInPhdr = 8; pFileszOffsetInPhdr = 32 }
+                else { pInterpOffsetInPhdr = 4; pFileszOffsetInPhdr = 16 }
+                for (i in 0 until ePhnum) {
+                    val phStart = (ePhoff + i * ePhentsize).toInt()
+                    if (phStart + pFileszOffsetInPhdr + 8 > bytes.size) return false
+                    val pType = java.nio.ByteBuffer.wrap(bytes, phStart, 4).int
+                    if (pType == 3) {
+                        val pOff: Long = if (is64) {
+                            java.nio.ByteBuffer.wrap(bytes, phStart + pInterpOffsetInPhdr, 8).long
+                        } else {
+                            java.nio.ByteBuffer.wrap(bytes, phStart + pInterpOffsetInPhdr, 4).int.toLong() and 0xFFFFFFFFL
+                        }
+                        val interpStart = pOff.toInt()
+                        val oldSz: Long = if (is64) {
+                            java.nio.ByteBuffer.wrap(bytes, phStart + pFileszOffsetInPhdr, 8).long
+                        } else {
+                            java.nio.ByteBuffer.wrap(bytes, phStart + pFileszOffsetInPhdr, 4).int.toLong() and 0xFFFFFFFFL
+                        }
+                        val newBytes = newLinterp.toByteArray(Charsets.US_ASCII) + 0
+                        if (newBytes.size > oldSz.toInt()) return false
+                        for (k in 0 until oldSz.toInt()) bytes[interpStart + k] = 0
+                        System.arraycopy(newBytes, 0, bytes, interpStart, newBytes.size)
+                        file.writeBytes(bytes)
+                        try { android.system.Os.chmod(file.absolutePath, 493) } catch (_: Exception) {}
+                        return true
+                    }
+                }
+                false
+            } catch (_: Exception) { false }
         }
     }
 }
