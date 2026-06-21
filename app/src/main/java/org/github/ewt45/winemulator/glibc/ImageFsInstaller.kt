@@ -164,7 +164,7 @@ object ImageFsInstaller {
                     // octal unix permissions; commons-compress exposes
                     // `mode` only on the tar-specific subtype.
                     val tarEntry = entry as? org.apache.commons.compress.archivers.tar.TarArchiveEntry
-                    val rawMode = tarEntry?.mode ?: 0o644
+                    val rawMode = tarEntry?.mode ?: 420  // 0o644
                     val mode = rawMode and 0xFFF
                     try {
                         android.system.Os.chmod(target.absolutePath, mode)
@@ -190,7 +190,7 @@ object ImageFsInstaller {
                     )
                     if (relative in mustExec) {
                         try {
-                            android.system.Os.chmod(target.absolutePath, 0o755)
+                            android.system.Os.chmod(target.absolutePath, 493)  // 0755
                         } catch (e: Exception) {
                             Log.w(TAG, "hard chmod 755 on ${target.name} failed: ${e.message}")
                         }
