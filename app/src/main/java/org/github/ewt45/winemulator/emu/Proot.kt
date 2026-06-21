@@ -138,7 +138,14 @@ class Proot {
         // glibc-bridge: 启动 box64+wine 守护, 暴露 endpoint 给 proot
         // ============================================================
         var bridgeEndpoint = ""
-        if (ctx != null) {
+        // TEMPORARILY DISABLED — the bridge block was causing proot to receive
+        // SIGPIPE during startup (signal 13 = broken pipe). The exact root
+        // cause is still under investigation. The installGlibcRunSh() above
+        // still writes the sh bridge script into rootfs so glibc-run exists
+        // on disk; only the Android-side bridge server is skipped. When
+        // glibc-run is called without a working bridge, the sh script
+        // reports a clear error to the user instead of hanging.
+        if (false && ctx != null) {
             try {
                 val imagefs = ImageFs.find(ctx)
                 ImageFs.ensureLayout(imagefs)
@@ -154,28 +161,14 @@ class Proot {
                     prootEndpointDir = bridgeDir,
                     mode = GlibcWineBridge.Mode.FIFO
                 )
-                // Block until the fifos are created and the request loop is
-                // accepting. Without this, prootEndpoint could be empty when
-                // the sh script reads $LINBOX_GLIBC_ENDPOINT and end up using
-                // a default that points at a never-created socket/fifo.
                 val ok = bridge.start()
                 if (!ok) {
                     Log.e(TAG, "bridge failed to start: ${bridge.startError()}")
-                    // Bridge is dead — proot still starts, but glibc-run inside
-                    // proot will not work. Crucially, do NOT add a --bind line
-                    // pointing at the (possibly empty) bridgeDir, because proot
-                    // will fail to start when binding a non-existent path.
                     bridge.stop()
                 } else {
                     activeBridge = bridge
-                    // Use proot-internal paths (/tmp/linbox-glibc/in|/tmp/linbox-glibc/out)
-                    // because the sh script runs inside the proot container and
-                    // sees the bind-mounted dir at /tmp/linbox-glibc, not the
-                    // Android path /data/user/0/.../cache/tmp/linbox-glibc.
                     bridgeEndpoint = "/tmp/linbox-glibc/linbox-bridge.in|/tmp/linbox-glibc/linbox-bridge.out"
                     Log.i(TAG, "glibc-bridge started, endpoint=$bridgeEndpoint")
-                    // Only add the --bind if bridge actually started, so proot
-                    // doesn't see a missing dir.
                     prootCmd.add("--bind=${bridgeDir.absolutePath}:/tmp/linbox-glibc")
                 }
             } catch (e: Exception) {
