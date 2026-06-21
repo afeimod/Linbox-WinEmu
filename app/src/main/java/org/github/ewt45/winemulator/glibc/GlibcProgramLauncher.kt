@@ -118,7 +118,7 @@ class GlibcProgramLauncher(
      * only useful for non-GUI programs (e.g. `wine cmd.exe /c dir`)
      * or for tests where we just want to confirm box64 can start.
      */
-    fun runDirect(vararg args: String): Process? {
+    fun runDirect(vararg args: String): java.lang.Process? {
         val cmd = buildCommand(*args) ?: return null
         val env = buildEnv()
         val pb = ProcessBuilder(cmd)

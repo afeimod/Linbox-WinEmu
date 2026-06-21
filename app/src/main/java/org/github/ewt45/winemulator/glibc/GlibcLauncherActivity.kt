@@ -51,7 +51,7 @@ class GlibcLauncherActivity : Activity() {
     private lateinit var outputView: TextView
     private lateinit var statusView: TextView
     private lateinit var runButton: Button
-    private var process: Process? = null
+    private var process: java.lang.Process? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -164,7 +164,7 @@ class GlibcLauncherActivity : Activity() {
             return
         }
         runButton.isEnabled = false
-        statusView.text = "running pid=${process?.pid()}"
+        statusView.text = "running"
         Thread {
             process?.inputStream?.let { stream ->
                 BufferedReader(InputStreamReader(stream)).useLines { lines ->
