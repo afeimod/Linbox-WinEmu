@@ -15,17 +15,17 @@ import org.github.ewt45.winemulator.Utils.chmod
 import org.github.ewt45.winemulator.emu.ProotHelper.DEFAULT_FAKE_KERNEL_VERSION
 import org.github.ewt45.winemulator.glibc.ImageFs
 import org.github.ewt45.winemulator.glibc.GlibcProgramLauncher
-import org.github.ewt45.winemulator.glibc.GlibcWineBridge
 import java.io.File
 import java.nio.charset.StandardCharsets
 
 /**
  * 连接linux的终端。输入命令或获取输出
  *
- * [v2 — glibc-bridge]
- * 在原版基础上,把"在 proot 里跑 wine"升级为"proot 跑桌面 + Android 进程
- * 通过 box64 跑 wine"。具体机制见 [org.github.ewt45.winemulator.glibc]
- * 包的文档;在用户视角,这只是新增了一个 `glibc-run <args>` 命令。
+ * [v3 — imagefs bind, no bridge]
+ * proot 容器通过 `--bind=.../files/imagefs:/imagefs` 访问外部 glibc
+ * 资产目录,内部 sh 直接 `box64 wine64 <args>`。不需要 Android 端
+ * bridge / fifo / socket —— 全部 box64+wine 在 proot 内 fork。
+ * 详见 [org.github.ewt45.winemulator.glibc] 包。
  *
  * 接口兼容性:
  *  - `Proot()` / `attach(): ProcessBuilder` 跟原版完全一致。
@@ -40,22 +40,23 @@ class Proot {
         /** 上次执行proot时的完整命令, 仅用于显示，可能无法真正用于执行 */
         var lastTimeCmd = ""
 
-        /** 当前活跃的 glibc-bridge 实例。由 [attach] 设置,Activity onDestroy 时清理。 */
-        @Volatile var activeBridge: GlibcWineBridge? = null
-
         /**
-         * Tracks the Context used to launch proot, so [installGlibcRunSh]
-         * can read the glibc-run.sh asset. Set by [attach]; cleared in
-         * onDestroy by MainEmuActivity.
+         * Tracks the Context used by [installGlibcRunSh] to read the
+         * glibc-run.sh asset. Set by [attach]; cleared in onDestroy().
+         *
+         * v3 no longer needs a separate bridge handle because box64+wine
+         * run entirely inside the proot container — there's nothing to
+         * start or stop on the Android side.
          */
         @Volatile var currentProotContext: android.content.Context? = null
 
         /**
-         * glibc-run 桥脚本,存在 APK assets 里 (assets/glibc-bridge/glibc-run.sh)。
+         * glibc-run 桥脚本,存在 APK assets 里 (assets/glibc/glibc-run.sh)。
          * 启动 proot 时会从 assets 读出来写到 rootfs/usr/local/bin/glibc-run。
          * 这个独立 sh 文件容易修改和调试，避免把 shell 代码嵌进 Kotlin。
          */
-        const val GLIBC_RUN_ASSET_PATH = "glibc-bridge/glibc-run.sh"
+        const val GLIBC_RUN_ASSET_PATH = "glibc/glibc-run.sh"
+        const val IMAGEFS_BIND_NAME = "/imagefs"
     }
 
     /**
@@ -135,49 +136,40 @@ class Proot {
         })
 
         // ============================================================
-        // glibc-bridge: 启动 box64+wine 守护, 暴露 endpoint 给 proot
+        // glibc imagefs: bind-mount the extracted imagefs as /imagefs
+        // so sh scripts inside proot can launch box64+wine directly.
+        //
+        // v3 design (modeled after winlator-glibc):
+        //   - No Android-side box64 daemon.
+        //   - No fifo / unix socket / IPC.
+        //   - Just `box64 wine64 <args>` from inside proot, where
+        //     /imagefs/usr/local/bin/box64 is the musl-built box64 and
+        //     /imagefs/opt/wine/bin/wine64 is the glibc-built wine64.
+        //   - box64 intercepts the execve of wine64, loads the glibc
+        //     loader from /imagefs/usr/lib/x86_64-linux-gnu, and runs
+        //     wine64 against that loader.
+        //
+        // This requires no extra code on the Android side beyond the
+        // asset extraction step (handled by ImageFsInstaller) and the
+        // --bind below.
         // ============================================================
-        var bridgeEndpoint = ""
-        // TEMPORARILY DISABLED — the bridge block was causing proot to receive
-        // SIGPIPE during startup (signal 13 = broken pipe). The exact root
-        // cause is still under investigation. The installGlibcRunSh() above
-        // still writes the sh bridge script into rootfs so glibc-run exists
-        // on disk; only the Android-side bridge server is skipped. When
-        // glibc-run is called without a working bridge, the sh script
-        // reports a clear error to the user instead of hanging.
-        if (false && ctx != null) {
+        if (ctx != null) {
             try {
-                // Force smart cast by capturing into a local val. Even
-                // though the if-branch is unreachable at runtime (we've
-                // disabled the whole block), the Kotlin compiler still
-                // needs a non-nullable type to compile this branch.
                 val nonNullCtx: android.content.Context = ctx!!
-                val imagefs = ImageFs.find(nonNullCtx)
-                ImageFs.ensureLayout(imagefs)
-                val launcher = GlibcProgramLauncher(nonNullCtx, imagefs)
-                runCatching { launcher.ensureInstalled() }
-                        .onFailure { Log.w(TAG, "glibcfs install failed: ${it.message}") }
-
-                val bridgeDir = File(tmpdir, "linbox-glibc")
-                bridgeDir.mkdirs()
-                val bridge = GlibcWineBridge(
-                    fs = imagefs,
-                    launcher = launcher,
-                    prootEndpointDir = bridgeDir,
-                    mode = GlibcWineBridge.Mode.FIFO
-                )
-                val ok = bridge.start()
-                if (!ok) {
-                    Log.e(TAG, "bridge failed to start: ${bridge.startError()}")
-                    bridge.stop()
+                val imagefs = org.github.ewt45.winemulator.glibc.ImageFs.find(nonNullCtx)
+                // Install on demand. ensureReady() extracts the .tzst on
+                // first run and verifies the critical binaries are in
+                // place on subsequent runs. Errors are logged but never
+                // crash proot startup — imagefs is optional.
+                val err = org.github.ewt45.winemulator.glibc.GlibcProgramLauncher.ensureReady(nonNullCtx)
+                if (err != null) {
+                    Log.w(TAG, "imagefs not ready: $err")
                 } else {
-                    activeBridge = bridge
-                    bridgeEndpoint = "/tmp/linbox-glibc/linbox-bridge.in|/tmp/linbox-glibc/linbox-bridge.out"
-                    Log.i(TAG, "glibc-bridge started, endpoint=$bridgeEndpoint")
-                    prootCmd.add("--bind=${bridgeDir.absolutePath}:/tmp/linbox-glibc")
+                    prootCmd.add("--bind=${imagefs.rootDir.absolutePath}:${IMAGEFS_BIND_NAME}")
+                    Log.i(TAG, "imagefs bound at ${IMAGEFS_BIND_NAME} (rootDir=${imagefs.rootDir.absolutePath})")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "failed to start glibc-bridge (continuing without it)", e)
+                Log.e(TAG, "failed to bind imagefs (continuing without it)", e)
             }
         }
 
@@ -189,8 +181,13 @@ class Proot {
         loginEnvs.put("TMPDIR", "/tmp", true)
         loginEnvs.put("DISPLAY", ":13", true)
         loginEnvs.put("PULSE_SERVER", "tcp:127.0.0.1:4713", true)
-        if (bridgeEndpoint.isNotEmpty()) {
-            loginEnvs.put("LINBOX_GLIBC_ENDPOINT", bridgeEndpoint, true)
+        // Signal to glibc-run.sh which box64 preset the user selected.
+        // Default to "compatibility" if no preference is set.
+        try {
+            val preset = org.github.ewt45.winemulator.Consts.Pref.box64_preset.get()
+            loginEnvs.put("LINBOX_GLIBC_PRESET", preset, true)
+        } catch (_: Exception) {
+            loginEnvs.put("LINBOX_GLIBC_PRESET", "compatibility", true)
         }
         // 把 /usr/local/bin 加进 PATH(覆盖 etc/environment),让 glibc-run 默认可用
         loginEnvs.put("PATH",

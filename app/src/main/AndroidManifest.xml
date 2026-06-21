@@ -62,11 +62,7 @@
             android:process=":xserver"
             android:exported="false" />
 
-        <!-- linbox glibc-bridge: 持有 box64+wine 进程 + fifo 端点 -->
-        <service
-            android:name="org.github.ewt45.winemulator.glibc.GlibcLauncherService"
-            android:enabled="true"
-            android:exported="false" />
+        <!-- v3: 移除 glibc-bridge service —— box64+wine 全部在 proot 内运行 -->
 
         <!--        mt的文件提供器-->
         <provider
