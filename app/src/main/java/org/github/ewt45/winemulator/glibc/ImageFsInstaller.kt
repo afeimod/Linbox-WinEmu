@@ -43,7 +43,13 @@ object ImageFsInstaller {
         if (imageFs.isValid) {
             val current = readVersion(imageFs.versionFile())
             if (current >= ImageFs.CURRENT_VERSION) {
-                Log.i(TAG, "imagefs already installed (version=$current)")
+                Log.i(TAG, "imagefs already installed (version=$current), re-running linterp patch")
+                // Even when the bundle is already extracted, we must still
+                // rewrite PT_INTERP because the user might have copied
+                // an imagefs in by hand (no chance for the tar extract
+                // hook to fire). patchelf is idempotent so calling it
+                // again is safe.
+                rewriteLinterps(imageFs.rootDir)
                 return true
             }
         }
@@ -70,6 +76,13 @@ object ImageFsInstaller {
             // Mark version so we don't re-extract next launch.
             imageFs.versionFile().parentFile?.mkdirs()
             imageFs.versionFile().writeText(ImageFs.CURRENT_VERSION.toString())
+            // Re-patchelf every binary so its PT_INTERP points at
+            // /imagefs/usr/lib/ld-linux-aarch64.so.1 instead of
+            // /data/data/<pkg>/files/imagefs/usr/lib/.... proot's
+            // chroot rewrite doesn't touch ELF linterps, so without
+            // this box64 can't load from inside proot.
+            rewriteLinterps(rootDir)
+
             Log.i(TAG, "imagefs install complete (version=${ImageFs.CURRENT_VERSION})")
             return true
         } catch (e: Exception) {
@@ -142,8 +155,42 @@ object ImageFsInstaller {
                     // entry's name+suffix when the tar reader is TarArchive...
                     // In practice the link target comes from TarArchiveEntry
                     // which is what we actually receive here. Cast safely.
-                    val linkTarget = (entry as? org.apache.commons.compress.archivers.tar.TarArchiveEntry)
+                    val rawLinkTarget = (entry as? org.apache.commons.compress.archivers.tar.TarArchiveEntry)
                         ?.linkName ?: continue
+
+                    // CRITICAL: winlator's imagefs.tzst contains symlinks
+                    // like `bin -> usr/bin` (relative). When the user copies
+                    // that imagefs into our `--bind=/imagefs` proot mount,
+                    // proot's `--link2symlink` resolves relative symlinks
+                    // against the proot's ROOTFS, not against /imagefs.
+                    // So `bin -> usr/bin` in the imagefs would resolve to
+                    // `<rootfs>/usr/bin` (Debian XFCE binaries) instead of
+                    // `<imagefs>/usr/bin`. This breaks everything.
+                    //
+                    // Fix: rewrite relative symlinks to absolute paths
+                    // anchored under /imagefs, OR — even safer — leave the
+                    // symlink alone but document that the user must run
+                    // glibc-run with absolute paths.
+                    //
+                    // We rewrite: if the link target starts with "./" or
+                    // doesn't start with "/", prepend the parent dir of
+                    // `relative` so the link is resolved from /imagefs.
+                    val linkTarget: String = if (rawLinkTarget.startsWith("/")) {
+                        rawLinkTarget
+                    } else if (rawLinkTarget.startsWith("./")) {
+                        val parent = File(relative).parent ?: ""
+                        "/" + parent.removePrefix("./").trim('/') +
+                            rawLinkTarget.removePrefix(".")
+                    } else {
+                        // Pure relative (e.g. "usr/bin") — anchor under
+                        // imagefs root so proot --link2symlink can resolve
+                        // it from /imagefs.
+                        val parent = File(relative).parent ?: ""
+                        val joined = if (parent.isEmpty()) rawLinkTarget
+                                     else parent.trim('/') + "/" + rawLinkTarget
+                        "/imagefs/" + joined.trim('/')
+                    }
+
                     // Recreate symlink. Delete existing file first to avoid
                     // FileUtils.symlink throwing on pre-existing files.
                     if (target.exists() || target.isDirectory) FileUtils.delete(target)
@@ -197,6 +244,186 @@ object ImageFsInstaller {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Re-patchelf every ELF binary we extracted so its PT_INTERP points
+     * at the proot-side mount path `/imagefs/usr/lib/ld-linux-aarch64.so.1`
+     * instead of the Android-side absolute path
+     * `/data/data/<pkg>/files/imagefs/usr/lib/ld-linux-aarch64.so.1`.
+     *
+     * Why: proot `--bind=/data/data/<pkg>/files/imagefs:/imagefs` mounts
+     * imagefs into the container under `/imagefs`, but proot's chroot
+     * rewrite only applies to argv paths, NOT to linterp paths the
+     * kernel reads from the ELF header. So a box64 binary whose linterp
+     * still says `/data/data/.../imagefs/usr/lib/ld-linux-aarch64.so.1`
+     * will ENOENT when exec'd from inside proot (kernel looks in the
+     * chroot's view of `/data/data/...` which doesn't exist).
+     *
+     * If we patchelf the linterp to `/imagefs/...`, proot's bind mount
+     * makes that path resolvable inside the chroot.
+     *
+     * We only do this when the linterp currently points at our
+     * Android-side imagefs rootDir; binaries with other linterps (e.g.
+     * a vanilla Debian linterp) are left alone because rewriting them
+     * would break the binary's own ELF loader assumptions.
+     */
+    private fun rewriteLinterps(rootDir: File) {
+        val rootPath = rootDir.absolutePath
+        val targetLinterp = "/imagefs/usr/lib/ld-linux-aarch64.so.1"
+        var rewrote = 0
+        var scanned = 0
+        rootDir.walkTopDown()
+            .onEnter { !it.name.startsWith("proc") && !it.name.startsWith("sys") }
+            .filter { it.isFile && it.canExecute() }
+            .forEach { f ->
+                scanned++
+                try {
+                    val current = readLinterp(f) ?: return@forEach
+                    if (current.startsWith("$rootPath/") && current.endsWith("ld-linux-aarch64.so.1")) {
+                        if (writeLinterp(f, targetLinterp)) {
+                            rewrote++
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Not an ELF or unreadable; skip silently.
+                }
+            }
+        Log.i(TAG, "rewriteLinterps: scanned $scanned executables, rewrote $rewrote")
+    }
+
+    private fun readLinterp(file: File): String? {
+        return try {
+            // ELF header: e_ident[EI_MAG0..3] = 0x7f 'E' 'L' 'F', then
+            // ei_class (1=32, 2=64). We accept both. After the 16-byte
+            // e_ident comes e_type (2), e_machine (2), e_version (4),
+            // e_entry (4/8), e_phoff (4/8), then we seek to e_phoff and
+            // read program headers until we find PT_INTERP (type=3).
+            val bytes = file.readBytes()
+            if (bytes.size < 52) return null
+            if (bytes[0] != 0x7F.toByte() || bytes[1] != 'E'.code.toByte() ||
+                bytes[2] != 'L'.code.toByte() || bytes[3] != 'F'.code.toByte()) return null
+            val is64 = bytes[4] == 2.toByte()
+            val ePhoff = if (is64) {
+                java.nio.ByteBuffer.wrap(bytes, 32, 8).long
+            } else {
+                java.nio.ByteBuffer.wrap(bytes, 28, 4).int.toLong() and 0xFFFFFFFFL
+            }
+            val ePhentsize: Int
+            val ePhnum: Int
+            if (is64) {
+                ePhentsize = java.nio.ByteBuffer.wrap(bytes, 54, 2).short.toInt() and 0xFFFF
+                ePhnum = java.nio.ByteBuffer.wrap(bytes, 56, 2).short.toInt() and 0xFFFF
+            } else {
+                ePhentsize = java.nio.ByteBuffer.wrap(bytes, 42, 2).short.toInt() and 0xFFFF
+                ePhnum = java.nio.ByteBuffer.wrap(bytes, 44, 2).short.toInt() and 0xFFFF
+            }
+            val pOffset: Int
+            val pFilesz: Int
+            if (is64) {
+                pOffset = 4
+                pFilesz = 32
+            } else {
+                pOffset = 4
+                pFilesz = 16
+            }
+            for (i in 0 until ePhnum) {
+                val phStart = (ePhoff + i * ePhentsize).toInt()
+                if (phStart + pFilesz > bytes.size) return null
+                val pType = if (is64) {
+                    java.nio.ByteBuffer.wrap(bytes, phStart, 4).int
+                } else {
+                    java.nio.ByteBuffer.wrap(bytes, phStart, 4).int
+                }
+                if (pType == 3) { // PT_INTERP
+                    val pOff = if (is64) {
+                        java.nio.ByteBuffer.wrap(bytes, phStart + 8, 8).long
+                    } else {
+                        java.nio.ByteBuffer.wrap(bytes, phStart + 4, 4).int.toLong() and 0xFFFFFFFFL
+                    }
+                    val pSz = if (is64) {
+                        java.nio.ByteBuffer.wrap(bytes, phStart + 32, 8).long
+                    } else {
+                        java.nio.ByteBuffer.wrap(bytes, phStart + 16, 4).int.toLong() and 0xFFFFFFFFL
+                    }
+                    val end = (pOff + pSz).toInt().coerceAtMost(bytes.size)
+                    val start = pOff.toInt().coerceAtLeast(0)
+                    return String(bytes, start, end - start, Charsets.US_ASCII).trimEnd('\u0000')
+                }
+            }
+            null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun writeLinterp(file: File, newLinterp: String): Boolean {
+        return try {
+            val bytes = file.readBytes()
+            if (bytes.size < 52) return false
+            if (bytes[0] != 0x7F.toByte()) return false
+            val is64 = bytes[4] == 2.toByte()
+            val ePhoff = if (is64) {
+                java.nio.ByteBuffer.wrap(bytes, 32, 8).long
+            } else {
+                java.nio.ByteBuffer.wrap(bytes, 28, 4).int.toLong() and 0xFFFFFFFFL
+            }
+            val ePhentsize: Int
+            val ePhnum: Int
+            if (is64) {
+                ePhentsize = java.nio.ByteBuffer.wrap(bytes, 54, 2).short.toInt() and 0xFFFF
+                ePhnum = java.nio.ByteBuffer.wrap(bytes, 56, 2).short.toInt() and 0xFFFF
+            } else {
+                ePhentsize = java.nio.ByteBuffer.wrap(bytes, 42, 2).short.toInt() and 0xFFFF
+                ePhnum = java.nio.ByteBuffer.wrap(bytes, 44, 2).short.toInt() and 0xFFFF
+            }
+            val pInterpOffsetInPhdr: Int
+            val pFileszOffsetInPhdr: Int
+            if (is64) {
+                pInterpOffsetInPhdr = 8
+                pFileszOffsetInPhdr = 32
+            } else {
+                pInterpOffsetInPhdr = 4
+                pFileszOffsetInPhdr = 16
+            }
+            for (i in 0 until ePhnum) {
+                val phStart = (ePhoff + i * ePhentsize).toInt()
+                if (phStart + pFileszOffsetInPhdr + 8 > bytes.size) return false
+                val pType = java.nio.ByteBuffer.wrap(bytes, phStart, 4).int
+                if (pType == 3) { // PT_INTERP
+                    val pOff = if (is64) {
+                        java.nio.ByteBuffer.wrap(bytes, phStart + pInterpOffsetInPhdr, 8).long
+                    } else {
+                        java.nio.ByteBuffer.wrap(bytes, phStart + pInterpOffsetInPhdr, 4).int.toLong() and 0xFFFFFFFFL
+                    }
+                    val interpStart = pOff.toInt()
+                    // Read existing size
+                    val oldSz = if (is64) {
+                        java.nio.ByteBuffer.wrap(bytes, phStart + pFileszOffsetInPhdr, 8).long
+                    } else {
+                        java.nio.ByteBuffer.wrap(bytes, phStart + pFileszOffsetInPhdr, 4).int.toLong() and 0xFFFFFFFFL
+                    }.toInt()
+                    val newBytes = newLinterp.toByteArray(Charsets.US_ASCII) + 0  // NUL terminator
+                    if (newBytes.size > oldSz) {
+                        // Padding with zeros won't fit; need to extend the file.
+                        Log.w(TAG, "writeLinterp: new linterp '$newLinterp' (${newBytes.size}B) " +
+                            "doesn't fit in existing PT_INTERP segment (${oldSz}B); skipping ${file.name}")
+                        return false
+                    }
+                    // Zero out old interp region, then write new bytes
+                    for (k in 0 until oldSz) bytes[interpStart + k] = 0
+                    System.arraycopy(newBytes, 0, bytes, interpStart, newBytes.size)
+                    file.writeBytes(bytes)
+                    // chmod +x in case writeBytes reset it
+                    try { android.system.Os.chmod(file.absolutePath, 493) } catch (_: Exception) {}
+                    return true
+                }
+            }
+            false
+        } catch (e: Exception) {
+            Log.w(TAG, "writeLinterp on ${file.name} failed: ${e.message}")
+            false
         }
     }
 

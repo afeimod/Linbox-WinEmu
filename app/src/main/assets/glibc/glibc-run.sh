@@ -20,8 +20,35 @@
 set -e
 
 IMAGEFS=/imagefs
-BOX64="$IMAGEFS/usr/local/bin/box64"
-WINE64="$IMAGEFS/opt/wine/bin/wine64"
+
+# Find box64. winlator imagefs layouts we know about:
+#   7.x:        /imagefs/usr/local/bin/box64
+#   older 6.x:  /imagefs/usr/bin/box64
+find_box64() {
+    for cand in \
+        "$IMAGEFS/usr/local/bin/box64" \
+        "$IMAGEFS/usr/bin/box64" \
+        "$IMAGEFS/bin/box64" ; do
+        if [ -x "$cand" ]; then echo "$cand"; return 0; fi
+    done
+    return 1
+}
+
+# Find wine binary. winlator uses plain `wine` (not wine64) — wine64 is
+# only used inside the prefix by wine's loader to switch to 64-bit.
+# Probe multiple candidate layouts and return the first executable one.
+find_wine() {
+    for cand in \
+        "$IMAGEFS/opt/wine/bin/wine" \
+        "$IMAGEFS/usr/bin/wine" \
+        "$IMAGEFS/bin/wine" \
+        "$IMAGEFS/opt/wine/bin/wine64" \
+        "$IMAGEFS/usr/bin/wine64" \
+        "$IMAGEFS/bin/wine64" ; do
+        if [ -x "$cand" ]; then echo "$cand"; return 0; fi
+    done
+    return 1
+}
 
 # Diagnostic helper: dump the failing entry with full stat so the user
 # can tell whether the bind mount is missing, the file is missing, or
@@ -31,51 +58,68 @@ diag() {
     echo "  ---" >&2
     echo "  proot sees /imagefs as:" >&2
     if [ -e /imagefs ]; then
-        ls -la /imagefs 2>&1 | head -10 >&2
-        echo "  contents:" >&2
-        find /imagefs -maxdepth 3 2>&1 | head -20 >&2
+        ls -la /imagefs 2>&1 | head -15 >&2
+        echo "  contents (depth 3):" >&2
+        find /imagefs -maxdepth 3 2>&1 | head -30 >&2
+        echo "  box64 candidates:" >&2
+        for cand in "$IMAGEFS/usr/local/bin/box64" "$IMAGEFS/usr/bin/box64" "$IMAGEFS/bin/box64"; do
+            if [ -e "$cand" ]; then
+                ls -la "$cand" >&2
+            else
+                echo "  not found: $cand" >&2
+            fi
+        done
+        echo "  wine candidates:" >&2
+        for cand in "$IMAGEFS/opt/wine/bin/wine" "$IMAGEFS/usr/bin/wine" "$IMAGEFS/bin/wine"; do
+            if [ -e "$cand" ]; then
+                ls -la "$cand" >&2
+            else
+                echo "  not found: $cand" >&2
+            fi
+        done
     else
         echo "  /imagefs does not exist — proot's --bind=...:/imagefs" >&2
-        echo "  did not take effect. Most likely cause: linbox 还没" >&2
-        echo "  解压 assets/imagefs/imagefs.tzst 到 imagefs 目录。" >&2
-        echo "  检查 logcat ImageFsInstaller 看 extract 有没有跑。" >&2
+        echo "  did not take effect. 检查 logcat ImageFsInstaller 看 extract 有没有跑。" >&2
     fi
     echo "  ---" >&2
     exit 127
 }
 
-# Sanity check: bind mount present and box64 file is reachable.
-# We deliberately do NOT require -x here: even if the tar extract
-# stripped the executable bit (a known Android+commons-compress gotcha
-# for files on /data/data/.../files/), proot itself runs as our
-# unprivileged app uid and can chmod the file back. Try chmod +x
-# once before giving up.
 if [ ! -d /imagefs ]; then
     diag "/imagefs 目录不存在"
 fi
-if [ ! -e "$BOX64" ]; then
-    diag "$BOX64 not found (imagefs 装上但 box64 文件缺失)"
-fi
-# Best-effort re-chmod. Ignore errors.
-chmod +x "$BOX64" 2>/dev/null || true
-chmod +x "$WINE64" 2>/dev/null || true
 
-if [ ! -x "$BOX64" ]; then
-    diag "$BOX64 not executable even after chmod +x"
-fi
-if [ ! -x "$WINE64" ]; then
-    diag "$WINE64 not executable even after chmod +x"
+# Try to find box64. We intentionally try BEFORE chmod +x because some
+# imagefs layouts place box64 in /usr/bin/box64 (older winlator), and
+# chmod-ing the wrong path won't help.
+BOX64=$(find_box64 || true)
+if [ -z "$BOX64" ]; then
+    # Last-ditch: try chmod +x on the most likely paths, then re-find.
+    chmod +x "$IMAGEFS/usr/local/bin/box64" 2>/dev/null || true
+    chmod +x "$IMAGEFS/usr/bin/box64" 2>/dev/null || true
+    chmod +x "$IMAGEFS/opt/wine/bin/wine" 2>/dev/null || true
+    chmod +x "$IMAGEFS/opt/wine/bin/wine64" 2>/dev/null || true
+    chmod +x "$IMAGEFS/usr/bin/wine" 2>/dev/null || true
+    chmod +x "$IMAGEFS/usr/bin/wine64" 2>/dev/null || true
+    BOX64=$(find_box64 || true)
+    if [ -z "$BOX64" ]; then
+        diag "box64 not found in any known layout (tried usr/local/bin, usr/bin, bin)"
+    fi
 fi
 
-# Point glibc loader at imagefs libs. This is the entire point: wine64
-# is glibc-linked but proot itself can't run glibc binaries — box64
-# intercepts the exec and re-dispatches with the correct loader.
+WINE=$(find_wine || true)
+if [ -z "$WINE" ]; then
+    WINE="$BOX64"   # fall back; glibc-run will fail later if wine really missing
+    echo "glibc-run: wine not found in any known layout, will try to use box64 path" >&2
+fi
+
+# Point glibc loader at imagefs libs.
 export BOX64_LD_LIBRARY_PATH="$IMAGEFS/usr/lib/x86_64-linux-gnu:$IMAGEFS/lib/x86_64-linux-gnu"
 export LD_LIBRARY_PATH="$BOX64_LD_LIBRARY_PATH"
 export WINEPREFIX="${WINEPREFIX:-$IMAGEFS/home/xuser/.wine}"
 
 # Standard runtime paths so wine can find its own sub-bins.
-export PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+export PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:$IMAGEFS/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 # X11 / audio. linbox's proot already sets DISPLAY=:13 (Xlorie).
 # We *don't* override DISPLAY here so the user's existing xfce session
@@ -119,4 +163,4 @@ esac
 export BOX64_NOBANNER="${BOX64_NOBANNER:-1}"
 
 # Run.
-exec "$BOX64" "$WINE64" "$@"
+exec "$BOX64" "$WINE" "$@"

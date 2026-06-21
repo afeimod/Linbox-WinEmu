@@ -1,70 +1,126 @@
 package org.github.ewt45.winemulator.glibc
 
 import android.content.Context
+import android.os.Process
+import android.system.Os
 import android.util.Log
 import java.io.File
 
 /**
- * Lightweight helper that decides whether the glibc imagefs is installed
- * and ready for use by proot-launched programs.
+ * Launches a Windows .exe by forking `box64 wine <args>` directly on the
+ * Android side (NOT inside the proot container).
  *
- * We do NOT spawn any Android-side box64/wine process — that's the whole
- * point of the v3 redesign. Everything happens inside the proot container
- * (see `assets/glibc/glibc-run.sh`). The launcher class only validates
- * that imagefs is in place so we can give the user a clear error message
- * if they try to run a .exe without installing the bundle first.
+ * Why direct, not proot:
+ *
+ *   winlator's box64 binary is patched with
+ *     patchelf --set-interpreter <imagefs>/usr/lib/ld-linux-aarch64.so.1
+ *   so its linterp points at an Android-side absolute path. proot does
+ *   NOT rewrite paths that the kernel reads from the ELF interpreter
+ *   field — it only rewrites argv paths. So when the proot-launched
+ *   box64 tries to exec, the kernel looks for the linterp at
+ *   `/data/user/0/<pkg>/files/imagefs/usr/lib/ld-linux...so.1` — which
+ *   is NOT inside proot's rootfs tree and the kernel returns ENOENT.
+ *
+ *   Running box64 directly from the Android process (the linbox app's
+ *   own uid) means the kernel can resolve the linterp normally,
+ *   because the path is a real path under `<filesDir>/imagefs/`.
+ *
+ *   box64 itself loads wine through its own ELF loader (it doesn't use
+ *   /lib/ld-linux.so.1 of the host) so the glibc-loaded wine binary
+ *   runs inside box64's emulated process with the imagefs lib path.
+ *
+ * This is the same architecture winlator uses (see winlator-glibc's
+ * `GuestProgramLauncherComponent.execGuestProgram`).
  */
 class GlibcProgramLauncher(
     val imageFs: ImageFs,
 ) {
     fun isInstalled(): Boolean = imageFs.isValid
 
-    /**
-     * Run the smoke test that verifies the critical imagefs files exist.
-     * Returns a human-readable error message or null on success.
-     */
     fun verifyReady(): String? = ImageFsInstaller.smokeTest(imageFs)
 
     /**
-     * Return the proot-internal absolute path of `box64` (so sh scripts
-     * inside proot can exec it). Useful for the MainEmuActivity logcat
-     * dump that shows users which binary is being used.
+     * Return the absolute Android-side path of the box64 binary, or null
+     * if it cannot be located in any known imagefs layout.
      */
-    fun prootBox64Path(): String =
-        "${imageFs.prootMountPath}/usr/local/bin/box64"
+    fun androidBox64Path(): String? {
+        val candidates = listOf(
+            "${imageFs.rootDir.absolutePath}/usr/local/bin/box64",
+            "${imageFs.rootDir.absolutePath}/usr/bin/box64",
+            "${imageFs.rootDir.absolutePath}/bin/box64",
+        )
+        for (c in candidates) if (File(c).canExecute()) return c
+        return candidates.firstOrNull { File(it).exists() }
+    }
 
-    fun prootWine64Path(): String =
-        "${imageFs.winePath}/bin/wine64"
+    /**
+     * Return the absolute Android-side path of the wine binary, or null
+     * if not found. Winlator layout uses plain `wine` (not `wine64`).
+     */
+    fun androidWinePath(): String? {
+        val candidates = listOf(
+            "${imageFs.winePath}/bin/wine",
+            "${imageFs.rootDir.absolutePath}/usr/bin/wine",
+            "${imageFs.rootDir.absolutePath}/bin/wine",
+            "${imageFs.winePath}/bin/wine64",
+            "${imageFs.rootDir.absolutePath}/usr/bin/wine64",
+        )
+        for (c in candidates) if (File(c).canExecute()) return c
+        return candidates.firstOrNull { File(it).exists() }
+    }
+
+    /**
+     * Build the argv list that ProcessBuilder will hand to fork+exec.
+     *
+     *   argv[0] = box64
+     *   argv[1] = wine
+     *   argv[2..] = <args>
+     */
+    fun buildCommand(vararg args: String): List<String>? {
+        val box64 = androidBox64Path()
+        val wine = androidWinePath()
+        if (box64 == null) return null
+        if (wine == null) return null
+        return listOf(box64, wine) + args.toList()
+    }
+
+    /**
+     * Environment block for the spawned box64+wine process.
+     * Mirrors winlator-glibc's GlibcProgramLauncherComponent.execGuestProgram.
+     */
+    fun buildEnv(): Map<String, String> {
+        val root = imageFs.rootDir.absolutePath
+        val winePath = imageFs.winePath
+        val map = HashMap<String, String>()
+        map["HOME"] = "${root}/home/xuser"
+        map["USER"] = "xuser"
+        map["TMPDIR"] = "${root}/tmp"
+        map["PATH"] = "$winePath/bin:$root/usr/local/bin:$root/usr/bin:$root/bin:/system/bin:/system/xbin"
+        map["LD_LIBRARY_PATH"] = "$root/usr/lib/aarch64-linux-gnu:$root/usr/lib"
+        map["BOX64_LD_LIBRARY_PATH"] = "$root/usr/lib/x86_64-linux-gnu:$root/lib/x86_64-linux-gnu"
+        map["ANDROID_SYSVSHM_SERVER"] = "/data/data/${imageFs.rootDir.name}/files/imagefs/.sysvshm"
+        map["FONTCONFIG_PATH"] = "$root/usr/etc/fonts"
+        map["WINEPREFIX"] = "${root}/home/xuser/.wine"
+        map["DISPLAY"] = ":0"           // winlator sets ":0" but linbox X server runs on ":13" — set by parent
+        map["PULSE_SERVER"] = "tcp:127.0.0.1:4713"
+        map["BOX64_DYNAREC"] = "1"
+        return map
+    }
 
     companion object {
         private const val TAG = "GlibcProgramLauncher"
 
-        /**
-         * Returns a launcher bound to the standard on-disk imagefs, or
-         * null if the imagefs bundle has not been extracted yet.
-         */
         fun forContext(context: Context): GlibcProgramLauncher {
             val imageFs = ImageFs.find(context)
             return GlibcProgramLauncher(imageFs)
         }
 
-        /**
-         * Top-level helper used by MainEmuActivity and Proot to make sure
-         * imagefs is ready. Returns null on success, error message on
-         * failure. Logs the outcome.
-         */
         fun ensureReady(context: Context): String? {
             val launcher = forContext(context)
             if (!launcher.isInstalled()) {
                 val ok = ImageFsInstaller.installIfNeeded(context)
                 if (!ok) return "imagefs 资产解压失败,请检查 assets/imagefs/imagefs.tzst 是否存在"
             }
-            // verifyReady() returns an error if any of the must-have
-            // binaries is missing. If the user pre-installed a partial
-            // imagefs (e.g. just box64 from winlator's bundle), we fall
-            // back to the same smoke-test we use after install — the
-            // proot-side glibc-run.sh will report a clear error if a
-            // specific binary is missing at runtime.
             return launcher.verifyReady()
         }
     }
