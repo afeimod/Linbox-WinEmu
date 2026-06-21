@@ -130,6 +130,9 @@ object ImageFsInstaller {
      * Pax headers and other meta-entries are skipped.
      */
     private fun extractEntries(tin: TarArchiveInputStream, rootDir: File) {
+        var written = 0
+        var skipped = 0
+        var symlinks = 0
         while (true) {
             val entry: ArchiveEntry = tin.nextEntry ?: break
             val name = entry.name ?: continue
@@ -151,6 +154,7 @@ object ImageFsInstaller {
 
             when {
                 (entry as? org.apache.commons.compress.archivers.tar.TarArchiveEntry)?.isSymbolicLink == true -> {
+                    symlinks++
                     // commons-compress exposes the link target via the
                     // entry's name+suffix when the tar reader is TarArchive...
                     // In practice the link target comes from TarArchiveEntry
@@ -195,17 +199,49 @@ object ImageFsInstaller {
                     // FileUtils.symlink throwing on pre-existing files.
                     if (target.exists() || target.isDirectory) FileUtils.delete(target)
                     try {
-                        android.system.Os.symlink(linkTarget, target.absolutePath)
-                    } catch (e: Exception) {
-                        // Symlink may fail on filesystems without symlink
-                        // support; fall back to copying the link target as a
-                        // plain text file so the user at least sees the path.
-                        target.writeText(linkTarget)
+                        // Try multiple symlink APIs because Android sdcardfs
+                        // sometimes blocks Os.symlink() with EPERM even when
+                        // java.nio can create the link.
+                        try {
+                            android.system.Os.symlink(linkTarget, target.absolutePath)
+                        } catch (_: Exception) {
+                            java.nio.file.Files.createSymbolicLink(
+                                target.toPath(),
+                                java.nio.file.Paths.get(linkTarget)
+                            )
+                        }
+                    } catch (symlinkErr: Exception) {
+                        // Symlink creation truly failed (filesystem doesn't
+                        // support it). DO NOT fall back to writing the link
+                        // target as text — that creates a non-ELF file with
+                        // garbage bytes that breaks wine/box64 ld.so loading.
+                        // Instead, try to physically copy the link target's
+                        // contents into place. This inflates the imagefs by
+                        // deduplicating libc.so.6 etc., but it's the only
+                        // way to make box64/wine load on filesystems that
+                        // refuse symlinks.
+                        val linkPath = File(target.parentFile, linkTarget.removePrefix("./"))
+                        if (linkPath.isFile && linkPath.canRead()) {
+                            try {
+                                linkPath.copyTo(target, overwrite = true)
+                                Log.i(TAG, "  copied ${target.name} <- ${linkPath.name} (symlink unavailable)")
+                            } catch (copyErr: Exception) {
+                                Log.w(TAG, "failed to symlink AND copy ${target.name}: symlink=${symlinkErr.message}, copy=${copyErr.message}")
+                            }
+                        } else {
+                            Log.w(TAG, "failed to symlink ${target.name} -> $linkTarget: ${symlinkErr.message}")
+                        }
                     }
                 }
                 else -> {
-                    FileOutputStream(target).use { out ->
-                        tin.copyTo(out)
+                    try {
+                        FileOutputStream(target).use { out ->
+                            tin.copyTo(out)
+                        }
+                        written++
+                    } catch (e: Exception) {
+                        skipped++
+                        Log.w(TAG, "  failed to write $relative: ${e.message}")
                     }
                     // Preserve executable bit. Tar stores mode in the
                     // octal unix permissions; commons-compress exposes
@@ -245,6 +281,7 @@ object ImageFsInstaller {
                 }
             }
         }
+        Log.i(TAG, "extractEntries done: written=$written skipped=$skipped symlinks=$symlinks")
     }
 
     /**

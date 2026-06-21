@@ -50,7 +50,9 @@ class GlibcProgramLauncher(
             "${imageFs.rootDir.absolutePath}/usr/bin/box64",
             "${imageFs.rootDir.absolutePath}/bin/box64",
         )
-        for (c in candidates) if (File(c).canExecute()) return c
+        // Android's File.canExecute() can falsely return false even when
+        // we can read+write the file (sdcardfs quirks). Trust .exists()
+        // and let the kernel reject on exec if the mode bits are wrong.
         return candidates.firstOrNull { File(it).exists() }
     }
 
@@ -66,7 +68,6 @@ class GlibcProgramLauncher(
             "${imageFs.winePath}/bin/wine64",
             "${imageFs.rootDir.absolutePath}/usr/bin/wine64",
         )
-        for (c in candidates) if (File(c).canExecute()) return c
         return candidates.firstOrNull { File(it).exists() }
     }
 
