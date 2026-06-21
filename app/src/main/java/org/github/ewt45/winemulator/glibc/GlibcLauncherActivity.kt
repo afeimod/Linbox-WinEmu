@@ -56,16 +56,39 @@ class GlibcLauncherActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val imageFs = ImageFs.find(this)
+        val launcher = GlibcProgramLauncher(imageFs)
         if (!imageFs.isValid) {
-            Toast.makeText(this, "imagefs 没装好,先开桌面让 Proot.kt 装好", Toast.LENGTH_LONG).show()
-            finish()
+            // Dump diagnostics so the user knows which sentinel file
+            // is missing — isValid just checks for box64/wine64/libc.so.6
+            // but doesn't say which one.
+            val root = imageFs.rootDir.absolutePath
+            val checks = listOf(
+                "$root/usr/local/bin/box64",
+                "$root/usr/bin/box64",
+                "$root/opt/wine/bin/wine",
+                "$root/usr/bin/wine",
+                "$root/usr/lib/x86_64-linux-gnu/libc.so.6",
+            )
+            val lines = checks.map { path ->
+                val f = File(path)
+                if (f.exists()) "OK   $path (${f.length()} B)"
+                else            "MISS $path"
+            }
+            val msg = "imagefs 没装好。详细:\n" + lines.joinToString("\n")
+            android.app.AlertDialog.Builder(this)
+                .setTitle("GlibcLauncher")
+                .setMessage(msg)
+                .setPositiveButton(android.R.string.ok) { _, _ -> finish() }
+                .show()
             return
         }
-        val launcher = GlibcProgramLauncher(imageFs)
         val verifyErr = launcher.verifyReady()
         if (verifyErr != null) {
-            Toast.makeText(this, "imagefs 验证失败: $verifyErr", Toast.LENGTH_LONG).show()
-            finish()
+            android.app.AlertDialog.Builder(this)
+                .setTitle("GlibcLauncher")
+                .setMessage("imagefs 验证失败: $verifyErr")
+                .setPositiveButton(android.R.string.ok) { _, _ -> finish() }
+                .show()
             return
         }
         val box64 = launcher.androidBox64Path() ?: run {
