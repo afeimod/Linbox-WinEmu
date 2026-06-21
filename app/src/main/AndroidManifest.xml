@@ -64,6 +64,20 @@
 
         <!-- v3: 移除 glibc-bridge service —— box64+wine 全部在 proot 内运行 -->
 
+        <!-- v3.1: Android-side launcher that forks box64 directly (avoids
+             proot chroot segfault for static musl binaries). User invokes
+             it via the home screen icon or
+             `am start -n .../.glibc.GlibcLauncherActivity`. -->
+        <activity
+            android:name="org.github.ewt45.winemulator.glibc.GlibcLauncherActivity"
+            android:exported="true"
+            android:label="glibc launcher">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
         <!--        mt的文件提供器-->
         <provider
             android:name="bin.mt.file.content.MTDataFilesProvider"
