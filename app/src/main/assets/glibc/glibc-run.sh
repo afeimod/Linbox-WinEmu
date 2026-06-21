@@ -17,7 +17,8 @@
 #
 # Exit codes match box64/wine64.
 
-set -e
+# set -e disabled intentionally: we want the diag helper to fire on
+# any failure and print clear diagnostics rather than crashing silently.
 
 IMAGEFS=/imagefs
 
@@ -93,6 +94,7 @@ fi
 # imagefs layouts place box64 in /usr/bin/box64 (older winlator), and
 # chmod-ing the wrong path won't help.
 BOX64=$(find_box64 || true)
+echo "glibc-run: BOX64=$BOX64" >&2
 if [ -z "$BOX64" ]; then
     # Last-ditch: try chmod +x on the most likely paths, then re-find.
     chmod +x "$IMAGEFS/usr/local/bin/box64" 2>/dev/null || true
@@ -162,5 +164,28 @@ esac
 # Suppress box64 banner unless explicitly enabled.
 export BOX64_NOBANNER="${BOX64_NOBANNER:-1}"
 
-# Run.
-exec "$BOX64" "$WINE" "$@"
+# Run. We intentionally call the underlying binary directly (no exec)
+# so we can surface the real execve() error (ENOENT, EACCES, ELIBBAD,
+# noexec mount, linterp not found, etc.). sh's `exec` builtin hides
+# these behind a generic "not found" message.
+if [ ! -e "$BOX64" ]; then
+    echo "glibc-run: $BOX64 disappeared between find_box64 and exec" >&2
+    ls -la /imagefs/usr/local/bin/ 2>&1 >&2
+    exit 127
+fi
+echo "glibc-run: trying $BOX64 $WINE $*" >&2
+if "$BOX64" "$WINE" "$@"; then
+    rc=$?
+    echo "glibc-run: exited with code $rc" >&2
+    exit $rc
+else
+    rc=$?
+    echo "glibc-run: direct exec failed with code $rc" >&2
+    case $rc in
+        126) echo "  -> 'Permission denied' or 'cannot execute' (check mount noexec / chmod +x)" >&2 ;;
+        127) echo "  -> 'not found' (check linterp / ldd dependencies)" >&2 ;;
+        132) echo "  -> SIGILL (illegal instruction)" >&2 ;;
+        139) echo "  -> SIGSEGV (segfault)" >&2 ;;
+    esac
+    exit $rc
+fi

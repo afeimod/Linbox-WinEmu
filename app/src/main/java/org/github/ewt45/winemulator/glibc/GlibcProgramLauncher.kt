@@ -117,11 +117,15 @@ class GlibcProgramLauncher(
 
         fun ensureReady(context: Context): String? {
             val launcher = forContext(context)
+            android.util.Log.i(TAG, "ensureReady: launcher.isInstalled=${launcher.isInstalled()}")
             if (!launcher.isInstalled()) {
                 val ok = ImageFsInstaller.installIfNeeded(context)
+                android.util.Log.i(TAG, "ensureReady: installIfNeeded=$ok")
                 if (!ok) return "imagefs 资产解压失败,请检查 assets/imagefs/imagefs.tzst 是否存在"
             }
-            return launcher.verifyReady()
+            val verify = launcher.verifyReady()
+            android.util.Log.i(TAG, "ensureReady: verifyReady=$verify, box64=${launcher.androidBox64Path()}, wine=${launcher.androidWinePath()}")
+            return verify
         }
     }
 }
