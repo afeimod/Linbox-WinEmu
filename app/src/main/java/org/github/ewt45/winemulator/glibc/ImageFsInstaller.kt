@@ -176,23 +176,43 @@ object ImageFsInstaller {
                     // symlink alone but document that the user must run
                     // glibc-run with absolute paths.
                     //
-                    // We rewrite: if the link target starts with "./" or
-                    // doesn't start with "/", prepend the parent dir of
-                    // `relative` so the link is resolved from /imagefs.
+                    // We rewrite symlink targets to absolute paths
+                    // anchored under the Android-side imagefs rootDir,
+                    // because box64 reads symlinks from inside the imagefs
+                    // (its own ELF loader, not Linux's) and Linux
+                    // readlink() returns whatever we wrote at extract time.
+                    //
+                    // Critically, we DO NOT prepend `/imagefs/` here.
+                    // /imagefs is a proot-internal path that only exists
+                    // inside linbox's proot container. When box64 reads the
+                    // symlink via its own loader from outside proot (which
+                    // is how the Android UI launcher starts box64), /imagefs
+                    // resolves to nothing. Use the Android-side absolute
+                    // path instead.
+                    //
+                    // Important: resolve relative targets against the
+                    // symlink's PARENT directory (the standard symlink
+                    // semantics), not against imagefs root.
                     val linkTarget: String = if (rawLinkTarget.startsWith("/")) {
-                        rawLinkTarget
-                    } else if (rawLinkTarget.startsWith("./")) {
-                        val parent = File(relative).parent ?: ""
-                        "/" + parent.removePrefix("./").trim('/') +
-                            rawLinkTarget.removePrefix(".")
+                        // rawLinkTarget is absolute (e.g. /lib/foo).
+                        // Anchor it under rootDir so it's resolvable from
+                        // Android-side processes.
+                        rootDir.absolutePath + rawLinkTarget
                     } else {
-                        // Pure relative (e.g. "usr/bin") — anchor under
-                        // imagefs root so proot --link2symlink can resolve
-                        // it from /imagefs.
-                        val parent = File(relative).parent ?: ""
-                        val joined = if (parent.isEmpty()) rawLinkTarget
-                                     else parent.trim('/') + "/" + rawLinkTarget
-                        "/imagefs/" + joined.trim('/')
+                        // Resolve the relative path against the symlink's
+                        // parent dir. `relative` is the path of the symlink
+                        // itself, e.g. "usr/bin".
+                        val parentRel = File(relative).parent ?: ""
+                        // Use java.nio.file.Path to resolve "../" segments
+                        // cleanly instead of string concat.
+                        val resolvedRel = if (rawLinkTarget.startsWith("./")) {
+                            rawLinkTarget.removePrefix("./")
+                        } else {
+                            rawLinkTarget
+                        }
+                        val parentPath = java.nio.file.Paths.get(parentRel)
+                        val combined = parentPath.resolve(resolvedRel).normalize()
+                        rootDir.absolutePath + "/" + combined.toString().trimStart('/')
                     }
 
                     // Recreate symlink. Delete existing file first to avoid
