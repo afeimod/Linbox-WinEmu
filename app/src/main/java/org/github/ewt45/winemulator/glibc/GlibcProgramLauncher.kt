@@ -150,20 +150,57 @@ class GlibcProgramLauncher(
          * it's left alone.
          */
         private fun rewriteLinterps(rootDir: File): Pair<Int, Int> {
-            val rootPath = rootDir.absolutePath
-            val targetLinterp = "/imagefs/usr/lib/ld-linux-aarch64.so.1"
+            // winlator's imagefs has `lib -> usr/lib` as a symlink so an
+            // linterp of `/lib/ld-linux-aarch64.so.1` resolves inside
+            // the bind-mounted imagefs (the symlink lives at /lib in the
+            // mounted view). This is what stock box64/wine builds use.
+            //
+            // We pick whichever target actually exists in the imagefs
+            // so we don't break users who picked the absolute-path layout.
+            val candidateTargets = listOf(
+                "/lib/ld-linux-aarch64.so.1",
+                "/usr/lib/ld-linux-aarch64.so.1",
+                "/imagefs/usr/lib/ld-linux-aarch64.so.1",
+            )
+            val targetLinterp = candidateTargets.firstOrNull { candidate ->
+                // Map "/lib/foo" to "<rootDir>/lib/foo" (or use as-is
+                // for the absolute /imagefs path which we know sits
+                // outside rootDir's bind).
+                val resolved = when {
+                    candidate.startsWith("/imagefs/") -> File(candidate)
+                    else -> File(rootDir, candidate.removePrefix("/"))
+                }
+                resolved.exists()
+            } ?: candidateTargets.first()
+
             var rewrote = 0
             var scanned = 0
+            android.util.Log.i(TAG, "rewriteLinterps: targetLinterp=$targetLinterp (rootDir=$rootDir)")
             rootDir.walkTopDown()
                 .onEnter { !it.name.startsWith("proc") && !it.name.startsWith("sys") }
-                .filter { it.isFile && it.canExecute() }
+                .filter { f ->
+                    // Don't rely on canExecute() — Android's file
+                    // permission model may report false for files we
+                    // can clearly read+write. Just check it's a regular
+                    // file with the ELF magic and a plausible name.
+                    f.isFile && (
+                        f.name in DEBUG_NAMES ||
+                        f.name.endsWith(".so") || f.name.endsWith(".so.1")
+                    )
+                }
                 .forEach { f ->
                     scanned++
                     try {
                         val current = readLinterp(f) ?: return@forEach
-                        if (current.startsWith("$rootPath/") &&
-                            current.endsWith("ld-linux-aarch64.so.1")) {
-                            if (writeLinterp(f, targetLinterp)) rewrote++
+                        if (f.name in DEBUG_NAMES || current.contains("ld-linux")) {
+                            android.util.Log.i(TAG, "  ${f.name}: linterp='$current'")
+                        }
+                        if (current.endsWith("ld-linux-aarch64.so.1") &&
+                            current != targetLinterp) {
+                            if (writeLinterp(f, targetLinterp)) {
+                                rewrote++
+                                android.util.Log.i(TAG, "  rewrote ${f.name} -> $targetLinterp")
+                            }
                         }
                     } catch (_: Exception) {
                         // Not an ELF or unreadable; skip.
@@ -171,6 +208,11 @@ class GlibcProgramLauncher(
                 }
             return rewrote to scanned
         }
+
+        private val DEBUG_NAMES = setOf(
+            "box64", "box86", "wine", "wine64", "wineboot", "wineserver",
+            "libbox64.so", "libbox86.so"
+        )
 
         private fun readLinterp(file: File): String? {
             return try {
