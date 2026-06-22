@@ -251,9 +251,24 @@ class GlibcLauncherActivity : Activity() {
             appendOutput("box64 or wine not found in imagefs\n")
             return
         }
-        appendOutput("$ ${cmd.joinToString(" ")}\n")
-        appendOutput("cmd[0] (box64) = ${cmd[0]}\n")
-        appendOutput("cmd[1] (wine) = ${cmd[1]}\n")
+        appendOutput("Android-side cmd: ${cmd.joinToString(" ")}\n")
+        // Rewrite to proot-side paths. Proot chroots at
+        // <rootfsCurrDir>; Proot.attach() binds our imagefs to /imagefs
+        // inside that chroot. The user-provided exe path is also
+        // under <filesDir>/imagefs/..., which proot sees as /imagefs.
+        val imageFsRoot = imageFs.rootDir.absolutePath
+        fun toProotPath(androidAbs: String): String {
+            if (androidAbs.startsWith(imageFsRoot)) {
+                return "/imagefs" + androidAbs.substring(imageFsRoot.length)
+            }
+            return androidAbs
+        }
+        val prootCmd = cmd.drop(1).map { toProotPath(it) }
+        val prootBox64 = toProotPath(cmd[0])
+        val fullProotCmd = listOf(prootBox64) + prootCmd
+        appendOutput("proot-side cmd: ${fullProotCmd.joinToString(" ")}\n")
+        appendOutput("cmd[0] (box64) = $prootBox64\n")
+        appendOutput("cmd[1] (wine) = ${prootCmd.firstOrNull() ?: "<none>"}\n")
 
         // Launch box64+wine via linbox's proot so the new process
         // shares the same Termux:X11 server that the rest of the
@@ -268,7 +283,7 @@ class GlibcLauncherActivity : Activity() {
         // us a process whose DISPLAY=:13 env var is honored by
         // box64/wine in the same way the user's other X apps
         // (xfce, etc.) get it.
-        runViaProot(cmd)
+        runViaProot(fullProotCmd)
     }
 
     private fun runViaProot(box64Cmd: List<String>) {
