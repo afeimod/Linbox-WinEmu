@@ -123,6 +123,25 @@ class GlibcLauncherActivity : Activity() {
             setPadding(24, 24, 24, 24)
         }
 
+        // LorieView — the Surface that Termux:X11 writes its rendered
+        // pixels to. Without an attached LorieView Termux:X11 has no
+        // way to deliver frames to the screen even though the X
+        // server is alive on :13. linbox's MainEmuActivity creates
+        // its own LorieView via the embedded MainActivity base class;
+        // we have to instantiate ours directly because this
+        // GlibcLauncherActivity is a plain Activity.
+        try {
+            val lorieView = com.termux.x11.LorieView(this)
+            val lp = LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                1200, // ~half the screen for X11 output
+            )
+            root.addView(lorieView, 0, lp)
+            Log.i(TAG, "LorieView attached at top of layout")
+        } catch (e: Throwable) {
+            Log.e(TAG, "Failed to create LorieView", e)
+        }
+
         root.addView(TextView(this).apply {
             text = "box64: $box64"
             textSize = 10f
