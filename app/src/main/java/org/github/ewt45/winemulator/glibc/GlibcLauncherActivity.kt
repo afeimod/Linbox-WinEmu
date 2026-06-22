@@ -122,7 +122,7 @@ class GlibcLauncherActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 24)
         }
-        }
+
 
         root.addView(TextView(this).apply {
             text = "box64: $box64"
