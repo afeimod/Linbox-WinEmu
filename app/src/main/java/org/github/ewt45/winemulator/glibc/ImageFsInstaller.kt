@@ -76,6 +76,18 @@ object ImageFsInstaller {
             // Mark version so we don't re-extract next launch.
             imageFs.versionFile().parentFile?.mkdirs()
             imageFs.versionFile().writeText(ImageFs.CURRENT_VERSION.toString())
+
+            // Fix known broken symlinks in winlator's imagefs layout.
+            // wine starts up looking for libc.so (a Debian-shipped
+            // symlink); winlator's imagefs ships it as
+            //     usr/lib/libc.so -> libc-2.31.so
+            // but libc-2.31.so is NOT in the tarball. So the symlink
+            // is broken and wine aborts with
+            //     wine: .../libc.so: bad ELF magic: 2f2a2047
+            // when box64 tries to mmap it. Rewrite the symlink to
+            // libc.so.6 (the only real libc in this imagefs).
+            // Same for libc.so.6 -> libc-2.31.so if we see it.
+            forceRewriteLibcSymlink(rootDir)
             // Re-patchelf every binary so its PT_INTERP points at
             // /imagefs/usr/lib/ld-linux-aarch64.so.1 instead of
             // /data/data/<pkg>/files/imagefs/usr/lib/.... proot's
@@ -348,6 +360,71 @@ object ImageFsInstaller {
                 }
             }
         Log.i(TAG, "rewriteLinterps: scanned $scanned executables, rewrote $rewrote")
+    }
+
+    /**
+     * Winlator's imagefs ships `usr/lib/libc.so` as a symlink to
+     * `libc-2.31.so` (the Debian package convention) but the
+     * imagefs.tzst does NOT contain a real `libc-2.31.so` file —
+     * only the unversioned `libc.so.6` ELF. The result: the symlink
+     * is broken and any program (wine, ldd, ...) that reads
+     * `libc.so` gets a 0-byte / garbage result that fails ELF
+     * parsing. wine reports this as
+     *     ".../libc.so has bad ELF magic: 2f2a2047"
+     * where 2f2a2047 is ASCII for "/ * G" (the prefix of a broken
+     * symlink target string when read as raw bytes).
+     *
+     * We force-fix this by deleting the broken symlink and creating
+     * a fresh one pointing at `libc.so.6` (the real ELF in this
+     * imagefs).
+     */
+    private fun forceRewriteLibcSymlink(rootDir: File) {
+        val candidates = listOf(
+            File(rootDir, "usr/lib/libc.so"),
+            File(rootDir, "usr/lib/x86_64-linux-gnu/libc.so"),
+            File(rootDir, "lib/x86_64-linux-gnu/libc.so"),
+            File(rootDir, "lib/libc.so"),
+        )
+        val targets = listOf(
+            "libc.so.6",
+            "../libc.so.6",
+            "x86_64-linux-gnu/libc.so.6",
+            "../x86_64-linux-gnu/libc.so.6",
+        )
+        for (libcSo in candidates) {
+            // Check whether the symlink target resolves to a real file.
+            // If it does, leave it alone — Debian packages sometimes
+            // do include libc-2.X.so. If it doesn't (broken symlink,
+            // 0-byte file, or wrong ELF magic), rewrite.
+            val targetOk = try {
+                val real = libcSo.canonicalFile
+                real.exists() && real.length() > 1000
+            } catch (_: Exception) { false }
+            if (targetOk) {
+                Log.i(TAG, "libc.so OK: ${libcSo.absolutePath} -> ${libcSo.canonicalFile}")
+                continue
+            }
+            // Find a working target.
+            var bestTarget: String? = null
+            for (t in targets) {
+                val test = File(libcSo.parentFile, t.removePrefix("../"))
+                if (test.exists() && test.length() > 1000) {
+                    bestTarget = t
+                    break
+                }
+            }
+            if (bestTarget == null) {
+                Log.w(TAG, "no real libc.so.6 found near ${libcSo.absolutePath}, skipping")
+                continue
+            }
+            try {
+                if (libcSo.exists()) libcSo.delete()
+                android.system.Os.symlink(bestTarget, libcSo.absolutePath)
+                Log.i(TAG, "rewrote broken libc.so: ${libcSo.absolutePath} -> $bestTarget")
+            } catch (e: Exception) {
+                Log.w(TAG, "failed to rewrite libc.so: ${e.message}")
+            }
+        }
     }
 
     private fun readLinterp(file: File): String? {
