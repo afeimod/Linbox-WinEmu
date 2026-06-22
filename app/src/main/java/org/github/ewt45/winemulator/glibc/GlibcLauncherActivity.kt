@@ -122,24 +122,6 @@ class GlibcLauncherActivity : Activity() {
             orientation = LinearLayout.VERTICAL
             setPadding(24, 24, 24, 24)
         }
-
-        // LorieView — the Surface that Termux:X11 writes its rendered
-        // pixels to. Without an attached LorieView Termux:X11 has no
-        // way to deliver frames to the screen even though the X
-        // server is alive on :13. linbox's MainEmuActivity creates
-        // its own LorieView via the embedded MainActivity base class;
-        // we have to instantiate ours directly because this
-        // GlibcLauncherActivity is a plain Activity.
-        try {
-            val lorieView = com.termux.x11.LorieView(this)
-            val lp = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                1200, // ~half the screen for X11 output
-            )
-            root.addView(lorieView, 0, lp)
-            Log.i(TAG, "LorieView attached at top of layout")
-        } catch (e: Throwable) {
-            Log.e(TAG, "Failed to create LorieView", e)
         }
 
         root.addView(TextView(this).apply {
@@ -193,7 +175,16 @@ class GlibcLauncherActivity : Activity() {
             LinearLayout.LayoutParams.MATCH_PARENT
         ))
 
-        setContentView(root)
+        // Wrap the entire root in a vertical ScrollView so that when
+        // Termux:X11's builtin-display overlay or the system IME push
+        // the form down, the user can still scroll to reach the exe
+        // / args EditTexts and the Run button.
+        val outerScroll = ScrollView(this).apply {
+            isFillViewport = true
+            addView(root)
+        }
+        setContentView(outerScroll)
+        window.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
 
         // Defer the X server probe to a background coroutine so that
         // any appendOutput() call (which references the lateinit
@@ -261,38 +252,66 @@ class GlibcLauncherActivity : Activity() {
             return
         }
         appendOutput("$ ${cmd.joinToString(" ")}\n")
-
-        val env = launcher.buildEnv(org.github.ewt45.winemulator.Consts.tmpDir.absolutePath)
-        appendOutput("env DISPLAY=${env["DISPLAY"]} XDG_RUNTIME_DIR=${env["XDG_RUNTIME_DIR"]} TMPDIR=${env["TMPDIR"]}\n")
         appendOutput("cmd[0] (box64) = ${cmd[0]}\n")
         appendOutput("cmd[1] (wine) = ${cmd[1]}\n")
-        try {
-            val pb = ProcessBuilder(cmd)
-            pb.environment().clear()
-            pb.environment().putAll(env)
-            pb.directory(imageFs.rootDir)
-            pb.redirectErrorStream(true)
-            process = pb.start()
-        } catch (e: Exception) {
-            appendOutput("failed to start: ${e.message}\n")
-            return
-        }
-        runButton.isEnabled = false
-        statusView.text = "running"
-        Thread {
-            process?.inputStream?.let { stream ->
-                BufferedReader(InputStreamReader(stream)).useLines { lines ->
+
+        // Launch box64+wine via linbox's proot so the new process
+        // shares the same Termux:X11 server that the rest of the
+        // app uses (the linbox desktop, xfce, etc. all run through
+        // proot + DISPLAY=:13, so any X client forked this way
+        // inherits the same X server connection path).
+        //
+        // We bypass GlibcProgramLauncher.runDirect() because that
+        // forks on the Android side where the Termux:X11 LorieView
+        // lives in MainEmuActivity and is unreachable from a
+        // plain Activity's view tree. Going through proot gives
+        // us a process whose DISPLAY=:13 env var is honored by
+        // box64/wine in the same way the user's other X apps
+        // (xfce, etc.) get it.
+        runViaProot(cmd)
+    }
+
+    private fun runViaProot(box64Cmd: List<String>) {
+        val ctx = this
+        val proot = org.github.ewt45.winemulator.emu.Proot()
+        appendOutput("starting proot...\n")
+        ioScope.launch {
+            val proc = try {
+                val pb = proot.attach()
+                appendOutput("proot attach done; starting process\n")
+                pb.start()
+            } catch (e: Exception) {
+                appendOutput("failed to start proot: ${e.message}\n")
+                return@launch
+            }
+            process = proc
+            runOnUiThread {
+                runButton.isEnabled = false
+                statusView.text = "running (via proot)"
+            }
+            // Inside the proot sh, execute the requested box64+wine
+            // command. The /imagefs mount is provided by Proot.attach().
+            try {
+                val writer = java.io.OutputStreamWriter(proc.outputStream)
+                writer.write(box64Cmd.joinToString(" ") + "\n")
+                writer.flush()
+            } catch (e: Exception) {
+                appendOutput("failed to write to proot stdin: ${e.message}\n")
+            }
+            // Stream proot's stdout+stderr back to the output view.
+            try {
+                BufferedReader(InputStreamReader(proc.inputStream)).useLines { lines ->
                     lines.forEach { line ->
                         runOnUiThread { appendOutput("$line\n") }
                     }
                 }
-            }
-            val rc = try { process?.waitFor() ?: -1 } catch (e: Exception) { -1 }
+            } catch (_: Exception) { }
+            val rc = try { proc.waitFor() } catch (e: Exception) { -1 }
             runOnUiThread {
                 statusView.text = "exited with code $rc"
                 runButton.isEnabled = true
             }
-        }.start()
+        }
     }
 
     private fun appendOutput(s: String) {
