@@ -57,6 +57,12 @@ class GlibcLauncherActivity : Activity() {
         super.onCreate(savedInstanceState)
         val imageFs = ImageFs.find(this)
         val launcher = GlibcProgramLauncher(imageFs)
+        // Auto-start the Termux:X11 server so wine has something to
+        // connect to. linbox's MainEmuActivity normally does this in
+        // onCreate but GlibcLauncherActivity is a separate Activity —
+        // the user can launch it directly from the home screen without
+        // ever visiting the desktop.
+        ensureX11Running()
         if (!imageFs.isValid) {
             // Dump diagnostics so the user knows which sentinel file
             // is missing — isValid just checks for box64/wine64/libc.so.6
@@ -160,6 +166,38 @@ class GlibcLauncherActivity : Activity() {
         ))
 
         setContentView(root)
+    }
+
+    private fun ensureX11Running() {
+        // Detect whether Termux:X11 (linbox's X server) is already
+        // running. We use the abstract-socket presence at
+        // `/data/data/<pkg>/cache/tmp/.X11-unix/X<display>` as the
+        // marker. linbox's X11Service sets XKB_CONFIG_ROOT to the
+        // rootfs xkb path and runs `CmdEntryPoint.main(arrayOf(":13"))`.
+        // If the socket isn't there we start the service.
+        val tmp = org.github.ewt45.winemulator.Consts.tmpDir
+        val sock = File(tmp, ".X11-unix/X13")
+        if (sock.exists()) {
+            appendOutput("X11 already running: ${sock.absolutePath}\n")
+            return
+        }
+        // Also fall back to "is xserver-termux-x11 process alive?"
+        val xserverAlive = try {
+            Runtime.getRuntime().exec("pidof xserver-termux-x11").waitFor() == 0
+        } catch (_: Exception) { false }
+        if (xserverAlive) {
+            appendOutput("X11 server process alive (pidof)\n")
+            return
+        }
+        appendOutput("X11 not running; starting X11Service...\n")
+        try {
+            val intent = Intent(this, org.github.ewt45.winemulator.emu.X11Service::class.java).apply {
+                putExtra("timestamp", System.currentTimeMillis())
+            }
+            startService(intent)
+        } catch (e: Exception) {
+            appendOutput("failed to start X11Service: ${e.message}\n")
+        }
     }
 
     private fun onRun() {
