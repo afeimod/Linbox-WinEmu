@@ -12,8 +12,10 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
-import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.BufferedReader
@@ -56,6 +58,7 @@ class GlibcLauncherActivity : Activity() {
     private lateinit var statusView: TextView
     private lateinit var runButton: Button
     private var process: java.lang.Process? = null
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -177,7 +180,7 @@ class GlibcLauncherActivity : Activity() {
         // any appendOutput() call (which references the lateinit
         // outputView) is safe. By the time the coroutine runs, the
         // Activity is fully constructed and views are bound.
-        lifecycleScope.launch(Dispatchers.IO) {
+        ioScope.launch {
             ensureX11Running()
         }
     }
