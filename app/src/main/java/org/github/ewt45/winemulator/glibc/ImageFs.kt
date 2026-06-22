@@ -32,10 +32,13 @@ class ImageFs private constructor(val rootDir: File) {
      */
     val isValid: Boolean
         get() {
-            if (!rootDir.isDirectory()) return false
-            return File(rootDir, "usr/local/bin/box64").exists() ||
-                   File(rootDir, "usr/lib/x86_64-linux-gnu/libc.so.6").exists() ||
-                   File(rootDir, "opt/wine/bin/wine64").exists()
+            if (!rootDir.isDirectory) return false
+            // The actual layout after extract: usr/bin/box64, opt/wine/bin/wine,
+            // usr/lib/libc.so.6 — NOT usr/local/bin/box64 or
+            // usr/lib/x86_64-linux-gnu/libc.so.6.
+            return File(rootDir, "usr/bin/box64").exists() ||
+                   File(rootDir, "usr/lib/libc.so.6").exists() ||
+                   File(rootDir, "opt/wine/bin/wine").exists()
         }
 
     /** Where wine lives inside the imagefs. */

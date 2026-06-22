@@ -67,6 +67,7 @@ class GlibcLauncherActivity : Activity() {
                 "$root/usr/bin/box64",
                 "$root/opt/wine/bin/wine",
                 "$root/usr/bin/wine",
+                "$root/usr/lib/libc.so.6",
                 "$root/usr/lib/x86_64-linux-gnu/libc.so.6",
             )
             val lines = checks.map { path ->
