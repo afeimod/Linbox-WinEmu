@@ -12,6 +12,10 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -61,8 +65,10 @@ class GlibcLauncherActivity : Activity() {
         // connect to. linbox's MainEmuActivity normally does this in
         // onCreate but GlibcLauncherActivity is a separate Activity —
         // the user can launch it directly from the home screen without
-        // ever visiting the desktop.
-        ensureX11Running()
+        // ever visiting the desktop. Note: the actual startService
+        // call is deferred until setContentView has run (in
+        // setupUi()), since the X11 probe writes diagnostic text to
+        // outputView and that view is lateinit.
         if (!imageFs.isValid) {
             // Dump diagnostics so the user knows which sentinel file
             // is missing — isValid just checks for box64/wine64/libc.so.6
@@ -166,9 +172,17 @@ class GlibcLauncherActivity : Activity() {
         ))
 
         setContentView(root)
+
+        // Defer the X server probe to a background coroutine so that
+        // any appendOutput() call (which references the lateinit
+        // outputView) is safe. By the time the coroutine runs, the
+        // Activity is fully constructed and views are bound.
+        lifecycleScope.launch(Dispatchers.IO) {
+            ensureX11Running()
+        }
     }
 
-    private fun ensureX11Running() {
+    private suspend fun ensureX11Running() {
         // Detect whether Termux:X11 (linbox's X server) is already
         // running. We use the abstract-socket presence at
         // `/data/data/<pkg>/cache/tmp/.X11-unix/X<display>` as the
@@ -247,8 +261,17 @@ class GlibcLauncherActivity : Activity() {
     }
 
     private fun appendOutput(s: String) {
+        // appendOutput may be called from either the main thread or
+        // background coroutines (e.g. the X11 probe). Posting via
+        // runOnUiThread ensures the TextView mutation is always safe.
+        if (::outputView.isInitialized) {
+            runOnUiThread { actuallyAppend(s) }
+        }
+    }
+
+    private fun actuallyAppend(s: String) {
+        // Always called on the main thread.
         outputView.append(s)
-        // Best-effort scroll
         val parent = outputView.parent as? ScrollView
         parent?.post { parent.fullScroll(View.FOCUS_DOWN) }
     }
