@@ -193,27 +193,40 @@ class GlibcLauncherActivity : Activity() {
         // rootfs xkb path and runs `CmdEntryPoint.main(arrayOf(":13"))`.
         // If the socket isn't there we start the service.
         val tmp = org.github.ewt45.winemulator.Consts.tmpDir
+        // Make sure .X11-unix exists; some Termux:X11 builds only
+        // listen on abstract sockets and skip the filesystem entry.
+        File(tmp, ".X11-unix").mkdirs()
+
         val sock = File(tmp, ".X11-unix/X13")
         if (sock.exists()) {
-            appendOutput("X11 already running: ${sock.absolutePath}\n")
-            return
-        }
-        // Also fall back to "is xserver-termux-x11 process alive?"
-        val xserverAlive = try {
-            Runtime.getRuntime().exec("pidof xserver-termux-x11").waitFor() == 0
-        } catch (_: Exception) { false }
-        if (xserverAlive) {
-            appendOutput("X11 server process alive (pidof)\n")
-            return
-        }
-        appendOutput("X11 not running; starting X11Service...\n")
-        try {
-            val intent = Intent(this, org.github.ewt45.winemulator.emu.X11Service::class.java).apply {
-                putExtra("timestamp", System.currentTimeMillis())
+            appendOutput("X11 socket already present: ${sock.absolutePath}\n")
+        } else {
+            // Start X11Service unconditionally if the socket isn't
+            // there. Termux:X11 may be listening on an abstract socket
+            // instead (which can't be detected from the filesystem),
+            // but starting it a second time is cheap if it's already
+            // running — X11Service.onStartCommand is idempotent.
+            appendOutput("X11 not detected; starting X11Service...\n")
+            try {
+                val intent = Intent(this, org.github.ewt45.winemulator.emu.X11Service::class.java).apply {
+                    putExtra("timestamp", System.currentTimeMillis())
+                }
+                startService(intent)
+            } catch (e: Exception) {
+                appendOutput("failed to start X11Service: ${e.message}\n")
             }
-            startService(intent)
-        } catch (e: Exception) {
-            appendOutput("failed to start X11Service: ${e.message}\n")
+        }
+
+        // Wait briefly so CmdEntryPoint.main has time to bring up the
+        // socket. 1.5 s is the empirical sweet spot — too short and
+        // the first connect race-loses, too long and the user thinks
+        // the app is hung.
+        appendOutput("waiting 2s for X11 to come up...\n")
+        kotlinx.coroutines.delay(2000)
+        if (sock.exists()) {
+            appendOutput("X11 ready: ${sock.absolutePath}\n")
+        } else {
+            appendOutput("X11 socket still not present at ${sock.absolutePath}; continuing anyway\n")
         }
     }
 
@@ -264,9 +277,9 @@ class GlibcLauncherActivity : Activity() {
     }
 
     private fun appendOutput(s: String) {
-        // appendOutput may be called from either the main thread or
-        // background coroutines (e.g. the X11 probe). Posting via
-        // runOnUiThread ensures the TextView mutation is always safe.
+        // Also emit to logcat so we can diagnose even if the TextView
+        // is scrolled past or hidden. Tag = "GlibcLauncher".
+        android.util.Log.i("GlibcLauncher", s.trimEnd())
         if (::outputView.isInitialized) {
             runOnUiThread { actuallyAppend(s) }
         }
