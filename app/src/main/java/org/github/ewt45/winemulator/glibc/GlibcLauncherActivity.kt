@@ -176,6 +176,9 @@ class GlibcLauncherActivity : Activity() {
         appendOutput("$ ${cmd.joinToString(" ")}\n")
 
         val env = launcher.buildEnv(org.github.ewt45.winemulator.Consts.tmpDir.absolutePath)
+        appendOutput("env DISPLAY=${env["DISPLAY"]} XDG_RUNTIME_DIR=${env["XDG_RUNTIME_DIR"]} TMPDIR=${env["TMPDIR"]}\n")
+        appendOutput("cmd[0] (box64) = ${cmd[0]}\n")
+        appendOutput("cmd[1] (wine) = ${cmd[1]}\n")
         try {
             val pb = ProcessBuilder(cmd)
             pb.environment().clear()
