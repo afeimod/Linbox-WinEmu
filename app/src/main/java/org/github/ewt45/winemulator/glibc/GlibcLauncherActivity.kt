@@ -175,7 +175,7 @@ class GlibcLauncherActivity : Activity() {
         }
         appendOutput("$ ${cmd.joinToString(" ")}\n")
 
-        val env = launcher.buildEnv()
+        val env = launcher.buildEnv(org.github.ewt45.winemulator.Consts.tmpDir.absolutePath)
         try {
             val pb = ProcessBuilder(cmd)
             pb.environment().clear()

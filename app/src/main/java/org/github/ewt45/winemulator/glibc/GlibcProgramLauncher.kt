@@ -89,19 +89,29 @@ class GlibcProgramLauncher(
     /**
      * Environment block for the spawned box64+wine process.
      */
-    fun buildEnv(): Map<String, String> {
+    fun buildEnv(linboxTmpDir: String? = null): Map<String, String> {
         val root = imageFs.rootDir.absolutePath
         val winePath = imageFs.winePath
         val map = HashMap<String, String>()
         map["HOME"] = "${root}/home/xuser"
         map["USER"] = "xuser"
-        map["TMPDIR"] = "${root}/tmp"
+        // Use linbox's own cacheDir/tmp, NOT imagefs/tmp. Termux:X11
+        // exposes its X server socket at $XDG_RUNTIME_DIR/.X11-unix/X<n>
+        // where XDG_RUNTIME_DIR is set to TMPDIR (see Consts.kt and
+        // DisplayManager.kt: env TMPDIR = <cacheDir>/tmp). box64+wine
+        // forks from the Android side; to reach Termux:X11 they MUST
+        // see the same $XDG_RUNTIME_DIR as the X server.
+        val tmp = linboxTmpDir ?: "${root}/tmp"
+        map["TMPDIR"] = tmp
+        map["XDG_RUNTIME_DIR"] = tmp
         map["PATH"] = "$winePath/bin:$root/usr/local/bin:$root/usr/bin:$root/bin:/system/bin:/system/xbin"
         map["LD_LIBRARY_PATH"] = "$root/usr/lib/aarch64-linux-gnu:$root/usr/lib"
         map["BOX64_LD_LIBRARY_PATH"] = "$root/usr/lib/x86_64-linux-gnu:$root/lib/x86_64-linux-gnu"
         map["FONTCONFIG_PATH"] = "$root/usr/etc/fonts"
         map["WINEPREFIX"] = "${root}/home/xuser/.wine"
-        map["DISPLAY"] = ":0"
+        // linbox starts Termux:X11 with display :13 (see
+        // DisplayManager.kt: cmdLine = "... :13").
+        map["DISPLAY"] = ":13"
         map["PULSE_SERVER"] = "tcp:127.0.0.1:4713"
         map["BOX64_DYNAREC"] = "1"
         return map
@@ -119,9 +129,9 @@ class GlibcProgramLauncher(
      * only useful for non-GUI programs (e.g. `wine cmd.exe /c dir`)
      * or for tests where we just want to confirm box64 can start.
      */
-    fun runDirect(vararg args: String): java.lang.Process? {
+    fun runDirect(linboxTmpDir: String, vararg args: String): java.lang.Process? {
         val cmd = buildCommand(*args) ?: return null
-        val env = buildEnv()
+        val env = buildEnv(linboxTmpDir)
         val pb = ProcessBuilder(cmd)
         pb.environment().clear()
         pb.environment().putAll(env)
