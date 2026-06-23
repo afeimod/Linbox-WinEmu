@@ -34,25 +34,72 @@ set -e
 IMAGEFS="/imagefs"
 
 # 1) 定位 box64/wine
+#
+# 注意: 这三个路径的顺序很关键。winlator 的 imagefs 解压后 box64
+# 默认在 usr/bin/box64 (不是 usr/local/bin/box64 — 老 README 错的)。
+# 见 ImageFs.kt:isValid 注释 "usr/bin/box64, NOT usr/local/bin/box64"。
+# 但有些打包者把 box64 装在 usr/local/bin/ (跟 Alpine 等发行版风格),
+# 所以两个路径都要查。find 命令在 imagefs 里搜也能定位非标位置。
+#
+# 先尝试 cand 列表 (常规位置),如果都不行再 fallback 到 find 全文搜。
 BOX64=""
 for cand in \
-    "$IMAGEFS/usr/local/bin/box64" \
     "$IMAGEFS/usr/bin/box64" \
+    "$IMAGEFS/usr/local/bin/box64" \
     "$IMAGEFS/bin/box64"; do
     if [ -x "$cand" ]; then
         BOX64="$cand"
         break
     fi
 done
+# Fallback: 用 find 搜 imagefs (部分非标布局使用)
+if [ -z "$BOX64" ]; then
+    BOX64="$(find "$IMAGEFS" -maxdepth 6 -type f -name box64 -executable 2>/dev/null | head -1)"
+fi
 if [ -z "$BOX64" ]; then
     echo "glibc-run: box64 在 imagefs 里找不到。" >&2
     echo "请确认 imagefs 已解压 (proot 启动时会自动解压 assets/imagefs/imagefs.tzst)" >&2
     echo "已检查的位置:" >&2
-    echo "  $IMAGEFS/usr/local/bin/box64" >&2
     echo "  $IMAGEFS/usr/bin/box64" >&2
+    echo "  $IMAGEFS/usr/local/bin/box64" >&2
     echo "  $IMAGEFS/bin/box64" >&2
+    echo "" >&2
+    echo "诊断信息 (列出 imagefs 顶层):" >&2
+    ls -la "$IMAGEFS" 2>/dev/null >&2 || echo "  (无法列出 $IMAGEFS)" >&2
+    echo "" >&2
+    echo "诊断信息 (imagefs 里所有可执行的 box64-like 二进制):" >&2
+    find "$IMAGEFS" -maxdepth 8 -type f -name 'box*' -executable 2>/dev/null | head -5 >&2
     exit 2
 fi
+
+# 验证 box64 能真正 exec。"-x 文件存在可执行位" 不够,还要 kernel 能
+# 加载它的 PT_INTERP (ld-linux-aarch64.so.1)。如果在容器外能用
+# ldd 看 linterp 路径, 但 kernel exec 报 not found, 说明 linterp
+# 被改成了一个在 imagefs 里不存在的路径 (ImageFsInstaller.rewriteLinterps
+# 会把 linterp 改成 /imagefs/usr/lib/ld-linux-aarch64.so.1, 但有的
+# imagefs 实际 layout 是 usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1)。
+# 这里只打印诊断, 不能直接 fix linterp (那需要宿主 App 重跑一次
+# installIfNeeded 才能重新 patchelf)。
+echo "glibc-run: box64 resolved to $BOX64" >&2
+# 查 imagefs 里 ld-linux-aarch64.so.1 的所有可能位置。
+# 不同镜像把 loader 放在不同目录, 默认是 /usr/lib/, winlator 的 imagefs
+# 可能在 aarch64-linux-gnu/ 子目录。
+LDSOS=""
+for cand in \
+    "$IMAGEFS/usr/lib/ld-linux-aarch64.so.1" \
+    "$IMAGEFS/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" \
+    "$IMAGEFS/lib/ld-linux-aarch64.so.1" \
+    "$IMAGEFS/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1" \
+    "$IMAGEFS/usr/lib64/ld-linux-aarch64.so.1"; do
+    if [ -x "$cand" ]; then
+        LDSOS="$LDSOS $cand"
+    fi
+done
+LDSO="$(echo $LDSOS | awk '{print $1}')"
+if [ -z "$LDSO" ]; then
+    LDSO="$(find "$IMAGEFS" -maxdepth 8 -type f -name 'ld-linux-aarch64.so.1' -executable 2>/dev/null | head -1)"
+fi
+echo "glibc-run: ld-linux-aarch64.so.1 resolved to ${LDSO:-(NOT FOUND)}" >&2
 
 WINE=""
 for cand in \
@@ -160,35 +207,70 @@ export PULSE_SERVER="${PULSE_SERVER:-tcp:127.0.0.1:4713}"
 #         glibc-run regedit
 echo "glibc-run: DISPLAY=$DISPLAY TMPDIR=$TMPDIR PRESET=$PRESET" >&2
 
+# ============================================================
+# 执行包装: 优先 exec BOX64,失败则 fallback 到 ld.so 手动加载。
+#
+# 为什么需要这个 fallback:
+#   一些 imagefs 解压后, box64 的 PT_INTERP (ld-linux-aarch64.so.1)
+#   路径不对 (例如指向了原镜像里的 /lib/ 而不是 /imagefs/usr/lib/)。
+#   直接 exec box64 时 kernel 会报 "not found" (POSIX 把 ENOEXEC
+#   表为 not found)。
+#
+#   ImageFsInstaller.rewriteLinterps 应该会把这些 linterp 改成
+#   /imagefs/usr/lib/ld-linux-aarch64.so.1, 但万一不完整, 脚本可以
+#   fallback: 用 imagefs 里实际找到的 ld-linux-aarch64.so.1 手动
+#   启动 box64,这样即使 PT_INTERP 错了也能跑。
+#
+# 用法: do_exec <binary> <args...>
+#   尝试 1: 直接 exec <binary>
+#   尝试 2: 如果 LDSO 存在,exec <LDSO> --library-path ... <binary> <args>
+# ============================================================
+do_exec() {
+    local bin="$1"; shift
+    # 先尝试直接 exec。set +e 临时关 set -e, 让 exec 失败不会 abort。
+    set +e
+    echo "glibc-run: exec $bin $*" >&2
+    "$bin" "$@"
+    rc=$?
+    if [ $rc -eq 0 ]; then
+        exit 0
+    fi
+    echo "glibc-run: 直接启动 $bin 失败 (rc=$rc), 尝试 ld.so fallback..." >&2
+
+    # Fallback: 用 ld.so 手动加载。
+    if [ -n "$LDSO" ] && [ -x "$LDSO" ]; then
+        echo "glibc-run: fallback exec $LDSO --library-path ... $bin $*" >&2
+        exec "$LDSO" --library-path "$IMAGEFS/usr/lib/aarch64-linux-gnu:$IMAGEFS/usr/lib:$IMAGEFS/lib/aarch64-linux-gnu:$IMAGEFS/lib" "$bin" "$@"
+    fi
+
+    echo "glibc-run: 没有可用的 ld.so fallback,退出 rc=$rc" >&2
+    set -e
+    return $rc
+}
+
 if [ "$#" -eq 0 ]; then
     # (a) 默认 winefile
     if [ -x "$IMAGEFS/opt/wine/bin/winefile" ]; then
-        echo "glibc-run: exec $BOX64 $WINE $IMAGEFS/opt/wine/bin/winefile" >&2
-        exec "$BOX64" "$WINE" "$IMAGEFS/opt/wine/bin/winefile"
+        do_exec "$BOX64" "$WINE" "$IMAGEFS/opt/wine/bin/winefile"
+        exit $?
     else
-        echo "glibc-run: exec $BOX64 winefile" >&2
-        exec "$BOX64" winefile
+        do_exec "$BOX64" winefile
+        exit $?
     fi
 fi
 
 first="$1"
 case "$first" in
     wine|winecfg|winefile|wineboot|wineserver|regsvr32|regedit|msiexec|cmd|start)
-        # (b) wine 子命令本身。wine 子命令都是 wine 同二进制的
-        # hardlink/symlink, 直接 box64 <cmd> ... 让 box64 拦截 exec 并
-        # 自动重定向到 wine (winlator 同样做法)。原始 argv 是
-        # [winecfg, ...], 不需要拆开。
-        echo "glibc-run: exec $BOX64 $*" >&2
-        exec "$BOX64" "$@"
+        do_exec "$BOX64" "$@"
+        exit $?
         ;;
     *.exe|*.EXE|/*)
-        # (c) 是 exe 路径或绝对路径, 走 box64 wine <args>
-        echo "glibc-run: exec $BOX64 $WINE $*" >&2
-        exec "$BOX64" "$WINE" "$@"
+        do_exec "$BOX64" "$WINE" "$@"
+        exit $?
         ;;
     *)
-        # (d) 其他,当独立二进制跑
-        echo "glibc-run: exec $BOX64 $*" >&2
-        exec "$BOX64" "$@"
+        do_exec "$BOX64" "$@"
+        exit $?
         ;;
 esac

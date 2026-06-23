@@ -339,10 +339,30 @@ object ImageFsInstaller {
      * would break the binary's own ELF loader assumptions.
      */
     private fun rewriteLinterps(rootDir: File) {
-        val rootPath = rootDir.absolutePath
-        val targetLinterp = "/imagefs/usr/lib/ld-linux-aarch64.so.1"
+        // 找出 imagefs 里 ld-linux-aarch64.so.1 实际位置。winlator 的
+        // 默认 tarball 装在 usr/lib/ld-linux-aarch64.so.1, 但有些
+        // 打包者装在 usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1
+        // (Debian/Ubuntu 风格)。我们选一个**实际存在**的作为 target,
+        // 这样 patchelf 之后 kernel 一定能找到。
+        val ldsos = listOf(
+            "/imagefs/usr/lib/ld-linux-aarch64.so.1",
+            "/imagefs/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
+            "/imagefs/lib/ld-linux-aarch64.so.1",
+            "/imagefs/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1",
+            "/imagefs/usr/lib64/ld-linux-aarch64.so.1",
+        )
+        // 同样的检查在 host 路径 (imageFs.rootDir.absolutePath) 上。
+        val hostLdsos = ldsos.map { it.replace("/imagefs", rootDir.absolutePath) }
+        val targetLinterp = ldsos.firstOrNull { File(it.replace("/imagefs", rootDir.absolutePath)).exists() }
+        if (targetLinterp == null) {
+            Log.w(TAG, "rewriteLinterps: 没在 imagefs 里找到 ld-linux-aarch64.so.1, 不会 rewrite linterp。检查位置: $hostLdsos")
+            return
+        }
+        Log.i(TAG, "rewriteLinterps: target linterp = $targetLinterp")
         var rewrote = 0
         var scanned = 0
+        var alreadyCorrect = 0
+        var skippedOtherLinterp = 0
         rootDir.walkTopDown()
             .onEnter { !it.name.startsWith("proc") && !it.name.startsWith("sys") }
             .filter { it.isFile && it.canExecute() }
@@ -350,16 +370,34 @@ object ImageFsInstaller {
                 scanned++
                 try {
                     val current = readLinterp(f) ?: return@forEach
-                    if (current.startsWith("$rootPath/") && current.endsWith("ld-linux-aarch64.so.1")) {
-                        if (writeLinterp(f, targetLinterp)) {
-                            rewrote++
-                        }
+                    // 只处理 aarch64 (ld-linux-aarch64.so.1) 的 linterp。
+                    // x86_64 wine 的 linterp (ld-linux-x86-64.so.2) 不动,
+                    // 因为 box64 会拦截 exec, wine 的 linterp 不会被
+                    // proot 内部的 kernel 读到。
+                    if (!current.endsWith("ld-linux-aarch64.so.1")) {
+                        skippedOtherLinterp++
+                        return@forEach
+                    }
+                    if (current == targetLinterp) {
+                        alreadyCorrect++
+                        return@forEach
+                    }
+                    // 三种 case 都改:
+                    //   1. 当前 linterp 是 Android 绝对路径 (老提取后第一次跑)
+                    //   2. 当前 linterp 是其他位置但 ld-linux 实际不在那
+                    //      (例如 /lib/ld-linux-aarch64.so.1, 但 imagefs 里
+                    //      只有 /usr/lib/...)
+                    //   3. 当前 linterp 是 imagefs 内部别的目录 (例如
+                    //      /usr/lib/aarch64-linux-gnu/...)
+                    // 都会改成 targetLinterp, 因为它指向**实际存在的**文件。
+                    if (writeLinterp(f, targetLinterp)) {
+                        rewrote++
                     }
                 } catch (_: Exception) {
                     // Not an ELF or unreadable; skip silently.
                 }
             }
-        Log.i(TAG, "rewriteLinterps: scanned $scanned executables, rewrote $rewrote")
+        Log.i(TAG, "rewriteLinterps: scanned=$scanned rewrote=$rewrote alreadyCorrect=$alreadyCorrect skippedOther=$skippedOtherLinterp target=$targetLinterp")
     }
 
     /**
