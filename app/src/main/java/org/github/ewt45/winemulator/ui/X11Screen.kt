@@ -312,32 +312,50 @@ private fun handleX11TouchEvent(
     }
 }
 
-@Composable
-private fun runGlibcWine() {
-    // Composable: only resolve Context here. Side-effects (ProcessBuilder
-    // start) happen in the non-Composable helper below.
-    runGlibcWineImpl(LocalContext.current)
-}
-
+/**
+ * Float-menu "运行 glibc wine" 按钮的处理逻辑。
+ *
+ * 走 proot 内部启动路径 (GlibcProgramLauncher.runInProot)：
+ *   扫描 imagefs/home/xuser/.wine/drive_c/ 下第一个 .exe,把它的
+ *   Android-侧绝对路径转成 proot-侧路径,然后调 TerminalViewModel
+ *   写到 linbox 主 Activity 已经启动的 proot shell。
+ *
+ * 这样 wine 在 proot 里跑,/tmp/.X11-unix/X13 是真实 Termux:X11
+ * socket,窗口能显示在 X11 画面里。
+ *
+ * 如果 MainEmuActivity 没在跑 (TerminalViewModelRegistry 为空),
+ * 就 fallback 到 GlibcLauncherActivity,让用户 adb 或桌面手动启动。
+ */
 private fun runGlibcWineImpl(context: android.content.Context) {
     val imageFs = org.github.ewt45.winemulator.glibc.ImageFs.find(context)
-    val launcher = org.github.ewt45.winemulator.glibc.GlibcProgramLauncher(imageFs)
     val driveC = java.io.File(imageFs.rootDir, "home/xuser/.wine/drive_c")
     val candidate = (driveC.listFiles() ?: emptyArray())
         .filter { it.isFile && it.name.lowercase().endsWith(".exe") }
         .sortedBy { it.name.lowercase() }
         .firstOrNull()
-    val exeRelPath = candidate?.absolutePath?.removePrefix(imageFs.rootDir.absolutePath)?.trimStart('/')
+    val candidateAbsPath = candidate?.absolutePath
         ?: "home/xuser/.wine/drive_c/windows/system32/winecfg.exe"
-    val args = arrayOf<String>()
-    launcher.runInBackground(
-        context = context,
-        guestExecutable = exeRelPath,
-        extraArgs = args,
-    )
+
+    val terminal = org.github.ewt45.winemulator.glibc.TerminalViewModelRegistry.current()
+    if (terminal == null) {
+        // proot shell 还没起来,跳到 GlibcLauncherActivity 手动启动
+        val intent = android.content.Intent(context,
+            org.github.ewt45.winemulator.glibc.GlibcLauncherActivity::class.java)
+        intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+        context.startActivity(intent)
+        android.widget.Toast.makeText(
+            context,
+            "proot 未启动,已跳到 glibc 启动器",
+            android.widget.Toast.LENGTH_LONG,
+        ).show()
+        return
+    }
+
+    val launcher = org.github.ewt45.winemulator.glibc.GlibcProgramLauncher(imageFs)
+    launcher.runInProot(terminal, candidateAbsPath, background = true)
     android.widget.Toast.makeText(
         context,
-        "启动 glibc wine: $exeRelPath (后台运行)",
+        "proot 内启动 glibc wine: ${java.io.File(candidateAbsPath).name}",
         android.widget.Toast.LENGTH_LONG,
     ).show()
 }
