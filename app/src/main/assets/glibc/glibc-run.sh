@@ -132,6 +132,12 @@ export XDG_RUNTIME_DIR="/tmp"
 #    (参见 emu/manager/DisplayManager.kt: cmdLine = ".. :13")
 export DISPLAY="${DISPLAY:-:13}"
 
+# PATH: wine 启动后需要在 PATH 里能找到 wine-preloader (wine 自己的
+# loader) 和 wine 自己的脚本 (wineserver 等)。winlator 默认是
+# imagefs/bin:$imagefs/usr/bin 等。
+export PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:$IMAGEFS/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
+export BOX64_PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:$IMAGEFS/bin"
+
 # 4) box64 preset (由 Proot.kt 在 attach 时通过 LINBOX_GLIBC_PRESET 注入)
 #    用户在设置里改 box64_preset 这里就会生效。
 PRESET="${LINBOX_GLIBC_PRESET:-compatibility}"
@@ -168,8 +174,81 @@ esac
 # 5) 让 wine 客户端库能加载 glibc 动态库。imagefs 里 box64 用
 #    /imagefs/usr/lib/ld-linux-aarch64.so.1 作 linterp,加载的是
 #    glibc loader。wine 自己也是 glibc 二进制,需要找同样这套 loader。
-export LD_LIBRARY_PATH="$IMAGEFS/usr/lib/x86_64-linux-gnu:$IMAGEFS/lib/x86_64-linux-gnu:$IMAGEFS/usr/lib/aarch64-linux-gnu:$IMAGEFS/usr/lib:${LD_LIBRARY_PATH:-}"
-export BOX64_LD_LIBRARY_PATH="$IMAGEFS/usr/lib/x86_64-linux-gnu:$IMAGEFS/lib/x86_64-linux-gnu"
+#
+# 顺序很重要 (靠前的优先)。wine 启动时需要找:
+#   - /imagefs/opt/wine/lib/      — wine 自己的 glibc/libc/wine 内核
+#   - /imagefs/opt/wine/lib/wine/x86_64-unix/  — wine unix lib dir
+#   - /imagefs/usr/lib/x86_64-linux-gnu/      — imagefs 的 x86_64 lib (glibc, libstdc++)
+#   - /imagefs/lib/x86_64-linux-gnu/           — 备选
+# 缺失任何一个都可能导致 "could not exec the wine loader" (wine 主
+# binary exec 后找不到 preloader/loader)。
+WINE_LIB_CANDIDATES=""
+for c in \
+    "$IMAGEFS/opt/wine/lib" \
+    "$IMAGEFS/opt/wine/lib64" \
+    "$IMAGEFS/opt/wine/lib/wine/x86_64-unix" \
+    "$IMAGEFS/opt/wine/lib64/wine/x86_64-unix" \
+    "$IMAGEFS/usr/lib/x86_64-linux-gnu" \
+    "$IMAGEFS/lib/x86_64-linux-gnu" \
+    "$IMAGEFS/usr/lib/aarch64-linux-gnu" \
+    "$IMAGEFS/usr/lib"; do
+    if [ -d "$c" ]; then
+        if [ -z "$WINE_LIB_CANDIDATES" ]; then
+            WINE_LIB_CANDIDATES="$c"
+        else
+            WINE_LIB_CANDIDATES="$WINE_LIB_CANDIDATES:$c"
+        fi
+    fi
+done
+export LD_LIBRARY_PATH="$WINE_LIB_CANDIDATES:${LD_LIBRARY_PATH:-}"
+export BOX64_LD_LIBRARY_PATH="$WINE_LIB_CANDIDATES"
+
+# WINEDLLPATH: 告诉 wine 在哪里找 ntdll/kernel32 等 DLL。这是 winlator
+# 的标准做法, 让 BOX64_LD_LIBRARY_PATH 同时覆盖 wine lib 路径。如果
+# 这个变量空, wine 启动后会报 "could not exec the wine loader" 或
+# "wine: cannot find L\"C:\\windows\\system32\\..." 错误。
+WINE_DLL_PATH=""
+for c in \
+    "$IMAGEFS/opt/wine/lib/wine" \
+    "$IMAGEFS/opt/wine/lib64/wine" \
+    "$IMAGEFS/opt/wine/lib/wine/x86_64-unix"; do
+    if [ -d "$c" ]; then
+        WINE_DLL_PATH="$c"
+        break
+    fi
+done
+if [ -z "$WINE_DLL_PATH" ]; then
+    # 退而求其次
+    for c in \
+        "$IMAGEFS/opt/wine/lib" \
+        "$IMAGEFS/opt/wine/lib64"; do
+        if [ -d "$c" ]; then
+            WINE_DLL_PATH="$c"
+            break
+        fi
+    done
+fi
+export WINEDLLPATH="$WINE_DLL_PATH"
+
+# WINELOADER: 告诉 wine 主 binary 用哪个 ELF 作为 preloader。新版 wine
+# (>=8.x) 的 preloader 通常是独立的 wine-preloader 二进制。如果 imagefs
+# 里没有这个文件, wine 会报 "could not exec the wine loader"。我们
+# 检测到存在就设上, wine 主 binary exec 时会直接用它。
+WINELOADER=""
+for c in \
+    "$IMAGEFS/opt/wine/bin/wine-preloader" \
+    "$IMAGEFS/opt/wine/bin/wine64-preloader" \
+    "$IMAGEFS/opt/wine/lib/wine/x86_64-unix/wine-preloader" \
+    "$IMAGEFS/opt/wine/lib64/wine/x86_64-unix/wine-preloader"; do
+    if [ -x "$c" ]; then
+        WINELOADER="$c"
+        break
+    fi
+done
+if [ -n "$WINELOADER" ]; then
+    export WINELOADER
+    echo "glibc-run: WINELOADER=$WINELOADER" >&2
+fi
 
 # 6) wine 自身需要的路径
 export WINEPREFIX="${WINEPREFIX:-$IMAGEFS/home/xuser/.wine}"
@@ -238,9 +317,23 @@ do_exec() {
     echo "glibc-run: 直接启动 $bin 失败 (rc=$rc), 尝试 ld.so fallback..." >&2
 
     # Fallback: 用 ld.so 手动加载。
+    #
+    # 为什么不传 --library-path:
+    #   有些 glibc ld.so (特别是老版本/ARM 定制版) 对 --library-path
+    #   选项处理不一致: 有的会把 --library-path + 路径 + 接下来 1 个
+    #   token 当成"路径 + 程序", 把剩余的 argv 偏移。box64 启动后
+    #   看到的 argv 就少了 argv[0] 和 wine 这两项。
+    #
+    #   最安全的做法: 让 ld.so 通过 LD_LIBRARY_PATH env 找 box64 的
+    #   依赖, 不传 --library-path 选项。这样 ld.so 收到的 argv 是
+    #   [ld.so, bin, args...], 加载 bin 时把 args 给 bin, bin 收到
+    #   argv = [bin, args...], 这正是我们期望的 (box64 argv[1] = wine)。
     if [ -n "$LDSO" ] && [ -x "$LDSO" ]; then
-        echo "glibc-run: fallback exec $LDSO --library-path ... $bin $*" >&2
-        exec "$LDSO" --library-path "$IMAGEFS/usr/lib/aarch64-linux-gnu:$IMAGEFS/usr/lib:$IMAGEFS/lib/aarch64-linux-gnu:$IMAGEFS/lib" "$bin" "$@"
+        # 临时设个 LD_LIBRARY_PATH 供 ld.so 找 aarch64 deps, 不影响
+        # box64 的 BOX64_LD_LIBRARY_PATH (box64 读自己的 env)。
+        LIBPATH_FOR_LDSO="$IMAGEFS/usr/lib/aarch64-linux-gnu:$IMAGEFS/usr/lib:$IMAGEFS/lib/aarch64-linux-gnu:$IMAGEFS/lib:${LD_LIBRARY_PATH:-}"
+        echo "glibc-run: fallback exec $LDSO $bin $*" >&2
+        LD_LIBRARY_PATH="$LIBPATH_FOR_LDSO" exec "$LDSO" "$bin" "$@"
     fi
 
     echo "glibc-run: 没有可用的 ld.so fallback,退出 rc=$rc" >&2
