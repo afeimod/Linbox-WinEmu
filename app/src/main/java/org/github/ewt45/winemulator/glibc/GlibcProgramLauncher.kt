@@ -1,38 +1,33 @@
 package org.github.ewt45.winemulator.glibc
 
 import android.content.Context
-import android.os.Process
-import android.system.Os
 import android.util.Log
-import java.io.File
 import org.github.ewt45.winemulator.Consts
+import org.github.ewt45.winemulator.viewmodel.TerminalViewModel
+import java.io.File
 
 /**
- * Launches a Windows .exe by forking `box64 wine <args>` directly on the
- * Android side (NOT inside the proot container).
+ * Launches a Windows .exe via box64+wine.
  *
- * Why direct, not proot:
+ * 两条路径:
  *
- *   Box64 compiled with musl libc does a handful of syscalls at startup
- *   (set_robust_list, set_tid_address, prctl, mprotect...) that the
- *   proot ptrace layer cannot translate correctly inside its chroot.
- *   The result is a SIGSEGV before box64 even reaches main(). This
- *   affects every statically-linked musl binary in proot, not just
- *   box64 — we observed it with sh -c, head, stat, etc.
+ *   1) [runInProot]  (主路径,推荐)
+ *      通过 [TerminalViewModel.runCommand] 把 `glibc-run <args>` 写到
+ *      proot 容器内 shell 的 stdin。box64/wine 在 proot 内启动,直接
+ *      共享 host 的 /tmp → Termux:X11 的 socket 在 proot 里看就是
+ *      `/tmp/.X11-unix/X13`,X11 通信正常。
  *
- *   Running box64 directly from the linbox app's own process uid lets
- *   the Android kernel handle syscalls normally. The box64 binary's
- *   linterp points at `<filesDir>/imagefs/usr/lib/ld-linux-aarch64.so.1`,
- *   which is a real path on the Android filesystem, so the kernel
- *   resolves it without any chroot trickery.
+ *   2) [runDirect]  (legacy fallback,主要用于命令行调试)
+ *      Android 进程直接 fork box64+wine。wine 启动后看到的 X server
+ *      socket 路径虽然对得上, 但因为不在 linbox 主进程的 X11 server
+ *      namespace 里,Termux:X11 可能不允许连接。保留这个入口方便
+ *      adb 调试 (`am start -n .../.glibc.GlibcLauncherActivity`),
+ *      不再是默认路径。
  *
- *   Wine, once running, talks to its own internal libc and box64
- *   translates syscalls back to Android. The wine prefix lives inside
- *   the imagefs so that winlator-managed wine stays self-contained.
- *
- * This mirrors winlator's GuestProgramLauncherComponent architecture
- * minus the NDK libproot.so (we don't need proot here because the
- * box64 binary already runs on Android directly).
+ * 对应 winlator 的 GuestProgramLauncherComponent: winlator 用的是
+ * 路径 2 (Android 进程直接 fork),但它的 X server 是自己实现的
+ * epoll Unix socket,允许跨进程连接。linbox 用的是 Termux:X11,
+ * 路径 1 (proot 内部) 才稳。
  */
 class GlibcProgramLauncher(
     val imageFs: ImageFs,
@@ -42,43 +37,112 @@ class GlibcProgramLauncher(
     fun verifyReady(): String? = ImageFsInstaller.smokeTest(imageFs)
 
     /**
-     * Return the absolute Android-side path of the box64 binary, or null
-     * if it cannot be located in any known imagefs layout.
+     * 返回 imagefs 里 box64 的 proot 内部绝对路径 (即 /imagefs/usr/...),
+     * 用于调试日志。Android 侧路径见 [androidBox64Path]。
      */
+    fun prootBox64Path(): String? {
+        val candidates = listOf(
+            "${imageFs.prootMountPath}/usr/local/bin/box64",
+            "${imageFs.prootMountPath}/usr/bin/box64",
+            "${imageFs.prootMountPath}/bin/box64",
+        )
+        return candidates.firstOrNull { File(it.replace(imageFs.prootMountPath, imageFs.rootDir.absolutePath)).exists() }
+    }
+
+    /**
+     * 返回 imagefs 里 wine 的 proot 内部绝对路径。
+     */
+    fun prootWinePath(): String? {
+        val candidates = listOf(
+            "${imageFs.prootMountPath}/opt/wine/bin/wine",
+            "${imageFs.prootMountPath}/opt/wine/bin/wine64",
+            "${imageFs.prootMountPath}/usr/bin/wine",
+            "${imageFs.prootMountPath}/usr/bin/wine64",
+        )
+        return candidates.firstOrNull { File(it.replace(imageFs.prootMountPath, imageFs.rootDir.absolutePath)).exists() }
+    }
+
+    /** Android 侧 (非 proot) box64 路径, 给 legacy 入口用。 */
     fun androidBox64Path(): String? {
         val candidates = listOf(
             "${imageFs.rootDir.absolutePath}/usr/local/bin/box64",
             "${imageFs.rootDir.absolutePath}/usr/bin/box64",
             "${imageFs.rootDir.absolutePath}/bin/box64",
         )
-        // Android's File.canExecute() can falsely return false even when
-        // we can read+write the file (sdcardfs quirks). Trust .exists()
-        // and let the kernel reject on exec if the mode bits are wrong.
         return candidates.firstOrNull { File(it).exists() }
     }
 
-    /**
-     * Return the absolute Android-side path of the wine binary, or null
-     * if not found. Winlator layout uses plain `wine` (not `wine64`).
-     */
+    /** Android 侧 wine 路径, 给 legacy 入口用。 */
     fun androidWinePath(): String? {
         val candidates = listOf(
-            "${imageFs.winePath}/bin/wine",
+            "${imageFs.rootDir.absolutePath}/opt/wine/bin/wine",
+            "${imageFs.rootDir.absolutePath}/opt/wine/bin/wine64",
             "${imageFs.rootDir.absolutePath}/usr/bin/wine",
-            "${imageFs.rootDir.absolutePath}/bin/wine",
-            "${imageFs.winePath}/bin/wine64",
             "${imageFs.rootDir.absolutePath}/usr/bin/wine64",
         )
         return candidates.firstOrNull { File(it).exists() }
     }
 
     /**
-     * Build the argv list that ProcessBuilder will hand to fork+exec.
+     * 主入口: 通过 proot 容器内 shell 启动 box64+wine。
      *
-     *   argv[0] = box64
-     *   argv[1] = wine
-     *   argv[2..] = <args>
+     * 工作方式: proot 启动时已经把 host 的 Consts.tmpDir bind 到 rootfs
+     * 的 /tmp,Termux:X11 的 X server socket (`<Consts.tmpDir>/.X11-unix/X13`)
+     * 在 proot 里就是 `/tmp/.X11-unix/X13`。我们在 proot 里跑
+     * `glibc-run <args>` (assets/glibc/glibc-run.sh, 启动时被 Proot.kt
+     * 写到 rootfs/usr/local/bin/glibc-run),脚本会 exec box64+wine。
+     *
+     * 因为 proot 进程本身就是 linbox 主进程 (uid 一致),Termux:X11
+     * 允许它连接 X server,窗口就能渲染到屏幕上。
+     *
+     * @param terminal 已经在跑的 TerminalViewModel (proot shell 已经启动)
+     * @param guestExecutableOrCmd 用户要跑的 wine 命令。可以是:
+     *   - 绝对路径 (proot 内, 比如 /home/xuser/.wine/drive_c/foo.exe)
+     *   - wine 子命令 (winecfg, winefile, regedit...)
+     *   - 已经是 `glibc-run <args>` 完整命令
+     * @param background true = 末尾加 `&` 让它在 shell 后台跑 (wine
+     *   本身就是常驻),false = 前台跑 (调试用)
      */
+    fun runInProot(
+        terminal: TerminalViewModel,
+        guestExecutableOrCmd: String,
+        background: Boolean = true,
+    ) {
+        val raw = guestExecutableOrCmd.trim()
+        val cmd = when {
+            // 已经是完整 glibc-run 命令 — 透传
+            raw.startsWith("glibc-run") -> raw
+            // Android 侧绝对路径 (imagefs 下的某文件) — 转成 proot 内部路径
+            raw.startsWith(imageFs.rootDir.absolutePath) -> {
+                val prootExe = imageFs.toProotPath(raw)
+                "glibc-run ${shellQuote(prootExe)}"
+            }
+            // 其他 (含绝对路径、exe 子命令字面量、wine 子命令) — 直接拼 glibc-run,
+            // 让 glibc-run.sh 脚本自己决定如何分流 (winlator 风格)。
+            // 整体用 shellQuote 包起来,避免含空格/特殊字符时断开。
+            else -> "glibc-run ${shellQuote(raw)}"
+        }
+        val finalCmd = if (background) "$cmd &" else cmd
+        Log.i(TAG, "runInProot: $finalCmd")
+        terminal.runCommand(finalCmd)
+    }
+
+    /**
+     * 把一个字符串里需要 shell 引号保护的字符包起来。
+     * 简单实现: 含空格/引号/特殊字符时用单引号包,内部单引号用 '\'' 转义。
+     */
+    private fun shellQuote(s: String): String {
+        if (s.isEmpty()) return "''"
+        if (s.all { it.isLetterOrDigit() || it in "/._-+=:,@" }) return s
+        val escaped = s.replace("'", "'\\''")
+        return "'$escaped'"
+    }
+
+    // ============================================================
+    // Legacy 入口: Android 进程直接 fork box64+wine。
+    // 保留给 adb 调试 (GlibcLauncherActivity 用这个),不推荐普通用户用。
+    // ============================================================
+
     fun buildCommand(vararg args: String): List<String>? {
         val box64 = androidBox64Path()
         val wine = androidWinePath()
@@ -87,21 +151,12 @@ class GlibcProgramLauncher(
         return listOf(box64, wine) + args.toList()
     }
 
-    /**
-     * Environment block for the spawned box64+wine process.
-     */
     fun buildEnv(linboxTmpDir: String? = null): Map<String, String> {
         val root = imageFs.rootDir.absolutePath
         val winePath = imageFs.winePath
         val map = HashMap<String, String>()
         map["HOME"] = "${root}/home/xuser"
         map["USER"] = "xuser"
-        // Use linbox's own cacheDir/tmp, NOT imagefs/tmp. Termux:X11
-        // exposes its X server socket at $XDG_RUNTIME_DIR/.X11-unix/X<n>
-        // where XDG_RUNTIME_DIR is set to TMPDIR (see Consts.kt and
-        // DisplayManager.kt: env TMPDIR = <cacheDir>/tmp). box64+wine
-        // forks from the Android side; to reach Termux:X11 they MUST
-        // see the same $XDG_RUNTIME_DIR as the X server.
         val tmp = linboxTmpDir ?: "${root}/tmp"
         map["TMPDIR"] = tmp
         map["XDG_RUNTIME_DIR"] = tmp
@@ -110,26 +165,12 @@ class GlibcProgramLauncher(
         map["BOX64_LD_LIBRARY_PATH"] = "$root/usr/lib/x86_64-linux-gnu:$root/lib/x86_64-linux-gnu"
         map["FONTCONFIG_PATH"] = "$root/usr/etc/fonts"
         map["WINEPREFIX"] = "${root}/home/xuser/.wine"
-        // linbox starts Termux:X11 with display :13 (see
-        // DisplayManager.kt: cmdLine = "... :13").
         map["DISPLAY"] = ":13"
         map["PULSE_SERVER"] = "tcp:127.0.0.1:4713"
         map["BOX64_DYNAREC"] = "1"
         return map
     }
 
-    /**
-     * Fork box64 wine on the Android side (NOT inside proot). The
-     * resulting Process handles stdout/stderr; the caller is
-     * responsible for forwarding I/O to whatever UI surface they want.
-     *
-     * Note: wine started from the Android side will NOT see linbox's
-     * proot-launched X server unless the env DISPLAY points at the
-     * Termux:X11 socket. linbox's X server runs on :13 inside proot,
-     * which is invisible to Android processes — so this launcher is
-     * only useful for non-GUI programs (e.g. `wine cmd.exe /c dir`)
-     * or for tests where we just want to confirm box64 can start.
-     */
     fun runDirect(linboxTmpDir: String, vararg args: String): java.lang.Process? {
         val cmd = buildCommand(*args) ?: return null
         val env = buildEnv(linboxTmpDir)
@@ -139,80 +180,6 @@ class GlibcProgramLauncher(
         pb.directory(imageFs.rootDir)
         pb.redirectErrorStream(true)
         return pb.start()
-    }
-
-    /**
-     * Launch box64+wine from the host Android process so the new
-     * process inherits the same Termux:X11 server already running
-     * on :13 in linbox's MainEmuActivity. Modelled after winlator's
-     * GlibcProgramLauncherComponent.execGuestProgram().
-     */
-    fun runInBackground(context: Context, guestExecutable: String, extraArgs: Array<String>): java.lang.Process? {
-        // guestExecutable is expected to be relative to imageFs.rootDir
-        // (e.g. "home/xuser/.wine/drive_c/windows/system32/winecfg.exe").
-        // We resolve it to an absolute Android-side path so box64
-        // can find it.
-        val exeAbs = if (guestExecutable.startsWith("/")) {
-            guestExecutable
-        } else {
-            imageFs.rootDir.absolutePath + "/" + guestExecutable
-        }
-        val box64 = androidBox64Path() ?: return null.also {
-            android.util.Log.e(TAG, "runInBackground: box64 not found")
-        }
-        val wine = androidWinePath() ?: return null.also {
-            android.util.Log.e(TAG, "runInBackground: wine not found")
-        }
-        val root = imageFs.rootDir.absolutePath
-        val env = HashMap<String, String>()
-        env["HOME"] = "$root/home/xuser"
-        env["USER"] = ImageFs.USER
-        // 关键:Termux:X11 的 X server socket 在 linbox 的 cacheDir/tmp/.X11-unix/X<n>,
-        // 不是 imagefs/tmp。DisplayManager 启动 xserver 时把 TMPDIR 设成了
-        // Consts.tmpDir.absolutePath,这里必须用同一个目录,否则 wine 连不上 X。
-        val x11Tmp = runCatching { Consts.tmpDir.absolutePath }
-            .getOrDefault("$root/tmp")
-        env["TMPDIR"] = x11Tmp
-        env["XDG_RUNTIME_DIR"] = x11Tmp
-        env["WINEPREFIX"] = "$root/home/xuser/.wine"
-        env["LC_ALL"] = "zh_CN.UTF-8"
-        env["PATH"] = "$root/opt/wine/bin:$root/usr/local/bin:$root/usr/bin:$root/bin:/system/bin:/system/xbin"
-        // Match winlator's loader search order so winex11drv.so,
-        // libX11.so.6, libxcb.so.1 are all found.
-        env["LD_LIBRARY_PATH"] = "$root/usr/lib/x86_64-linux-gnu:$root/lib/x86_64-linux-gnu:$root/usr/lib/aarch64-linux-gnu:$root/usr/lib"
-        env["BOX64_LD_LIBRARY_PATH"] = env["LD_LIBRARY_PATH"]!!
-        env["ANDROID_SYSVSHM_SERVER"] = "$root/tmp/.sysvshm/SM0"
-        env["FONTCONFIG_PATH"] = "$root/usr/etc/fonts"
-        // linbox runs Termux:X11 on :13 (see DisplayManager.kt);
-        // winlator uses :0 — same X11 protocol, same client libs.
-        env["DISPLAY"] = ":13"
-        env["BOX64_X11GLX"] = "1"
-        env["BOX64_DYNAREC"] = "1"
-        env["BOX64_NOBANNER"] = "1"
-        env["BOX64_MMAP32"] = "1"
-        env["WINEESYNC"] = "1"
-        env["WINE_HOST_XDG_CURRENT_DESKTOP"] = "1"
-        // If winlator's libandroid-sysvshm.so is bundled into the
-        // APK (jniLibs/arm64-v8a/...), preload it so wine's IPC with
-        // the sysvshm server goes through winlator's protocol.
-        val sysvshm = java.io.File(root + "/usr/lib/aarch64-linux-gnu/libandroid-sysvshm.so")
-        if (sysvshm.exists()) env["LD_PRELOAD"] = "libandroid-sysvshm.so"
-
-        val cmdList = mutableListOf(box64, wine, exeAbs)
-        cmdList.addAll(extraArgs)
-        android.util.Log.i(TAG, "runInBackground: ${cmdList.joinToString(" ")}")
-        android.util.Log.i(TAG, "runInBackground: DISPLAY=${env["DISPLAY"]} BOX64_X11GLX=${env["BOX64_X11GLX"]} LD_PRELOAD=${env["LD_PRELOAD"]}")
-        val pb = ProcessBuilder(cmdList)
-        pb.environment().clear()
-        pb.environment().putAll(env)
-        pb.directory(imageFs.rootDir)
-        pb.redirectErrorStream(true)
-        return try {
-            pb.start()
-        } catch (e: Exception) {
-            android.util.Log.e(TAG, "runInBackground: start failed: ${e.message}", e)
-            null
-        }
     }
 
     companion object {
@@ -225,14 +192,14 @@ class GlibcProgramLauncher(
 
         fun ensureReady(context: Context): String? {
             val launcher = forContext(context)
-            android.util.Log.i(TAG, "ensureReady: launcher.isInstalled=${launcher.isInstalled()}")
+            Log.i(TAG, "ensureReady: launcher.isInstalled=${launcher.isInstalled()}")
             if (!launcher.isInstalled()) {
                 val ok = ImageFsInstaller.installIfNeeded(context)
-                android.util.Log.i(TAG, "ensureReady: installIfNeeded=$ok")
+                Log.i(TAG, "ensureReady: installIfNeeded=$ok")
                 if (!ok) return "imagefs 资产解压失败,请检查 assets/imagefs/imagefs.tzst 是否存在"
             }
             val verify = launcher.verifyReady()
-            android.util.Log.i(TAG, "ensureReady: verifyReady=$verify, box64=${launcher.androidBox64Path()}, wine=${launcher.androidWinePath()}")
+            Log.i(TAG, "ensureReady: verifyReady=$verify, box64=${launcher.androidBox64Path()}, wine=${launcher.androidWinePath()}")
             return verify
         }
     }

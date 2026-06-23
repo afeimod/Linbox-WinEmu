@@ -84,7 +84,19 @@ fun ProotStartupCmd(
     cmd: String,
     onChange: (String) -> Unit
 ) {
-    TextFieldOption(title = "启动后执行命令", text = cmd, onDone = onChange)
+    TextFieldOption(
+        title = "启动后执行命令",
+        text = cmd,
+        supportingText = {
+            Text(
+                "proot 启动后自动跑的命令。\n" +
+                "跑 Windows 程序:  glibc-run /home/xuser/.wine/drive_c/<游戏>.exe\n" +
+                "wine 自带工具:    glibc-run winecfg / glibc-run winefile / glibc-run regedit\n" +
+                "多条命令用 ';' 或 '&' 分隔, 例如:  cd /home/xuser && glibc-run winefile &",
+            )
+        },
+        onDone = onChange,
+    )
 }
 
 @Preview(widthDp = 300, heightDp = 600)

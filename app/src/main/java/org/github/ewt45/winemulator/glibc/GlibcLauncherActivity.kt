@@ -2,7 +2,6 @@ package org.github.ewt45.winemulator.glibc
 
 import android.app.Activity
 import android.content.Intent
-import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
@@ -12,37 +11,37 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import org.github.ewt45.winemulator.Consts
+import org.github.ewt45.winemulator.viewmodel.TerminalViewModel
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
 
 /**
- * Tiny launcher activity that lets the user run box64+wine on a
- * .exe (or any command) directly from the Android side — no proot.
+ * glibc wine 启动器 Activity。
  *
- * This is the v3.1 escape hatch after we discovered that running
- * box64 from inside linbox's proot container segfaults due to
- * proot's syscall translation layer conflicting with musl's
- * startup sequence.
+ * 提供两个入口:
  *
- * Usage:
- *   1. The user runs the launcher (icon on the home screen or via
- *      `am start -n .../.glibc.GlibcLauncherActivity`).
- *   2. They type the absolute Android-side path of the .exe (e.g.
- *      `/data/data/.../imagefs/home/xuser/drive_c/Program.exe`) and
- *      tap Run.
- *   3. We spawn `box64 wine <path> <args>` via ProcessBuilder with
- *      the imagefs as cwd, wire its stdout/stderr to a ScrollView,
- *      and exit when the process terminates.
+ *   1) "在 proot 内启动" (主路径,推荐)
+ *      按下 "在 proot 内启动" 按钮后,我们通过 [TerminalViewModel.runCommand]
+ *      把 `glibc-run <args>` 发到 linbox 主 Activity 已经启动的 proot shell
+ *      里。box64+wine 在 proot 里启动,直接共享 host /tmp → Termux:X11 的
+ *      socket 自然连得上,窗口能正常显示。
  *
- * Requirements:
- *   - The box64 binary must be patched with:
- *       patchelf --set-interpreter
- *         /data/data/a.io.github.ewt45.winemulator/files/imagefs/usr/lib/ld-linux-aarch64.so.1
- *         /data/data/a.io.github.ewt45.winemulator/files/imagefs/usr/local/bin/box64
- *   - Same patch for wine and any other ELF in the imagefs.
- *   - The imagefs must be installed (this activity does NOT install
- *     it; the existing v3 installer handles that).
+ *   2) "Android 侧直接启动" (调试)
+ *      按下 "Android 侧启动" 按钮后,本进程直接 fork `box64 wine ...`。
+ *      保留给 adb 调试 (`am start ...`) 用; 因为不在 linbox 主进程的
+ *      X server namespace 里,Termux:X11 可能拒绝连接,通常不显示。
+ *
+ * 用法:
+ *   - 从 launcher 打开这个 Activity,输入 .exe 路径,选一个模式按按钮
+ *   - 或者从 adb:
+ *       adb shell am start -n \
+ *         a.io.github.ewt45.winemulator/org.github.ewt45.winemulator.glibc.GlibcLauncherActivity
+ *
+ * 主路径推荐: 在 linbox 设置 → PRoot 参数 → "启动后执行命令" 里填
+ *     glibc-run /home/xuser/.wine/drive_c/<你的游戏>.exe
+ * 容器一启动就自动跑游戏,不需要打开这个 Activity。
  */
 class GlibcLauncherActivity : Activity() {
     private val TAG = "GlibcLauncher"
@@ -50,7 +49,8 @@ class GlibcLauncherActivity : Activity() {
     private lateinit var argsInput: EditText
     private lateinit var outputView: TextView
     private lateinit var statusView: TextView
-    private lateinit var runButton: Button
+    private lateinit var prootButton: Button
+    private lateinit var directButton: Button
     private var process: java.lang.Process? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -58,9 +58,6 @@ class GlibcLauncherActivity : Activity() {
         val imageFs = ImageFs.find(this)
         val launcher = GlibcProgramLauncher(imageFs)
         if (!imageFs.isValid) {
-            // Dump diagnostics so the user knows which sentinel file
-            // is missing — isValid just checks for box64/wine64/libc.so.6
-            // but doesn't say which one.
             val root = imageFs.rootDir.absolutePath
             val checks = listOf(
                 "$root/usr/local/bin/box64",
@@ -92,16 +89,8 @@ class GlibcLauncherActivity : Activity() {
                 .show()
             return
         }
-        val box64 = launcher.androidBox64Path() ?: run {
-            Toast.makeText(this, "box64 没找到", Toast.LENGTH_LONG).show()
-            finish()
-            return
-        }
-        val wine = launcher.androidWinePath() ?: run {
-            Toast.makeText(this, "wine 没找到", Toast.LENGTH_LONG).show()
-            finish()
-            return
-        }
+        val box64Proot = launcher.prootBox64Path() ?: "(imagefs 里没找到)"
+        val wineProot = launcher.prootWinePath() ?: "(imagefs 里没找到)"
 
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -109,22 +98,22 @@ class GlibcLauncherActivity : Activity() {
         }
 
         root.addView(TextView(this).apply {
-            text = "box64: $box64"
+            text = "box64 (proot 内路径): $box64Proot"
             textSize = 10f
         })
         root.addView(TextView(this).apply {
-            text = "wine:  $wine"
+            text = "wine  (proot 内路径): $wineProot"
             textSize = 10f
         })
 
         root.addView(TextView(this).apply {
-            text = "Executable (.exe) — absolute Android-side path:"
+            text = "Executable — 可以是 proot 内绝对路径 (/home/xuser/.wine/drive_c/foo.exe), 也可以是 wine 子命令 (winecfg, winefile):"
             setPadding(0, 16, 0, 4)
         })
         exeInput = EditText(this).apply {
-            hint = "/data/data/a.io.github.ewt45.winemulator/files/imagefs/home/xuser/drive_c/..."
+            hint = "/home/xuser/.wine/drive_c/Program Files/..."
             setSingleLine(true)
-            setText("/data/data/a.io.github.ewt45.winemulator/files/imagefs/home/xuser/drive_c/Program.exe")
+            setText("/home/xuser/.wine/drive_c/Program.exe")
         }
         root.addView(exeInput)
 
@@ -137,11 +126,17 @@ class GlibcLauncherActivity : Activity() {
         }
         root.addView(argsInput)
 
-        runButton = Button(this).apply {
-            text = "Run box64 wine"
-            setOnClickListener { onRun() }
+        prootButton = Button(this).apply {
+            text = "在 proot 内启动 (推荐)"
+            setOnClickListener { onRunInProot() }
         }
-        root.addView(runButton)
+        root.addView(prootButton)
+
+        directButton = Button(this).apply {
+            text = "Android 侧直接启动 (调试用)"
+            setOnClickListener { onRunDirect() }
+        }
+        root.addView(directButton)
 
         statusView = TextView(this).apply { text = "ready" }
         root.addView(statusView)
@@ -162,7 +157,50 @@ class GlibcLauncherActivity : Activity() {
         setContentView(root)
     }
 
-    private fun onRun() {
+    /**
+     * 主路径: 通过 proot shell 启动 glibc-run (会 exec box64+wine)。
+     * 需要拿到已经启动的 TerminalViewModel。如果 MainEmuActivity 没在
+     * 跑 (proot 没启动), 会提示用户先打开主界面。
+     */
+    private fun onRunInProot() {
+        val imageFs = ImageFs.find(this)
+        val launcher = GlibcProgramLauncher(imageFs)
+        val exe = exeInput.text.toString().trim()
+        val args = argsInput.text.toString().trim()
+        val fullArgs = if (args.isEmpty()) exe else "$exe $args"
+        if (exe.isBlank()) {
+            Toast.makeText(this, "请输入要执行的 exe 路径", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // 拿到 MainEmuActivity 里创建的 TerminalViewModel (同一个 proot shell)。
+        // MainEmuActivity 启动 proot 后会调用
+        //     TerminalViewModelRegistry.register(terminal)
+        // 把 singleton 引用放到 application 上。这样我们这个 Activity
+        // 能在不开启新 proot 的前提下复用同一个 shell。
+        val terminal: TerminalViewModel? = TerminalViewModelRegistry.current()
+        if (terminal == null) {
+            Toast.makeText(
+                this,
+                "TerminalViewModel 拿不到。请先打开 linbox 主界面启动 proot。",
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        appendOutput("→ proot 内启动: glibc-run $fullArgs &\n")
+        prootButton.isEnabled = false
+        directButton.isEnabled = false
+        statusView.text = "已在 proot 启动 (后台)"
+        launcher.runInProot(terminal, fullArgs, background = true)
+        // 不能在这里 re-enable 按钮,因为 wine 一直在跑;
+        // 用户关掉 Activity 即可,proot 内的 wine 还会继续。
+    }
+
+    /**
+     * 调试路径: Android 进程直接 fork box64+wine。
+     * 保留给 adb 调试; Termux:X11 可能拒绝连接,X11 不会显示。
+     */
+    private fun onRunDirect() {
         val imageFs = ImageFs.find(this)
         val launcher = GlibcProgramLauncher(imageFs)
         val exe = exeInput.text.toString().trim()
@@ -175,7 +213,7 @@ class GlibcLauncherActivity : Activity() {
         }
         appendOutput("$ ${cmd.joinToString(" ")}\n")
 
-        val env = launcher.buildEnv(org.github.ewt45.winemulator.Consts.tmpDir.absolutePath)
+        val env = launcher.buildEnv(Consts.tmpDir.absolutePath)
         try {
             val pb = ProcessBuilder(cmd)
             pb.environment().clear()
@@ -187,8 +225,9 @@ class GlibcLauncherActivity : Activity() {
             appendOutput("failed to start: ${e.message}\n")
             return
         }
-        runButton.isEnabled = false
-        statusView.text = "running"
+        prootButton.isEnabled = false
+        directButton.isEnabled = false
+        statusView.text = "直接启动中..."
         Thread {
             process?.inputStream?.let { stream ->
                 BufferedReader(InputStreamReader(stream)).useLines { lines ->
@@ -200,14 +239,14 @@ class GlibcLauncherActivity : Activity() {
             val rc = try { process?.waitFor() ?: -1 } catch (e: Exception) { -1 }
             runOnUiThread {
                 statusView.text = "exited with code $rc"
-                runButton.isEnabled = true
+                prootButton.isEnabled = true
+                directButton.isEnabled = true
             }
         }.start()
     }
 
     private fun appendOutput(s: String) {
         outputView.append(s)
-        // Best-effort scroll
         val parent = outputView.parent as? ScrollView
         parent?.post { parent.fullScroll(View.FOCUS_DOWN) }
     }

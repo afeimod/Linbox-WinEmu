@@ -88,6 +88,10 @@ class MainEmuActivity : MainActivity() {
         // 给 TerminalViewModel 注入 applicationContext,以便拉起 glibc imagefs bind
         terminalViewModel.appContext = applicationContext
 
+        // 发布到 application-scope registry, 让外部 Activity (如 GlibcLauncherActivity)
+        // 能拿到同一个 TerminalViewModel 实例, 复用已经在跑的 proot shell。
+        org.github.ewt45.winemulator.glibc.TerminalViewModelRegistry.register(terminalViewModel)
+
         // 初始化X11设置SharedPreferences同步
         settingViewModel.initSharedPreferences(this)
 
@@ -207,6 +211,9 @@ class MainEmuActivity : MainActivity() {
         super.onDestroy()
         terminalViewModel.stopTerminal()
         stopService(startX11Intent)
+        // 注销 registry 中的 TerminalViewModel 引用,避免外部 Activity
+        // 拿到一个已经 stop 过的 VM。
+        org.github.ewt45.winemulator.glibc.TerminalViewModelRegistry.unregister(terminalViewModel)
         // FIXME 目前release构建 finish 无法结束 service 进程 导致下次启动 xserver启动失败。需要手动强制结束进程
         android.os.Process.killProcess(getX11ServicePid())
 
