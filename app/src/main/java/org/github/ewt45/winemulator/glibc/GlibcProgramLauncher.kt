@@ -140,6 +140,75 @@ class GlibcProgramLauncher(
         return pb.start()
     }
 
+    /**
+     * Launch box64+wine from the host Android process so the new
+     * process inherits the same Termux:X11 server already running
+     * on :13 in linbox's MainEmuActivity. Modelled after winlator's
+     * GlibcProgramLauncherComponent.execGuestProgram().
+     */
+    fun runInBackground(context: Context, guestExecutable: String, extraArgs: Array<String>): java.lang.Process? {
+        // guestExecutable is expected to be relative to imageFs.rootDir
+        // (e.g. "home/xuser/.wine/drive_c/windows/system32/winecfg.exe").
+        // We resolve it to an absolute Android-side path so box64
+        // can find it.
+        val exeAbs = if (guestExecutable.startsWith("/")) {
+            guestExecutable
+        } else {
+            imageFs.rootDir.absolutePath + "/" + guestExecutable
+        }
+        val box64 = androidBox64Path() ?: return null.also {
+            android.util.Log.e(TAG, "runInBackground: box64 not found")
+        }
+        val wine = androidWinePath() ?: return null.also {
+            android.util.Log.e(TAG, "runInBackground: wine not found")
+        }
+        val root = imageFs.rootDir.absolutePath
+        val env = HashMap<String, String>()
+        env["HOME"] = "$root/home/xuser"
+        env["USER"] = ImageFs.USER
+        env["TMPDIR"] = "$root/tmp"
+        env["XDG_RUNTIME_DIR"] = "$root/tmp"
+        env["WINEPREFIX"] = "$root/home/xuser/.wine"
+        env["LC_ALL"] = "zh_CN.UTF-8"
+        env["PATH"] = "$root/opt/wine/bin:$root/usr/local/bin:$root/usr/bin:$root/bin:/system/bin:/system/xbin"
+        // Match winlator's loader search order so winex11drv.so,
+        // libX11.so.6, libxcb.so.1 are all found.
+        env["LD_LIBRARY_PATH"] = "$root/usr/lib/x86_64-linux-gnu:$root/lib/x86_64-linux-gnu:$root/usr/lib/aarch64-linux-gnu:$root/usr/lib"
+        env["BOX64_LD_LIBRARY_PATH"] = env["LD_LIBRARY_PATH"]!!
+        env["ANDROID_SYSVSHM_SERVER"] = "$root/tmp/.sysvshm/SM0"
+        env["FONTCONFIG_PATH"] = "$root/usr/etc/fonts"
+        // linbox runs Termux:X11 on :13 (see DisplayManager.kt);
+        // winlator uses :0 — same X11 protocol, same client libs.
+        env["DISPLAY"] = ":13"
+        env["BOX64_X11GLX"] = "1"
+        env["BOX64_DYNAREC"] = "1"
+        env["BOX64_NOBANNER"] = "1"
+        env["BOX64_MMAP32"] = "1"
+        env["WINEESYNC"] = "1"
+        env["WINE_HOST_XDG_CURRENT_DESKTOP"] = "1"
+        // If winlator's libandroid-sysvshm.so is bundled into the
+        // APK (jniLibs/arm64-v8a/...), preload it so wine's IPC with
+        // the sysvshm server goes through winlator's protocol.
+        val sysvshm = java.io.File(root + "/usr/lib/aarch64-linux-gnu/libandroid-sysvshm.so")
+        if (sysvshm.exists()) env["LD_PRELOAD"] = "libandroid-sysvshm.so"
+
+        val cmdList = mutableListOf(box64, wine, exeAbs)
+        cmdList.addAll(extraArgs)
+        android.util.Log.i(TAG, "runInBackground: ${cmdList.joinToString(" ")}")
+        android.util.Log.i(TAG, "runInBackground: DISPLAY=${env["DISPLAY"]} BOX64_X11GLX=${env["BOX64_X11GLX"]} LD_PRELOAD=${env["LD_PRELOAD"]}")
+        val pb = ProcessBuilder(cmdList)
+        pb.environment().clear()
+        pb.environment().putAll(env)
+        pb.directory(imageFs.rootDir)
+        pb.redirectErrorStream(true)
+        return try {
+            pb.start()
+        } catch (e: Exception) {
+            android.util.Log.e(TAG, "runInBackground: start failed: ${e.message}", e)
+            null
+        }
+    }
+
     companion object {
         private const val TAG = "GlibcProgramLauncher"
 

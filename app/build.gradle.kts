@@ -19,6 +19,27 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // NDK build for winlator's libandroid-sysvshm.so — let wine
+        // talk to linbox's sysv-shm server (which currently is the
+        // Termux:X11 native one). See app/src/main/cpp/android-sysvshm/.
+        ndk {
+            abiFilters += listOf("arm64-v8a", "armeabi-v7a")
+        }
+        externalNativeBuild {
+            cmake {
+                arguments += listOf("-DANDROID_STL=none")
+                cppFlags += listOf("-std=c++17")
+                cFlags += listOf("-std=gnu99")
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/android-sysvshm/CMakeLists.txt")
+            version = "3.22.1"
+        }
     }
 
     buildTypes {

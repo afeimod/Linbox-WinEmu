@@ -189,7 +189,8 @@ fun X11Screen(
                 onMainMenuClick = { onNavigateToOthers(Destination.Terminal) },
                 onGeneralSettingsClick = { floatingPopupState.showPopup(FloatingPopupType.GENERAL_SETTINGS) },
                 onVirtualKeysClick = { floatingPopupState.showPopup(FloatingPopupType.VIRTUAL_KEYS_SETTINGS) },
-                onX11SettingsClick = { floatingPopupState.showPopup(FloatingPopupType.X11_SETTINGS) }
+                onX11SettingsClick = { floatingPopupState.showPopup(FloatingPopupType.X11_SETTINGS) },
+                onRunGlibcWineClick = { runGlibcWine() }
             )
         }
 
@@ -305,10 +306,36 @@ private fun handleX11TouchEvent(
                 updateLeftButton(false)
                 Log.d("X11Touch", "Left button released")
             }
-            
+
             updateFirstTouch(true)
         }
     }
+}
+
+private fun runGlibcWine() {
+    val context = LocalContext.current
+    val imageFs = org.github.ewt45.winemulator.glibc.ImageFs.find(context)
+    val launcher = org.github.ewt45.winemulator.glibc.GlibcProgramLauncher(imageFs)
+    // Default exe path: pick the first .exe inside the wineprefix
+    // drive_c root, falling back to winecfg if nothing is found.
+    val driveC = java.io.File(imageFs.rootDir, "home/xuser/.wine/drive_c")
+    val candidate = (driveC.listFiles() ?: emptyArray())
+        .filter { it.isFile && it.name.lowercase().endsWith(".exe") }
+        .sortedBy { it.name.lowercase() }
+        .firstOrNull()
+    val exeRelPath = candidate?.absolutePath?.removePrefix(imageFs.rootDir.absolutePath)?.trimStart('/')
+        ?: "home/xuser/.wine/drive_c/windows/system32/winecfg.exe"
+    val args = arrayOf<String>()
+    launcher.runInBackground(
+        context = context,
+        guestExecutable = exeRelPath,
+        extraArgs = args,
+    )
+    android.widget.Toast.makeText(
+        context,
+        "启动 glibc wine: $exeRelPath (后台运行)",
+        android.widget.Toast.LENGTH_LONG,
+    ).show()
 }
 
 /**
