@@ -190,7 +190,7 @@ fun X11Screen(
                 onGeneralSettingsClick = { floatingPopupState.showPopup(FloatingPopupType.GENERAL_SETTINGS) },
                 onVirtualKeysClick = { floatingPopupState.showPopup(FloatingPopupType.VIRTUAL_KEYS_SETTINGS) },
                 onX11SettingsClick = { floatingPopupState.showPopup(FloatingPopupType.X11_SETTINGS) },
-                onRunGlibcWineClick = { runGlibcWine() }
+                onRunGlibcWineClick = { runGlibcWineImpl(context) }
             )
         }
 
