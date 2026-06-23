@@ -312,12 +312,16 @@ private fun handleX11TouchEvent(
     }
 }
 
+@Composable
 private fun runGlibcWine() {
-    val context = LocalContext.current
+    // Composable: only resolve Context here. Side-effects (ProcessBuilder
+    // start) happen in the non-Composable helper below.
+    runGlibcWineImpl(LocalContext.current)
+}
+
+private fun runGlibcWineImpl(context: android.content.Context) {
     val imageFs = org.github.ewt45.winemulator.glibc.ImageFs.find(context)
     val launcher = org.github.ewt45.winemulator.glibc.GlibcProgramLauncher(imageFs)
-    // Default exe path: pick the first .exe inside the wineprefix
-    // drive_c root, falling back to winecfg if nothing is found.
     val driveC = java.io.File(imageFs.rootDir, "home/xuser/.wine/drive_c")
     val candidate = (driveC.listFiles() ?: emptyArray())
         .filter { it.isFile && it.name.lowercase().endsWith(".exe") }
