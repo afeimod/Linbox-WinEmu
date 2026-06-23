@@ -5,6 +5,7 @@ import android.os.Process
 import android.system.Os
 import android.util.Log
 import java.io.File
+import org.github.ewt45.winemulator.Consts
 
 /**
  * Launches a Windows .exe by forking `box64 wine <args>` directly on the
@@ -166,8 +167,13 @@ class GlibcProgramLauncher(
         val env = HashMap<String, String>()
         env["HOME"] = "$root/home/xuser"
         env["USER"] = ImageFs.USER
-        env["TMPDIR"] = "$root/tmp"
-        env["XDG_RUNTIME_DIR"] = "$root/tmp"
+        // 关键:Termux:X11 的 X server socket 在 linbox 的 cacheDir/tmp/.X11-unix/X<n>,
+        // 不是 imagefs/tmp。DisplayManager 启动 xserver 时把 TMPDIR 设成了
+        // Consts.tmpDir.absolutePath,这里必须用同一个目录,否则 wine 连不上 X。
+        val x11Tmp = runCatching { Consts.tmpDir.absolutePath }
+            .getOrDefault("$root/tmp")
+        env["TMPDIR"] = x11Tmp
+        env["XDG_RUNTIME_DIR"] = x11Tmp
         env["WINEPREFIX"] = "$root/home/xuser/.wine"
         env["LC_ALL"] = "zh_CN.UTF-8"
         env["PATH"] = "$root/opt/wine/bin:$root/usr/local/bin:$root/usr/bin:$root/bin:/system/bin:/system/xbin"
