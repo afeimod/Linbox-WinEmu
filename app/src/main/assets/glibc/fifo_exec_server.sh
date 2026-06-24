@@ -1,26 +1,25 @@
 #!/bin/sh
 # fifo_exec_server.sh
 #
-# 在 linbox 启的外层 proot (xfce4 桌面的 proot) 内跑的 FIFO server。
-# 监听 $TMPDIR/.exec.fifo (外层 proot 视角下的 /tmp/ = host $TMPDIR)。
+# Android 进程启的 FIFO server (在 proot 内跑, 因为 Android 启 proot
+# 时已经把 imagefs bind 到 /imagefs)。
 #
-# 派发时启**新 proot 进程**进入 glibc 镜像 (imagefs bind 到 /imagefs),
-# 在新 proot 内的 glibc env 跑 box64+wine。
-#
-# 关键 mobox 风格架构:
-#   [Android linbox] 启 proot (linbox rootfs)
-#     └── [外层 proot] 跑 xfce4 桌面 (linbox alias 启 startxfce4)
-#         ├── xfce4 桌面的 terminal 是外层 proot 内的 sh
-#         │     └── 用户跑 "startexec X" 写一行到 .exec.fifo
-#         └── [fifo server 后台跑] 循环从 .exec.fifo 读
-#               └── 派发: 在外层 proot 启新 proot 进程进 imagefs
-#                     └── 新 proot 内: box64+wine 跑 (glibc env)
-
-# 用 set -e 但允许空循环
-# 实际故意不用 set -e, server 是常驻, 错误不能让它退出
+# 关键架构 (用户原话):
+#   Android 负责:
+#     1) 启 proot (自带的静态 proot 二进制)
+#     2) bind imagefs 到 /imagefs (让 proot 内有 glibc 镜像)
+#     3) 启 fifo server (这个脚本) 监听 .exec.fifo
+#     4) 收到命令, 用 proot 内的 sh -c 派发执行
+#   proot 内 (xfce4 桌面的 terminal) 负责:
+#     1) 跑 "startexec glibc-run *.exe" — 写一行到 FIFO
+#     2) fifo server 派发, glibc-run 准备 box64+wine 环境, exec box64
+#   proot 内的 glibc-run 负责:
+#     1) 找 box64 / wine / LDSO
+#     2) 设环境变量 (DISPLAY, PULSE_SERVER, LD_LIBRARY_PATH, WINEDLLPATH, WINELOADER)
+#     3) exec box64 wine <args>
 
 # ============================================================
-# 路径: 外层 proot 视角下 /tmp = host 的 $TMPDIR
+# 路径: proot 视角下 /tmp = host 的 $TMPDIR
 # (Proot.kt 启 proot 时 --bind=${tmpdir.absolutePath}:/tmp)
 # ============================================================
 TMP="${TMPDIR:-/tmp}"
@@ -64,18 +63,12 @@ while [ -e "$LOCK" ]; do
     # 跳过空行
     [ -z "$cmd" ] && continue
 
-    # 派发: 在外层 proot 启新 proot 进程, 进 glibc 镜像
-    # 新 proot 用同一份 linbox rootfs (--rootfs) + bind imagefs 到 /imagefs
-    # 但 cmd 直接在外层 proot 跑 (因为 cmd 已经是 "proot ... -- /imagefs/glibc-run.sh X"
-    #   或者 "/imagefs/usr/bin/box64 ...")
-    #
-    # 关键: cmd 是"在外层 proot 视角下能 exec 的命令", 例如:
+    # 派发: proot 内的 sh -c 跑命令
+    # 命令形如:
+    #   /imagefs/glibc-run.sh /home/xuser/.wine/drive_c/foo.exe
     #   /imagefs/usr/bin/box64 /imagefs/opt/wine/bin/wine winecfg
-    #   /imagefs/glibc-run.sh winecfg
-    # 这些命令在外层 proot 内 exec, 但 /imagefs 下的 box64 是 musl 链接
-    # (兼容外层 proot 的 libc), box64 启动 wine 时进入 glibc loader
-    # (因为 wine 的 linterp 指向 /imagefs/usr/lib/ld-linux-aarch64.so.1
-    # = glibc loader, 加载 glibc .so 库)
+    # 这些命令在 proot 内 exec, box64 是 proot 内 (linbox rootfs) musl
+    # 链接的 box64, 它启动 wine 时进入 glibc loader
     ts="$(date +%H:%M:%S 2>/dev/null || echo unknown)"
     echo "[$ts] exec: $cmd" >> "$LOG"
     # 不重定向 stdout/stderr — wine 自己的输出用户需要看

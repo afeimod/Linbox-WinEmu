@@ -1,39 +1,29 @@
 #!/bin/sh
 # glibc-run.sh
 #
-# 在 proot 内的 glibc chroot 环境下启动 box64+wine。
+# glibc-run 在 proot 内的 imagefs 镜像下准备 box64+wine 环境, 然后 exec。
 #
-# v4 调用方式 (mobox 风格):
-#   - 这个脚本不是直接被用户调用, 而是由 fifo_exec_server.sh 派发:
-#       startexec.sh "box64 $PROOT_PATH/foo.exe"
-#       startexec.sh "box64 wine $PROOT_PATH/foo.exe"
-#       startexec.sh "glibc-run $PROOT_PATH/foo.exe"   # (兼容旧 API)
-#       startexec.sh "glibc-run winecfg"
-#   - fifo_exec_server 用 sh -c 执行, 不带额外 env, 但 proot 启动
-#     时已经注入了 DISPLAY, PULSE_SERVER, LD_LIBRARY_PATH 等
-#   - 脚本里只做"找 box64/wine + 找 LDSO + 准备 env" 的事, 真正
-#     启动 box64 用 exec (不 fork sh, 避免多一层 process)
+# 调用方式 (proot 内, xfce4 桌面 terminal):
+#   glibc-run                                  # 默认 winefile
+#   glibc-run winecfg                          # wine 子命令
+#   glibc-run /path/to/foo.exe                 # 启动某个 exe
+#   glibc-run wine /path/to/foo.exe            # 显式 wine
 #
-# 为什么这样设计:
-#   - glibc-run.sh 是**解析器**, 不是执行器: 它把 "glibc-run <args>"
-#     翻译成 "box64 <args>" (加上 wine 前缀如果需要的话)
-#   - 真正启动 box64 的 exec 在脚本最后, 由 sh -c 派发, fifo_exec_server
-#     是 & 后台启动, 所以 wine 在 proot 内常驻
-#   - 跟 mobox 的 wine 启动方式一致: 一次 fork, exec 完即终
-#
-# 用法 (proot 内):
-#   glibc-run                                  # 启动 winefile
-#   glibc-run winecfg                          # 启动 winecfg
-#   glibc-run /home/xuser/.wine/drive_c/foo.exe    # 启动某 exe
-#   glibc-run wine /home/xuser/.wine/drive_c/foo.exe  # 显式 wine
-#   glibc-run box64 /imagefs/opt/wine/bin/wine file.exe  # 完全透传
+# 关键: glibc-run 在 proot 内的 imagefs 镜像下跑
+#   - /imagefs 是 imagefs bind mount
+#   - /imagefs/usr/bin/box64: musl 链接的 box64 (兼容外层 proot)
+#   - /imagefs/opt/wine/bin/wine: glibc 链接的 wine (启动时进入 glibc loader)
+#   - /imagefs/usr/lib/ld-linux-aarch64.so.1: glibc loader
+#   - box64 启动 wine 时, wine 的 linterp 加载上面的 glibc loader,
+#     wine 进入 glibc env, 加载 glibc .so 库
 
-set -e
+# 用 set -e 但允许 exec 失败
+# 实际故意不用 set -e, 错误信息要打印
 
-IMAGEFS="/imagefs"
-
-# 1) 定位 box64。winlator 风格: usr/bin/box64 是首选, 但有些包
-#    装到 usr/local/bin/, 两个路径都要查。
+# ============================================================
+# 1) 定位 box64
+# ============================================================
+IMAGEFS="${IMAGEFS:-/imagefs}"
 BOX64=""
 for cand in \
     "$IMAGEFS/usr/bin/box64" \
@@ -45,11 +35,13 @@ for cand in \
     fi
 done
 if [ -z "$BOX64" ]; then
-    echo "glibc-run: box64 在 imagefs 里找不到" >&2
+    echo "glibc-run: box64 在 $IMAGEFS 里找不到" >&2
     exit 2
 fi
 
-# 2) 定位 wine。winlator 默认装在 opt/wine/bin/wine
+# ============================================================
+# 2) 定位 wine
+# ============================================================
 WINE=""
 for cand in \
     "$IMAGEFS/opt/wine/bin/wine" \
@@ -62,18 +54,20 @@ for cand in \
     fi
 done
 if [ -z "$WINE" ]; then
-    echo "glibc-run: wine 在 imagefs 里找不到" >&2
+    echo "glibc-run: wine 在 $IMAGEFS 里找不到" >&2
     exit 2
 fi
 
+# ============================================================
 # 3) TMPDIR / DISPLAY
+# ============================================================
 export TMPDIR="${TMPDIR:-/tmp}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
 export DISPLAY="${DISPLAY:-:13}"
 
-# 4) 找 ld-linux-aarch64.so.1。不同 imagefs 把 loader 放在不同
-#    目录, 默认是 /usr/lib/, winlator 的 imagefs 可能在
-#    aarch64-linux-gnu/ 子目录。
+# ============================================================
+# 4) 找 ld-linux-aarch64.so.1
+# ============================================================
 LDSO=""
 for cand in \
     "$IMAGEFS/usr/lib/ld-linux-aarch64.so.1" \
@@ -91,7 +85,9 @@ if [ -z "$LDSO" ]; then
 fi
 echo "glibc-run: box64=$BOX64 wine=$WINE ldso=${LDSO:-(NOT FOUND)}" >&2
 
-# 5) box64 preset (由 Proot.kt 注入)
+# ============================================================
+# 5) box64 preset
+# ============================================================
 PRESET="${LINBOX_GLIBC_PRESET:-compatibility}"
 case "$PRESET" in
     performance)
@@ -123,7 +119,9 @@ case "$PRESET" in
         ;;
 esac
 
-# 6) wine lib 路径
+# ============================================================
+# 6) wine lib 路径 (LD_LIBRARY_PATH)
+# ============================================================
 WINE_LIB_CANDIDATES=""
 for c in \
     "$IMAGEFS/opt/wine/lib" \
@@ -145,7 +143,9 @@ done
 export LD_LIBRARY_PATH="$WINE_LIB_CANDIDATES:${LD_LIBRARY_PATH:-}"
 export BOX64_LD_LIBRARY_PATH="$WINE_LIB_CANDIDATES"
 
+# ============================================================
 # 7) WINEDLLPATH
+# ============================================================
 WINE_DLL_PATH=""
 for c in \
     "$IMAGEFS/opt/wine/lib/wine" \
@@ -168,7 +168,9 @@ if [ -z "$WINE_DLL_PATH" ]; then
 fi
 export WINEDLLPATH="$WINE_DLL_PATH"
 
+# ============================================================
 # 8) WINELOADER
+# ============================================================
 WINELOADER=""
 for c in \
     "$IMAGEFS/opt/wine/bin/wine-preloader" \
@@ -185,26 +187,36 @@ if [ -n "$WINELOADER" ]; then
     echo "glibc-run: WINELOADER=$WINELOADER" >&2
 fi
 
-# 9) wine 自身需要的路径
+# ============================================================
+# 9) wine 自身路径
+# ============================================================
 export WINEPREFIX="${WINEPREFIX:-$IMAGEFS/home/xuser/.wine}"
 export WINEDEBUG="${WINEDEBUG:-}-all"
 export WINEESYNC=1
 export WINEFSYNC=0
 
+# ============================================================
 # 10) sysvshm
+# ============================================================
 SYSVSHM_LIB="$IMAGEFS/usr/lib/aarch64-linux-gnu/libandroid-sysvshm.so"
 if [ -f "$SYSVSHM_LIB" ]; then
     export LD_PRELOAD="libandroid-sysvshm.so"
     export ANDROID_SYSVSHM_SERVER="$IMAGEFS/tmp/.sysvshm/SM0"
 fi
 
+# ============================================================
 # 11) 字体
+# ============================================================
 export FONTCONFIG_PATH="${FONTCONFIG_PATH:-$IMAGEFS/usr/etc/fonts}"
 
+# ============================================================
 # 12) pulseaudio
+# ============================================================
 export PULSE_SERVER="${PULSE_SERVER:-tcp:127.0.0.1:4713}"
 
-# 13) PATH
+# ============================================================
+# 13) PATH (让 wine 启动后能找到 wineserver 等)
+# ============================================================
 export PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:$IMAGEFS/bin:/usr/local/bin:/usr/bin:/bin:${PATH:-}"
 export BOX64_PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:$IMAGEFS/bin"
 
@@ -212,17 +224,14 @@ echo "glibc-run: DISPLAY=$DISPLAY TMPDIR=$TMPDIR PRESET=$PRESET" >&2
 
 # ============================================================
 # 14) 解析参数, exec box64
-#
-# 用法:
-#   glibc-run                      -> box64 wine winefile
-#   glibc-run winecfg              -> box64 wine winecfg (wine 子命令)
-#   glibc-run /path/to/foo.exe     -> box64 wine /path/to/foo.exe
-#   glibc-run wine /path/foo.exe   -> box64 wine /path/foo.exe (显式)
-#   glibc-run box64 wine foo       -> box64 wine foo (完全透传)
-#   glibc-run ls /imagefs          -> box64 ls /imagefs (其他 binary)
 # ============================================================
+#   glibc-run                  -> box64 wine winefile
+#   glibc-run winecfg          -> box64 wine winecfg (wine 子命令)
+#   glibc-run /path/foo.exe    -> box64 wine /path/foo.exe
+#   glibc-run wine /path/foo.exe -> box64 wine /path/foo.exe (显式)
+#   glibc-run box64 <args>     -> box64 <args> (完全透传)
+#   glibc-run ls /imagefs      -> box64 ls /imagefs (其他 binary)
 if [ "$#" -eq 0 ]; then
-    # (a) 默认 winefile
     if [ -x "$IMAGEFS/opt/wine/bin/winefile" ]; then
         exec "$BOX64" "$WINE" "$IMAGEFS/opt/wine/bin/winefile"
     else
@@ -233,19 +242,15 @@ fi
 first="$1"
 case "$first" in
     wine|winecfg|winefile|wineboot|wineserver|regsvr32|regedit|msiexec|cmd|start)
-        # (b) wine 子命令字面量
         exec "$BOX64" "$@"
         ;;
     box64|box86)
-        # (c) 完全透传 (用户显式 box64 / box86)
         exec "$BOX64" "$@"
         ;;
     *.exe|*.EXE|/*)
-        # (d) 绝对路径或 .exe
         exec "$BOX64" "$WINE" "$@"
         ;;
     *)
-        # (e) 其他 binary
         exec "$BOX64" "$@"
         ;;
 esac
