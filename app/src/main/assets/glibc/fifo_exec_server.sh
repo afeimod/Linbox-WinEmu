@@ -1,41 +1,45 @@
-#!/system/bin/sh
+#!/bin/sh
 # fifo_exec_server.sh
 #
-# Android 端跑的 FIFO server (mobox 风格, 跟用户在 termux 的脚本一致)。
+# proot 内跑的 FIFO server (mobox 风格, 跟用户在 termux 的脚本一致)。
 #
 # 关键架构 (用户原话):
-#   - fifo_exec_server 是 **Android 端** 创建 FIFO 管道和锁文件
-#   - fifo 的 tmp 路径是 **Android 视角的 tmp** = Consts.tmpDir.absolutePath
-#     (= /data/data/a.io.github.ewt45.winemulator/cache/tmp)
-#   - fifo server 监听 FIFO, 收到命令, **启 proot 子进程** 派发执行
-#   - 派发时启 proot, 在 proot 内 imagefs bind /imagefs, 跑 cmd
+#   - app 创建 FIFO 管道和锁文件并启动 fifo 服务
+#   - 启动 proot 时正确启 fifo_exec_server
+#   - proot 终端才可以用 startexec 写命令到 FIFO
+#   - glibc 编译时绑绝对路径 /data/data/.../files/imagefs,
+#     proot 内能看到 (--bind=imagefs:/imagefs), 用 glibc-run.sh
+#     启 box64+wine
 #
 # 角色分工:
-#   [Android linbox 进程]
-#     └── fork fifo_exec_server.sh (Android 视角, 用 /system/bin/sh)
-#           ├── 创建 /data/data/.../cache/tmp/.exec.fifo
-#           ├── 创建 /data/data/.../cache/tmp/.exec-lock
-#           └── 监听 FIFO, 收到命令 sh -c 派发
-#                 └── 派发时启 proot 子进程, 在 proot 内跑 cmd
-#                   (cmd 形如 "glibc-run winecfg", 在 proot 内 sh -c 跑)
-#   [proot 内 (xfce4 桌面)]
+#   [proot shell 启动]
+#     └── start.sh 调本脚本 (后台 &)
+#           ├── 创建 /tmp/.exec.fifo      (proot 内 /tmp = host tmpDir)
+#           ├── 创建 /tmp/.exec-lock
+#           └── while [ -e LOCK ]; do
+#                 read cmd < FIFO
+#                 /imagefs/usr/local/bin/glibc-run.sh $cmd &
+#               done
+#
+#   [proot 内 xfce4 terminal]
 #     └── 用户跑: startexec "cmd"
-#           └── startexec 用 $TMPDIR (Android 视角绝对路径) 写 FIFO
-#             ("glibc-run winecfg")
+#           └── echo "$*" > /tmp/.exec.fifo
+#
+# 用法 (proot 内):
+#   startexec glibc-run winecfg
+#   startexec glibc-run /home/xuser/.wine/drive_c/foo.exe
+#   startexec glibc-run wine /path/foo.exe
 
 # ============================================================
-# 路径: Android 视角下的 tmp
-# Consts.tmpDir.absolutePath = /data/data/a.io.github.ewt45.winemulator/cache/tmp
+# 路径
 # ============================================================
-TMP="${TMPDIR:-/data/data/a.io.github.ewt45.winemulator/cache/tmp}"
+TMP="${TMPDIR:-/tmp}"
 FIFO="$TMP/.exec.fifo"
 LOCK="$TMP/.exec-lock"
 LOG="$TMP/.exec.log"
 
-# proot 二进制 (Android 端路径)
-PROOT_BIN="/data/data/a.io.github.ewt45.winemulator/files/proot"
-ROOTFS="/data/data/a.io.github.ewt45.winemulator/files/rootfs/current"
-IMAGEFS="/data/data/a.io.github.ewt45.winemulator/files/imagefs"
+# imagefs 内 glibc-run (proot bind 后 /imagefs 可见)
+GLIBC_RUN="/imagefs/usr/local/bin/glibc-run.sh"
 
 # 启动时清理残留
 rm -f "$FIFO" "$LOCK" 2>/dev/null
@@ -55,7 +59,6 @@ echo "[$(date +%H:%M:%S 2>/dev/null || echo unknown)] server started pid=$$" > "
 # 主循环: 锁文件存在就一直跑
 # ============================================================
 while [ -e "$LOCK" ]; do
-    # 读一行命令; read 返回 0 成功, 非 0 EOF
     cmd=""
     read -r cmd <&3 || {
         # EOF: FIFO 没人写或被关。重建 FIFO, 继续。
@@ -73,33 +76,25 @@ while [ -e "$LOCK" ]; do
     # 跳过空行
     [ -z "$cmd" ] && continue
 
-    # 派发: Android 端启 proot 子进程, 在 proot 内跑 cmd
-    #
-    # proot 子进程的参数:
-    #   --rootfs=$ROOTFS
-    #   --bind=$TMP:/tmp
-    #   --bind=$IMAGEFS:/imagefs
-    #   -L --link2symlink --sysvipc --kill-on-exit
-    #   /usr/bin/env -i DISPLAY=:13 PULSE_SERVER=... PATH=... /bin/sh -c "$cmd"
-    #
-    # 这样 cmd 在 proot 内 sh -c 跑, cmd 里的 "glibc-run" 这种命令能解析
-    # (因为 /imagefs/usr/local/bin 在 PATH 里)
     ts="$(date +%H:%M:%S 2>/dev/null || echo unknown)"
     echo "[$ts] exec: $cmd" >> "$LOG"
+    echo "fifo_exec_server: 派发 cmd=[$cmd]" >&2
 
-    # 启 proot 子进程跑 cmd
-    "$PROOT_BIN" \
-        -L --link2symlink --sysvipc --kill-on-exit \
-        --rootfs="$ROOTFS" \
-        --bind="$TMP:/tmp" \
-        --bind="$IMAGEFS:/imagefs" \
-        /usr/bin/env -i \
-            DISPLAY=:13 \
-            PULSE_SERVER=tcp:127.0.0.1:4713 \
-            LINBOX_GLIBC_PRESET=compatibility \
-            PATH="/imagefs/usr/local/bin:/imagefs/usr/bin:/imagefs/opt/wine/bin:/usr/local/bin:/usr/bin:/bin" \
-            TMPDIR=/tmp XDG_RUNTIME_DIR=/tmp HOME=/ \
-            /bin/sh -c "$cmd" </dev/null &
+    # 派发: 直接 exec glibc-run (server 跑在 proot 内, 能访问 /imagefs)
+    #
+    # glibc-run 自己处理参数分流 (winecfg / .exe / box64 / 透传),
+    # 它内部会找 box64+wine+lib, 设 LD_LIBRARY_PATH, exec box64 wine。
+    #
+    # 用 eval 重新做 shell 词法分析, 这样 startexec 拼出来的
+    # 含空格/引号的参数能正确传透。
+    #
+    # 后台跑 (&): wine 本身是常驻进程, 派发后立刻回来读下一条命令
+    # stdin 重定向避免 wine 等交互阻塞 FIFO
+    if [ -x "$GLIBC_RUN" ]; then
+        eval "$GLIBC_RUN $cmd" </dev/null >/dev/null 2>&1 &
+    else
+        echo "fifo_exec_server: glibc-run 找不到: $GLIBC_RUN" >&2
+    fi
 done
 
 # 锁文件被删了, server 退出
