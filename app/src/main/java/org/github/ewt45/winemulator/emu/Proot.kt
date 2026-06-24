@@ -214,8 +214,12 @@ class Proot {
 
         // ============================================================
         // 4) 写 start.sh
-        //    shell 启时跑: locale + chmod imagefs 脚本 + PATH + 用户的 startup cmd
-        //    (注意: fifo server 是在 proot 内 start.sh 启的, 不是 Android 端)
+        //    shell 启时跑: locale + chmod imagefs 脚本 + PATH + hint + 用户的 startup cmd
+        //
+        // 注意: fifo_exec_server 是 Android 端 (linboxapp) 启的, 不在 proot 内启。
+        //       proot 内的 xfce4 terminal 用 startexec 写 FIFO → Android 端 server 派发。
+        //       前提: --bind=tmpDir:/tmp 已让 proot 内 /tmp = host tmpDir,
+        //             server 创建的 /tmp/.exec.fifo 在 proot 内可见。
         //
         // 为什么要 chmod 一次? imagefs 是 Android 侧的文件, root 通过 proot
         // 看到的 /imagefs/... 是 nobody 用户, owner-only 权限可能不让 exec,
@@ -231,16 +235,22 @@ class Proot {
         sb.appendLine("""if ! locale -a | grep -qi "zh_CN"; then locale-gen zh_CN.utf8; fi""")
         sb.appendLine("""export LANG=zh_CN.utf8""")
         sb.appendLine()
-        sb.appendLine("# b) chmod imagefs 脚本 (startexec / glibc-run / fifo_exec_server)")
+        sb.appendLine("# b) chmod imagefs 脚本 (startexec / glibc-run)")
         sb.appendLine("#    imagefs 是 Android 侧文件, proot 内普通用户可能看不到 +x")
         sb.appendLine("""chmod +x /imagefs/usr/local/bin/startexec.sh /imagefs/usr/local/bin/glibc-run.sh 2>/dev/null || true""")
         sb.appendLine("""export PATH="/imagefs/usr/local/bin:${'$'}PATH"""")
         sb.appendLine()
+        sb.appendLine("# b.5) fifo_exec_server 状态检查 (Android 端启, proot 内只需读 FIFO)")
+        sb.appendLine("""if [ -p /tmp/.exec.fifo ] && [ -e /tmp/.exec-lock ]; then""")
+        sb.appendLine("""    echo "[linbox] fifo server OK — 可以用 'startexec glibc-run <cmd>'""")
+        sb.appendLine("""else""")
+        sb.appendLine("""    echo "[linbox] WARN: fifo server 未启 (FIFO=$(ls -la /tmp/.exec.fifo 2>&1 | head -1))""")
+        sb.appendLine("""fi""")
+        sb.appendLine()
         // c) 用户的 startup cmd (默认 "linbox" 启 xfce4)
-        //    注意: fifo_exec_server 是 Android 端跑的, 不在 proot 内启
         val startupCmd = Consts.Pref.proot_startup_cmd.get().trim()
         if (startupCmd.isNotEmpty()) {
-            sb.appendLine("# d) user startup cmd: $startupCmd")
+            sb.appendLine("# c) user startup cmd: $startupCmd")
             sb.appendLine(startupCmd)
             sb.appendLine()
         }

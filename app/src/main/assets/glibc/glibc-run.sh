@@ -64,13 +64,18 @@ if [ -z "$WINE" ]; then
 fi
 
 # ============================================================
-# 3) TMPDIR / DISPLAY
+# 3) TMPDIR / DISPLAY / XAUTHORITY
 #   Android 进程跑, 直接用 Android tmpDir (跟 Termux:X11 同目录)
+#   X11 socket = $TMPDIR/.X11-unix/X<DISPLAY>
+#   XAUTHORITY = $TMPDIR/.Xauthority (Termux:X11 会创建)
 # ============================================================
 LINBOX_TMP="/data/data/a.io.github.ewt45.winemulator/cache/tmp"
 export TMPDIR="${TMPDIR:-$LINBOX_TMP}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$LINBOX_TMP}"
 export DISPLAY="${DISPLAY:-:13}"
+export XAUTHORITY="${XAUTHORITY:-$LINBOX_TMP/.Xauthority}"
+# 不需要 xauth: Termux:X11 默认用 uid 检查,不需要 MIT-MAGIC-COOKIE
+unset XAUTHORITY
 
 # ============================================================
 # 4) 找 ld-linux-aarch64.so.1 (glibc loader, wine 需要)
