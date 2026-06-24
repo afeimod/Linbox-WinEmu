@@ -43,7 +43,9 @@ fun ProotTerminalScreen(viewModel: TerminalViewModel) {
 
     LaunchedEffect(Unit) {
         if (viewModel.output.value.isEmpty()) {
-            viewModel.runCommand("linbox")
+            // v5.2: proot 启 shell + start.sh (Proot.kt 写)
+            //   start.sh 启 fifo server + 跑 proot_startup_cmd (默认是 "linbox" 启 xfce4 桌面)
+            //   终端这里不用再跑任何命令, proot 已经就绪
         }
         focusRequester.requestFocus()
         keyboardController?.show()

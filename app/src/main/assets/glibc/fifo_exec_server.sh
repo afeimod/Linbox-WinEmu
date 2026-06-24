@@ -1,36 +1,27 @@
 #!/bin/sh
 # fifo_exec_server.sh
 #
-# 真正的 mobox 风格 FIFO server (linbox v5 适配版)。
+# 在 linbox 启的外层 proot (xfce4 桌面的 proot) 内跑的 FIFO server。
+# 监听 $TMPDIR/.exec.fifo (外层 proot 视角下的 /tmp/ = host $TMPDIR)。
 #
-# linbox 没有 termux, 所以这个脚本**直接跑在 proot 内** (imagefs bind
-# 到 /imagefs 后, proot 启动时 exec 它)。
+# 派发时启**新 proot 进程**进入 glibc 镜像 (imagefs bind 到 /imagefs),
+# 在新 proot 内的 glibc env 跑 box64+wine。
 #
-# 调用链 (跟 mobox 一致, 但 server 在 proot 内):
-#   [Android linbox 进程]
-#      └── 启 proot (自带的静态 proot 二进制, --bind=Consts.tmpDir:/tmp)
-#   [proot 内 (linbox rootfs, busybox/ash 系)]
-#      ├── fifo server (这个脚本, 常驻)
-#      └── (未来) xfce4 桌面的 terminal 跑 startexec 写 FIFO
-#   [proot fifo server 读到]
-#      └── sh -c "box64 wine winecfg" & 派发
-#        (proot 内的 sh 派发, box64 在 proot 内跑, box64 启动 wine
-#         时进入 glibc loader 加载 glibc 二进制)
-#
-# 关键: 这个脚本的 sh shebang 是 proot 内的 busybox ash
-#       mobox 原版用 bash (termux 内), linbox 用 sh (busybox, 更轻量)
-#
-# FIFO 路径: 用 $TMPDIR (proot 启动时设 = /tmp, --bind=Consts.tmpDir:/tmp)
-#   - proot 视角下:  /tmp/.exec.fifo (= host Consts.tmpDir/.exec.fifo)
-#   - Android 视角:  Consts.tmpDir/.exec.fifo
-#   - xfce4 terminal (proot 内) 视角:  /tmp/.exec.fifo
-#   三者写的是同一个文件
+# 关键 mobox 风格架构:
+#   [Android linbox] 启 proot (linbox rootfs)
+#     └── [外层 proot] 跑 xfce4 桌面 (linbox alias 启 startxfce4)
+#         ├── xfce4 桌面的 terminal 是外层 proot 内的 sh
+#         │     └── 用户跑 "startexec X" 写一行到 .exec.fifo
+#         └── [fifo server 后台跑] 循环从 .exec.fifo 读
+#               └── 派发: 在外层 proot 启新 proot 进程进 imagefs
+#                     └── 新 proot 内: box64+wine 跑 (glibc env)
 
-# 故意不用 set -e, 这个 server 是常驻, 错误要打印但不能退出
+# 用 set -e 但允许空循环
+# 实际故意不用 set -e, server 是常驻, 错误不能让它退出
 
 # ============================================================
-# 路径: proot 视角下 /tmp = host 的 Consts.tmpDir
-# (Proot.kt 启动时 --bind=${tmpdir.absolutePath}:/tmp)
+# 路径: 外层 proot 视角下 /tmp = host 的 $TMPDIR
+# (Proot.kt 启 proot 时 --bind=${tmpdir.absolutePath}:/tmp)
 # ============================================================
 TMP="${TMPDIR:-/tmp}"
 FIFO="$TMP/.exec.fifo"
@@ -73,11 +64,18 @@ while [ -e "$LOCK" ]; do
     # 跳过空行
     [ -z "$cmd" ] && continue
 
-    # 派发: 用 proot 内的 sh -c 跑, 放后台, 不阻塞 server
-    # 这是 proot 内的 sh (busybox ash), "cmd" 在 proot 内执行
-    # cmd 通常是:
+    # 派发: 在外层 proot 启新 proot 进程, 进 glibc 镜像
+    # 新 proot 用同一份 linbox rootfs (--rootfs) + bind imagefs 到 /imagefs
+    # 但 cmd 直接在外层 proot 跑 (因为 cmd 已经是 "proot ... -- /imagefs/glibc-run.sh X"
+    #   或者 "/imagefs/usr/bin/box64 ...")
+    #
+    # 关键: cmd 是"在外层 proot 视角下能 exec 的命令", 例如:
     #   /imagefs/usr/bin/box64 /imagefs/opt/wine/bin/wine winecfg
     #   /imagefs/glibc-run.sh winecfg
+    # 这些命令在外层 proot 内 exec, 但 /imagefs 下的 box64 是 musl 链接
+    # (兼容外层 proot 的 libc), box64 启动 wine 时进入 glibc loader
+    # (因为 wine 的 linterp 指向 /imagefs/usr/lib/ld-linux-aarch64.so.1
+    # = glibc loader, 加载 glibc .so 库)
     ts="$(date +%H:%M:%S 2>/dev/null || echo unknown)"
     echo "[$ts] exec: $cmd" >> "$LOG"
     # 不重定向 stdout/stderr — wine 自己的输出用户需要看

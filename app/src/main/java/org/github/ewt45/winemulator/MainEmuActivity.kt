@@ -194,17 +194,9 @@ class MainEmuActivity : MainActivity() {
         withContext(Dispatchers.Main) {
             lifecycle.addObserver(EmuManager(lifecycleScope))
         }
-        val LANG = general_rootfs_lang.get()
-        // 检查目标 locale 是否已生成，未生成则执行 locale-gen
-        val langBase = LANG.substringBefore('.')  // "zh_CN.utf8" -> "zh_CN"
-        terminalViewModel.runCommand("""if ! locale -a | grep -qi "$langBase"; then locale-gen $LANG; fi; export LANG=$LANG""")
-        //这里还不能用state因为state第一次获取的是默认值而非datastore来的值
-        proot_startup_cmd.get().takeIf { it.isNotBlank() }?.let {
-            terminalViewModel.runCommand("$it &")
-        }
-
-
-//        }
+        // v5.1: proot shell 启动时跑 start.sh (Proot.kt 写)
+        //   start.sh 已经包含: locale-gen + LANG + 启 fifo server + proot_startup_cmd
+        //   不需要再通过 stdin 写命令 (v3 那种)
     }
 
     override fun onDestroy() {
