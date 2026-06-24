@@ -1,21 +1,25 @@
-#!/bin/sh
+#!/system/bin/sh
 # glibc-run.sh
 #
-# proot 内跑的 box64+wine 启动器, 被 fifo_exec_server.sh 派发时调用。
-# fifo server 在 proot 内 (跟用户在 termux 的脚本一致), 用 sh fork 它。
+# Android 端跑的 box64+wine 启动器, 被 fifo_exec_server.sh 派发时调用。
 #
 # 关键 (用户原话):
 #   "我的 glibc 是绝对路径 /data/data/a.io.github.ewt45.winemulator/files/imagefs 编译的"
-#   - 编译路径是 Android 绝对路径, 但 proot 内 --bind=imagefs:/imagefs 后
-#     看到的是 /imagefs, 所以这里 IMAGEFS 默认 = /imagefs
-#   - 实际访问 imagefs 内的 box64+wine+lib 是以 proot 内的 /imagefs 视角
+#   "而且 proot 无法访问才让 linboxapp 使用 fifo 管道服务让它能正常访问"
+#   "这样就可以 startexec glibc-run 运行 glibc 的 box64 wine"
 #
-# imagefs 里关键二进制 (proot 内视角):
-#   - /imagefs/usr/bin/box64      (musl 链接)
-#   - /imagefs/opt/wine/bin/wine  (glibc 链接)
-#   - /imagefs/usr/lib/ld-linux-aarch64.so.1 (glibc loader)
+# 所以这里:
+#   - IMAGEFS 默认 = Android 绝对路径
+#   - 这个脚本由 fifo server 在 Android 进程 fork, Android 进程能直接
+#     exec imagefs 里的 box64+wine (编译路径就是 Android 绝对路径)
+#   - 不需要 proot, 直接 exec box64
 #
-# 调用方式 (由 fifo server 派发):
+# imagefs 里关键二进制 (Android 视角):
+#   - /data/data/.../files/imagefs/usr/bin/box64      (musl 链接)
+#   - /data/data/.../files/imagefs/opt/wine/bin/wine  (glibc 链接)
+#   - /data/data/.../files/imagefs/usr/lib/ld-linux-aarch64.so.1 (glibc loader)
+#
+# 调用方式 (由 fifo server 派发, 命令行 = startexec 拼出来的整条):
 #   glibc-run winecfg
 #   glibc-run /home/xuser/.wine/drive_c/foo.exe
 #   glibc-run wine /path/foo.exe
@@ -24,7 +28,7 @@
 # ============================================================
 # 1) 定位 box64
 # ============================================================
-IMAGEFS="${IMAGEFS:-/imagefs}"
+IMAGEFS="${IMAGEFS:-/data/data/a.io.github.ewt45.winemulator/files/imagefs}"
 BOX64=""
 for cand in \
     "$IMAGEFS/usr/bin/box64" \
@@ -61,11 +65,11 @@ fi
 
 # ============================================================
 # 3) TMPDIR / DISPLAY
-# proot --bind=tmpDir:/tmp, 所以 /tmp 就是 host tmpDir,
-#   跟 fifo server 创建的 FIFO 同目录, 也跟 X11 socket 同目录
+#   Android 进程跑, 直接用 Android tmpDir (跟 Termux:X11 同目录)
 # ============================================================
-export TMPDIR="${TMPDIR:-/tmp}"
-export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/tmp}"
+LINBOX_TMP="/data/data/a.io.github.ewt45.winemulator/cache/tmp"
+export TMPDIR="${TMPDIR:-$LINBOX_TMP}"
+export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-$LINBOX_TMP}"
 export DISPLAY="${DISPLAY:-:13}"
 
 # ============================================================
@@ -89,7 +93,7 @@ fi
 echo "glibc-run: box64=$BOX64 wine=$WINE ldso=${LDSO:-(NOT FOUND)}" >&2
 
 # ============================================================
-# 5) box64 preset (LINBOX_GLIBC_PRESET 由 fifo server 注入)
+# 5) box64 preset (LINBOX_GLIBC_PRESET 由用户设置, 这里给个默认)
 # ============================================================
 PRESET="${LINBOX_GLIBC_PRESET:-compatibility}"
 case "$PRESET" in

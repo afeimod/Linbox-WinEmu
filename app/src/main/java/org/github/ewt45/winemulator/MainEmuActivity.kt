@@ -37,6 +37,7 @@ import org.github.ewt45.winemulator.Utils.activityRecreate
 import org.github.ewt45.winemulator.Utils.getX11ServicePid
 import org.github.ewt45.winemulator.emu.X11Service
 import org.github.ewt45.winemulator.emu.manager.EmuManager
+import org.github.ewt45.winemulator.glibc.FifoExecServer
 import org.github.ewt45.winemulator.terminal.SessionClientAImpl
 import org.github.ewt45.winemulator.terminal.ViewClientImpl
 import org.github.ewt45.winemulator.ui.Destination
@@ -56,6 +57,7 @@ class MainEmuActivity : MainActivity() {
     val prepareViewModel: PrepareViewModel by viewModels()
     private lateinit var startX11Intent: Intent
     private var emuStarted: Boolean = false
+    private val fifoExecServer = FifoExecServer()
     val sessionClient: SessionClientAImpl = SessionClientAImpl(this)
     val viewClient: ViewClientImpl = ViewClientImpl(this, sessionClient)
 
@@ -189,18 +191,31 @@ class MainEmuActivity : MainActivity() {
         }
 
         terminalViewModel.startTerminal()
+
+        // v5.4 架构: Android 端启 fifo_exec_server.sh
+        //   - server 创建 <tmpDir>/.exec.fifo + lock, 监听 FIFO
+        //   - proot 内的 xfce4 terminal 跑 startexec <cmd> → 写 /tmp/.exec.fifo
+        //     (proot --bind=tmpDir:/tmp, /tmp 就是 host tmpDir, 同 FIFO)
+        //   - server 收到后, Android 进程 fork /system/bin/sh 跑 imagefs/glibc-run.sh
+        //   - 必须 proot 启完之前就启 (启完 proot 用户就可以跑 startexec 了)
+        if (!fifoExecServer.start(lifecycleScope)) {
+            Log.w(TAG, "startEmu: fifoExecServer 启动失败, xfce4 内 startexec 会 broken pipe")
+        }
+
         // TODO 全部移到emuManager后，改为在init添加观察者，但是onCreate不启动，而是在startEmu中手动启动
         //添加observer时会立刻发送一遍从头到现在的状态，所以onCreate会触发
         withContext(Dispatchers.Main) {
             lifecycle.addObserver(EmuManager(lifecycleScope))
         }
         // v5.1: proot shell 启动时跑 start.sh (Proot.kt 写)
-        //   start.sh 已经包含: locale-gen + LANG + 启 fifo server + proot_startup_cmd
+        //   start.sh 已经包含: locale-gen + LANG + chmod imagefs 脚本 + proot_startup_cmd
         //   不需要再通过 stdin 写命令 (v3 那种)
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        // 停 fifo server (删 lock 文件让 server 主循环退出, 再 destroy 兜底)
+        fifoExecServer.stop()
         terminalViewModel.stopTerminal()
         stopService(startX11Intent)
         // 注销 registry 中的 TerminalViewModel 引用,避免外部 Activity

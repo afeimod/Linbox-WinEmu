@@ -19,43 +19,46 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 
 /**
- * 连接 linux 的终端。v5.4 架构: **proot 内跑 fifo server + xfce4 桌面**
+ * 连接 linux 的终端。v5.4 架构: **Android 跑 fifo server, proot 内启 xfce4**
  *
  * 用户原话 (v5.4 最终版):
- *   "app 创建 FIFO 管道和锁文件并启动 fifo 服务"
- *   "启动 proot 时能够正确启动 fifo_exec_server"
- *   "proot 终端才可以使用 startexec 执行文件进行定义 FIFO 管道路径
- *    和将命令参数拼接后写入 FIFO"
- *   "只有这样写入 fifo 后 proot 终端才可以访问我 glibc 环境
- *    /data/data/a.io.github.ewt45.winemulator/files/imagefs"
+ *   "安卓 app 创建 FIFO 管道和锁文件并启动服务"
+ *   "或者运行 proot 的时候加入 fifo_exec_server 的启动"
+ *   "使 proot 能够正确管理 /data/data/a.io.github.ewt45.winemulator/files/imagefs 的 glibc 环境"
+ *   "然后在 proot 里使用 startexec 定义 FIFO 管道路径和将命令参数拼接后写入 FIFO"
+ *   "echo "$*" > "$FIFO""
  *
- * 架构 (跟用户在 termux 的原型一致):
+ * 架构 (Android 端跑 fifo server, 跟用户在 termux 的原型一致):
  *   [Android linbox 进程]
+ *     ├── 启 fifo_exec_server.sh (Android 视角, /system/bin/sh, 由 FifoExecServer 启)
+ *     │     - 创建 <tmpDir>/.exec.fifo
+ *     │     - 创建 <tmpDir>/.exec-lock
+ *     │     - while [ -e lock ]; read cmd < FIFO; exec glibc-run "$cmd"; done
+ *     │
  *     └── 启 proot (自带的静态 proot 二进制)
  *           - --bind=Consts.tmpDir:/tmp  (让 proot 内的 /tmp = host tmp, 含 X11 socket)
  *           - --bind=imagefs:/imagefs    (让 proot 内的 /imagefs 可见)
  *           - 启 login shell, shell 跑 start.sh:
  *                 a) locale-gen + LANG
  *                 b) chmod imagefs 脚本 (+x)
- *                 c) 后台启 fifo_exec_server.sh (创建 FIFO + lock, 监听)
- *                 d) 启 xfce4 桌面 (linbox alias 启 startxfce4)
- *
- *   [proot 内 fifo_exec_server.sh (后台)]
- *     └── while [ -e lock ]; do
- *           read cmd < FIFO
- *           /imagefs/usr/local/bin/glibc-run.sh $cmd &   # proot 内直接 exec
- *         done
+ *                 c) 启 xfce4 桌面 (linbox alias 启 startxfce4)
  *
  *   [proot 内 xfce4 桌面 terminal]
- *     └── 用户跑: startexec "cmd"
+ *     └── 用户跑: startexec "glibc-run winecfg"
  *           └── echo "$*" > /tmp/.exec.fifo
  *             (proot /tmp = host tmpDir, 跟 server 创建的 FIFO 同目录)
  *
+ *   [Android 端 fifo_exec_server 派发]
+ *     └── /system/bin/sh <tmpDir>/glibc-run.sh $cmd
+ *           → box64 wine ...
+ *
  * 关键:
- *   - FIFO 路径 = /tmp/.exec.fifo (proot 内的 /tmp = host tmpDir, --bind 实现)
- *   - fifo server 跑在 proot 内 (跟用户在 termux 的原型一致, sh 派发)
- *   - startexec / glibc-run / fifo_exec_server 都装在 /imagefs/usr/local/bin
- *   - box64+wine 跑在 proot 内, 共享 host /tmp 里的 X11 socket
+ *   - FIFO 路径 = Android 视角 = <tmpDir>/.exec.fifo
+ *   - fifo server 跑在 Android 进程空间 (linboxapp fork)
+ *   - startexec 跑在 proot 内的 xfce4 terminal, 写 FIFO
+ *   - glibc-run 跑在 Android 进程空间 (server 派发), 直接 exec imagefs 里的 box64+wine
+ *   - box64+wine 启动时 TMPDIR=<tmpDir>, 跟 Termux:X11 同 socket 目录
+ *   - box64+wine 跟 Termux:X11 同 uid, 能连上 X server, 窗口能显示
  */
 class Proot {
     private val TAG = "Proot"
@@ -71,8 +74,8 @@ class Proot {
         const val STARTEXEC_ASSET_PATH = "glibc/startexec.sh"
         const val GLIBC_RUN_ASSET_PATH = "glibc/glibc-run.sh"
 
-        /** imagefs 内 FIFO server 的安装路径 (proot 内跑) */
-        const val FIFO_EXEC_SERVER_INSTALLED = "/imagefs/usr/local/bin/fifo_exec_server.sh"
+        /** Android 端 FIFO server 的安装路径 (Android 进程 fork) */
+        const val FIFO_EXEC_SERVER_INSTALLED = "/data/data/a.io.github.ewt45.winemulator/cache/tmp/fifo_exec_server.sh"
         const val STARTEXEC_INSTALLED = "/imagefs/usr/local/bin/startexec.sh"
         const val GLIBC_RUN_INSTALLED = "/imagefs/usr/local/bin/glibc-run.sh"
 
@@ -119,12 +122,13 @@ class Proot {
                     // startexec 装到 imagefs (proot 内跑, xfce4 terminal 调用)
                     installAsset(ctx, STARTEXEC_ASSET_PATH,
                         File(imagefs.rootDir, "usr/local/bin/startexec.sh"))
-                    // glibc-run 装到 imagefs (proot 内跑, 被 fifo server 派发)
+                    // glibc-run 装到 imagefs (Android 端跑, 被 fifo server 派发)
                     installAsset(ctx, GLIBC_RUN_ASSET_PATH,
                         File(imagefs.rootDir, "usr/local/bin/glibc-run.sh"))
-                    // fifo_exec_server 装到 imagefs (proot 内跑, start.sh 里启)
+                    // fifo_exec_server 装到 Android 端 tmp (Android 端跑)
+                    // fifo server 由 MainEmuActivity 的 FifoExecServer 启
                     installAsset(ctx, FIFO_EXEC_SERVER_ASSET_PATH,
-                        File(imagefs.rootDir, "usr/local/bin/fifo_exec_server.sh"))
+                        File(tmpdir, "fifo_exec_server.sh"))
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "failed to setup scripts (continuing)", e)
@@ -229,18 +233,11 @@ class Proot {
         sb.appendLine()
         sb.appendLine("# b) chmod imagefs 脚本 (startexec / glibc-run / fifo_exec_server)")
         sb.appendLine("#    imagefs 是 Android 侧文件, proot 内普通用户可能看不到 +x")
-        sb.appendLine("""chmod +x /imagefs/usr/local/bin/startexec.sh /imagefs/usr/local/bin/glibc-run.sh /imagefs/usr/local/bin/fifo_exec_server.sh 2>/dev/null || true""")
+        sb.appendLine("""chmod +x /imagefs/usr/local/bin/startexec.sh /imagefs/usr/local/bin/glibc-run.sh 2>/dev/null || true""")
         sb.appendLine("""export PATH="/imagefs/usr/local/bin:${'$'}PATH"""")
         sb.appendLine()
-        // c) 启 fifo_exec_server (后台), 跟 termux 脚本里 . fifo_exec_server & 一致
-        //    它会创建 /tmp/.exec.fifo + /tmp/.exec-lock, 监听 FIFO
-        //    proot 内 xfce4 terminal 跑 startexec 就能通过 FIFO 让 server 派发
-        sb.appendLine("# c) fifo exec server (创建 FIFO + lock, 监听, 派发到 glibc-run)")
-        sb.appendLine("""if [ -x /imagefs/usr/local/bin/fifo_exec_server.sh ]; then""")
-        sb.appendLine("""    /imagefs/usr/local/bin/fifo_exec_server.sh >/dev/null 2>&1 &""")
-        sb.appendLine("""fi""")
-        sb.appendLine()
-        // d) 用户的 startup cmd (默认 "linbox" 启 xfce4)
+        // c) 用户的 startup cmd (默认 "linbox" 启 xfce4)
+        //    注意: fifo_exec_server 是 Android 端跑的, 不在 proot 内启
         val startupCmd = Consts.Pref.proot_startup_cmd.get().trim()
         if (startupCmd.isNotEmpty()) {
             sb.appendLine("# d) user startup cmd: $startupCmd")

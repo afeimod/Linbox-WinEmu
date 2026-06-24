@@ -5,8 +5,7 @@
 # 把命令行写到 FIFO, 让 fifo_exec_server 派发执行 glibc-run。
 #
 # 关键 (用户原话):
-#   "在 proot 桌面里定义 FIFO 管道路径也就是 startexec,
-#    将命令参数拼接后写入 FIFO"
+#   "在 proot 里使用 startexec 定义 FIFO 管道路径和将命令参数拼接后写入 FIFO"
 #   "echo "$*" > "$FIFO""
 #
 # FIFO 路径 = proot 内 /tmp = host tmpDir
