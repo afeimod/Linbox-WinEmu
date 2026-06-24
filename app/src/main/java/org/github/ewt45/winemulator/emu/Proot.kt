@@ -19,36 +19,40 @@ import java.io.File
 import java.nio.charset.StandardCharsets
 
 /**
- * 连接 linux 的终端。v5.2 架构: **保留 v3 shell + 后台 fifo server**
+ * 连接 linux 的终端。v5.4 架构: **Android 跑 fifo server, proot 内启 xfce4**
  *
- * 用户原话: "安卓启动 proot 的桌面 linbox, 然后进行 fifo 的建立,
- *         而在 proot 的终端里启动 startexec 进行 fifo 管道通讯
- *         进行可以运行 glibc 的 imagefs 里的 box64 wine"
+ * 用户原话 (v5.4 最终版):
+ *   "fifo_exec_server 是安卓进行创建 FIFO 管道和锁文件的也可以说是发送 FIFO 服务"
+ *   "proot 终端里利用 startexec 进行定义 FIFO 管道路径
+ *    (安卓发的 fifo 的 tmp 路径而不是 proot 内部 tmp)"
+ *   "fifo_exec_server 是安卓进行创建 FIFO 管道和锁文件的"
  *
- * 关键修正 (v5 → v5.2):
- *   v5 把 fifo server 替换掉 shell, 导致 xfce4 桌面没了
- *   v5.2 保留 shell 模式 (v3 风格), fifo server 跟 xfce4 一起跑
- *   v5.1 用了复杂 start.sh, v5.2 简化
- *
- * 架构 (跟 mobox 一致, 但 linbox 没 termux):
+ * 架构:
  *   [Android linbox 进程]
- *     └── 启 proot (自带的静态 proot 二进制, --bind=Consts.tmpDir:/tmp)
- *   [外层 proot (linbox rootfs, busybox/ash 系, Debian-ish)]
- *     ├── 启 login shell
- *     │     ├── shell 启动 xfce4 桌面 (用户 "linbox" alias 启 startxfce4)
- *     │     └── xfce4 桌面的 terminal 是外层 proot 内的 sh
- *     │           └── 用户跑 "startexec X" 写一行到 .exec.fifo
- *     └── [fifo server 后台跑] 装到 imagefs, shell 启动时调
- *           └── 派发: 外层 proot 内 sh -c "X" &
- *             X 形如 "/imagefs/usr/bin/box64 /imagefs/opt/wine/bin/wine foo.exe"
- *             box64 启动 wine 时, wine 的 linterp 指向
- *             /imagefs/usr/lib/ld-linux-aarch64.so.1 (glibc loader),
- *             进入 glibc env 跑 wine 的 .so 库
+ *     ├── 启 proot (自带的静态 proot 二进制)
+ *     │     - --bind=Consts.tmpDir:/tmp     (让 proot 内的 /tmp = host tmp)
+ *     │     - --bind=imagefs:/imagefs       (让 proot 内的 /imagefs 可见)
+ *     │     - 启 login shell, shell 跑 start.sh:
+ *     │           - 启 xfce4 桌面 (linbox alias 启 startxfce4)
+ *     │           - xfce4 桌面起来了, 用户可以从 xfce4 terminal 跑命令
+ *     └── fork fifo_exec_server.sh (Android 视角, 用 /system/bin/sh)
+ *           - 创建 Consts.tmpDir/.exec.fifo (Android 视角)
+ *           - 创建 Consts.tmpDir/.exec-lock
+ *           - 监听 FIFO, 收到命令 sh -c 派发
+ *           - 派发时, 命令如果是 "proot --bind=imagefs:/imagefs ... -- /imagefs/glibc-run.sh ..."
+ *             这种包装, 就会启新 proot 跑 box64+wine
  *
- * 调用方:
- *   - Android 进程: GlibcProgramLauncher.runInProot() 写 .exec.fifo
- *   - proot 内的 shell: 用户跑 "startexec 'X'" 写 .exec.fifo
- *   - 两条入口到同一个外层 proot 内的 fifo server
+ *   [proot 内 xfce4 桌面 terminal]
+ *     └── 用户跑: startexec "cmd"
+ *           - startexec 用 Android 视角的 tmp 绝对路径写 FIFO
+ *           - 不是 proot 内部的 /tmp, 是 host 的 Consts.tmpDir
+ *             (虽然 proot --bind 让两者是同一个文件, 但 startexec 显式用 Android 路径)
+ *
+ * 关键:
+ *   - FIFO 路径 = Android 视角 = /data/data/.../cache/tmp/.exec.fifo
+ *   - fifo server 跑在 Android 进程空间
+ *   - startexec 跑在 proot 内的 xfce4 terminal
+ *   - 派发执行: cmd 在 Android 进程空间 sh -c 跑, 通常 cmd 包含 proot 包装
  */
 class Proot {
     private val TAG = "Proot"
@@ -58,28 +62,30 @@ class Proot {
         var lastTimeCmd = ""
 
         /**
-         * Asset 路径: FIFO server 脚本 (装到 imagefs 后通过 bind mount 在 proot 内可见)
-         * 同样 startexec.sh 也装到 imagefs 里
+         * Asset 路径
          */
         const val FIFO_EXEC_SERVER_ASSET_PATH = "glibc/fifo_exec_server.sh"
         const val STARTEXEC_ASSET_PATH = "glibc/startexec.sh"
+        const val GLIBC_RUN_ASSET_PATH = "glibc/glibc-run.sh"
 
-        /** imagefs 内 FIFO server 的安装路径 (proot 内绝对路径) */
-        const val FIFO_EXEC_SERVER_INSTALLED = "/imagefs/usr/local/bin/fifo_exec_server.sh"
-
-        /** imagefs 内 startexec 的安装路径 (proot 内绝对路径) */
+        /** imagefs 内 FIFO server 的安装路径 (Android 端用, 不在 proot 内跑) */
+        const val FIFO_EXEC_SERVER_INSTALLED = "/data/data/a.io.github.ewt45.winemulator/cache/tmp/fifo_exec_server.sh"
         const val STARTEXEC_INSTALLED = "/imagefs/usr/local/bin/startexec.sh"
+        const val GLIBC_RUN_INSTALLED = "/imagefs/usr/local/bin/glibc-run.sh"
 
-        /** imagefs bind mount 名 (跟 --bind 配合) */
+        /** imagefs bind mount 名 */
         const val IMAGEFS_BIND_NAME = "/imagefs"
+
+        /** Android 端 tmp 路径, FIFO 用 */
+        const val LINBOX_TMP = "/data/data/a.io.github.ewt45.winemulator/cache/tmp"
     }
 
-    /** 无 context 版本 (向后兼容原 API)。不会启动 FIFO server。 */
+    /** 无 context 版本 (向后兼容原 API) */
     suspend fun attach(): ProcessBuilder = withContext(Dispatchers.IO) {
         return@withContext attachInternal(null)
     }
 
-    /** 带 context 版本。**推荐使用** —— 装 fifo server 脚本到 imagefs。 */
+    /** 带 context 版本。**推荐使用** —— 装 sh 脚本到 imagefs + 启 xfce4 桌面 */
     suspend fun attach(ctx: Context): ProcessBuilder = withContext(Dispatchers.IO) {
         return@withContext attachInternal(ctx)
     }
@@ -97,9 +103,7 @@ class Proot {
         val userInfo = ProotRootfs.getPreferredUser(rootfs.canonicalFile.name)
 
         // ============================================================
-        // 1) 把 FIFO server + startexec 装到 imagefs (从 assets 复制)
-        //    imagefs 在 proot 内被 bind 到 /imagefs, 两个脚本在
-        //    proot shell 启动后能直接 exec。
+        // 1) 装 sh 脚本到 imagefs
         // ============================================================
         var imagefs: ImageFs? = null
         if (ctx != null) {
@@ -109,18 +113,23 @@ class Proot {
                     Log.w(TAG, "imagefs not ready: $err")
                 } else {
                     imagefs = ImageFs.find(ctx)
-                    installFifoScripts(ctx, imagefs)
+                    // startexec 装到 imagefs (proot 内跑)
+                    installAsset(ctx, STARTEXEC_ASSET_PATH,
+                        File(imagefs.rootDir, "usr/local/bin/startexec.sh"))
+                    // glibc-run 装到 imagefs (proot 内跑, 被 fifo server 派发)
+                    installAsset(ctx, GLIBC_RUN_ASSET_PATH,
+                        File(imagefs.rootDir, "usr/local/bin/glibc-run.sh"))
+                    // fifo_exec_server 装到 Android 端 tmp (Android 端跑)
+                    installAsset(ctx, FIFO_EXEC_SERVER_ASSET_PATH,
+                        File(tmpdir, "fifo_exec_server.sh"))
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "failed to setup imagefs (continuing without FIFO server)", e)
+                Log.e(TAG, "failed to setup scripts (continuing)", e)
             }
         }
 
         // ============================================================
         // 2) 组装 proot 命令
-        //    关键: proot 启 login shell (v3 模式), shell 启动时
-        //    用户的 startup cmd (例如 "linbox") 启 xfce4
-        //    fifo server 在 start.sh 里后台启 (跟 startxfce4 平行)
         // ============================================================
         val prootCmd = mutableListOf(
             Consts.prootBin.absolutePath,
@@ -129,7 +138,7 @@ class Proot {
             "--rootfs=${rootfs.absolutePath}",
             "--change-id=${userInfo.uid}:${userInfo.gid}",
             "--cwd=${userInfo.home}",
-            // /tmp = host 的 Consts.tmpDir, 内含 FIFO + X11 socket
+            // /tmp = host 的 Consts.tmpDir (内含 X11 socket)
             "--bind=${tmpdir.absolutePath}:/tmp",
             "--bind=${rootfs.absolutePath}/tmp:/dev/shm",
             "--bind=/sys",
@@ -139,7 +148,6 @@ class Proot {
             "--bind=/dev",
         )
 
-        // 标准 fd 绑定
         File("/dev/stderr").takeIf { !it.exists() }?.let {
             prootCmd.add("--bind=/proc/self/fd/2:/dev/stderr")
         }
@@ -168,64 +176,53 @@ class Proot {
             "--bind=$bindPath"
         })
 
-        // imagefs bind (关键! 让外层 proot 内 /imagefs 可见)
+        // imagefs bind
         if (imagefs != null) {
             prootCmd.add("--bind=${imagefs.rootDir.absolutePath}:${IMAGEFS_BIND_NAME}")
-            Log.i(TAG, "imagefs bound at ${IMAGEFS_BIND_NAME} (rootDir=${imagefs.rootDir.absolutePath})")
+            Log.i(TAG, "imagefs bound at ${IMAGEFS_BIND_NAME}")
         }
 
         // ============================================================
-        // 3) env
+        // 3) env (注入到 proot 内的 shell)
         // ============================================================
         val loginEnvs = EnvMap()
         readEtcEnvironment(rootfs, loginEnvs)
         loginEnvs.put("LANG", lang, true)
         loginEnvs.put("HOME", userInfo.home, true)
         loginEnvs.put("USER", userInfo.name, true)
-        // TMPDIR/XDG_RUNTIME_DIR 都指向 proot 内 /tmp = host tmpdir
         loginEnvs.put("XDG_RUNTIME_DIR", "/tmp", true)
         loginEnvs.put("TMPDIR", "/tmp", true)
         loginEnvs.put("DISPLAY", ":13", true)
         loginEnvs.put("PULSE_SERVER", "tcp:127.0.0.1:4713", true)
-        // box64 preset
         try {
             val preset = org.github.ewt45.winemulator.Consts.Pref.box64_preset.get()
             loginEnvs.put("LINBOX_GLIBC_PRESET", preset, true)
         } catch (_: Exception) {
             loginEnvs.put("LINBOX_GLIBC_PRESET", "compatibility", true)
         }
-        // PATH: 加 imagefs bin 目录 (让 box64/wine 在 PATH 里能找到)
+        // PATH 加 imagefs bin 目录
         loginEnvs.put("PATH",
                 "/imagefs/usr/local/bin:/imagefs/usr/bin:/imagefs/opt/wine/bin:" +
                 "/usr/local/bin:/usr/local/sbin:/usr/bin:/usr/sbin:/bin:/sbin", true)
 
         // ============================================================
-        // 4) 写 start.sh (proot shell 启动时跑)
-        //    内容:
-        //      a) locale-gen + LANG
-        //      b) [imagefs 装好] 后台启 fifo server
-        //      c) 用户的 startup cmd (默认 "linbox" 启 xfce4)
+        // 4) 写 start.sh
+        //    shell 启时跑: locale + 用户的 startup cmd ("linbox" 启 xfce4)
+        //    (注意: fifo server 已经在 Android 端跑了, 不在 start.sh 里)
         // ============================================================
         val startScript = Consts.rootfsCurrStartSh
         val sb = StringBuilder()
         sb.appendLine("#!/bin/sh")
-        sb.appendLine("# auto-generated by Proot.kt (v5.2) — proot shell startup")
+        sb.appendLine("# auto-generated by Proot.kt (v5.4) — proot shell startup")
         sb.appendLine()
         sb.appendLine("# a) locale")
         sb.appendLine("""if ! locale -a | grep -qi "zh_CN"; then locale-gen zh_CN.utf8; fi""")
         sb.appendLine("""export LANG=zh_CN.utf8""")
         sb.appendLine()
-        if (imagefs != null) {
-            sb.appendLine("# b) 后台启 fifo server (让 Android 端能通过 FIFO 派发 box64+wine)")
-            sb.appendLine("if [ -x \"$FIFO_EXEC_SERVER_INSTALLED\" ]; then")
-            sb.appendLine("    \"$FIFO_EXEC_SERVER_INSTALLED\" &")
-            sb.appendLine("fi")
-            sb.appendLine()
-        }
-        // c) startup cmd (默认 "linbox" 启 xfce4)
+        // b) 用户的 startup cmd (默认 "linbox" 启 xfce4)
         val startupCmd = Consts.Pref.proot_startup_cmd.get().trim()
         if (startupCmd.isNotEmpty()) {
-            sb.appendLine("# c) user startup cmd: $startupCmd")
+            sb.appendLine("# b) user startup cmd: $startupCmd")
             sb.appendLine(startupCmd)
             sb.appendLine()
         }
@@ -239,22 +236,17 @@ class Proot {
         }
 
         // ============================================================
-        // 5) proot 启 login shell, shell 启时跑 start.sh
-        //    shell 跑 start.sh 后 exec 替换成 user login shell,
-        //    user login shell 接管 stdin/stdout
+        // 5) proot 启 shell, shell 跑 start.sh
         // ============================================================
         val finalCmd = mutableListOf<String>()
         finalCmd.addAll(prootCmd)
         val startScriptProotPath = "/" + startScript.absolutePath.removePrefix(rootfs.absolutePath)
-        // 在 start.sh 末尾追加 exec 接管: proot 启的 shell 跑 start.sh,
-        // start.sh 跑完启 fifo + startup cmd 后, exec bash -l 接管
-        // (user 看到的 prompt 是 bash -l 的, 不是 start.sh 用的 sh)
-        val startScriptFinalShellCmd = "sh $startScriptProotPath; exec ${userInfo.shell} -l"
+        val shellCmd = "sh $startScriptProotPath; exec ${userInfo.shell} -l"
         finalCmd.addAll(listOf(
             "/usr/bin/env",
             "-i",
             *loginEnvs.toArray(),
-            userInfo.shell, "-l", "-c", startScriptFinalShellCmd,
+            userInfo.shell, "-l", "-c", shellCmd,
         ))
 
         lastTimeCmd = "sh -c \\\n" + finalCmd.joinToString(" \\\n")
@@ -269,17 +261,6 @@ class Proot {
             .redirectErrorStream(true)
 
         return processBuilder
-    }
-
-    /**
-     * 把 FIFO server 脚本 + startexec 脚本从 APK assets 写到 imagefs。
-     * 只在文件内容变化时才重写。
-     */
-    private fun installFifoScripts(ctx: Context, imagefs: ImageFs) {
-        installAsset(ctx, FIFO_EXEC_SERVER_ASSET_PATH,
-            File(imagefs.rootDir, "usr/local/bin/fifo_exec_server.sh"))
-        installAsset(ctx, STARTEXEC_ASSET_PATH,
-            File(imagefs.rootDir, "usr/local/bin/startexec.sh"))
     }
 
     private fun installAsset(ctx: Context, assetPath: String, target: File) {
@@ -339,9 +320,6 @@ class Proot {
 
     /**
      * 如果[bindTo]无法读取的话. 绑定 File(rootfsCurrDir, [bindFrom]):filePath.
-     * @param bindTo 安卓上的绝对路径. 如果该文件不可读，则作为 proot 绑定到的 rootfs 目标路径
-     * @param bindFrom rootfs 中某个文件的安卓绝对路径
-     * @return --bind 的字符串，未绑定时返回 null
      */
     private fun bindIfNotReadable(rootfs: File, bindFrom: String, bindTo: String): String? {
         return File(bindTo).takeIfCantRead()?.let { "--bind=${File(rootfs, bindFrom).absolutePath}:$bindTo" }
@@ -351,9 +329,6 @@ class Proot {
 class EnvMap {
     val map = mutableMapOf<String, String>()
 
-    /**
-     * 新增/更改环境变量。将 value 放在现有 value 之前。如果 override 为 true 则替换现有 value
-     */
     fun put(k: String, v: String, override: Boolean = false) {
         val k1 = k.trim()
         val v1 = v.trim()
@@ -364,6 +339,5 @@ class EnvMap {
 
     fun get(k: String): String = map.getOrDefault(k, "")
 
-    /** 返回一个数组，包含当前所有环境变量，每个元素是 字符串 k=v */
     fun toArray(): Array<String> = map.toList().map { "${it.first}=${it.second}" }.toTypedArray()
 }
