@@ -203,12 +203,15 @@ export WINEESYNC=1
 export WINEFSYNC=0
 
 # ============================================================
-# 10) sysvshm (用 imagefs 自己的 tmp, 跟 FIFO 无关)
+# 10) sysvshm (Android 进程跑, 库路径必须绝对路径)
 # ============================================================
 SYSVSHM_LIB="$IMAGEFS/usr/lib/aarch64-linux-gnu/libandroid-sysvshm.so"
 if [ -f "$SYSVSHM_LIB" ]; then
-    export LD_PRELOAD="libandroid-sysvshm.so"
-    export ANDROID_SYSVSHM_SERVER="$IMAGEFS/tmp/.sysvshm/SM0"
+    # 用绝对路径, 因为 Android LD 不会自己找 /imagefs/usr/lib/...
+    export LD_PRELOAD="$SYSVSHM_LIB"
+    # sm server 路径用 linboxapp 的 tmp (Android 进程能直接创建)
+    export ANDROID_SYSVSHM_SERVER="$LINBOX_TMP/.sysvshm/SM0"
+    mkdir -p "$LINBOX_TMP/.sysvshm" 2>/dev/null || true
 fi
 
 # ============================================================
@@ -228,6 +231,9 @@ export PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:$IMAG
 export BOX64_PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:$IMAGEFS/bin"
 
 echo "glibc-run: DISPLAY=$DISPLAY TMPDIR=$TMPDIR PRESET=$PRESET" >&2
+
+# chdir 到 imagefs 根, 让 box64/wine 找 dll/资源时用相对路径能对上
+cd "$IMAGEFS" || cd /
 
 # ============================================================
 # 14) 解析参数, exec box64

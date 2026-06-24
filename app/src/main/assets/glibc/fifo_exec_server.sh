@@ -96,10 +96,12 @@ while [ -e "$LOCK" ]; do
     #
     # 后台跑 (&): wine 本身是常驻进程, 派发后立刻回来读下一条命令
     # stdin 重定向避免 wine 等交互阻塞 FIFO
+    # stdout+stderr 写 log 文件 (不是 /dev/null!), 调试时 adb pull 来看
     if [ -x "$GLIBC_RUN" ]; then
         # 替换 cmd 开头的 "glibc-run" 为绝对路径
         resolved_cmd="$(echo "$cmd" | sed 's|^glibc-run |/system/bin/sh '"$GLIBC_RUN"' |' | sed 's|^glibc-run$|/system/bin/sh '"$GLIBC_RUN"'|')"
-        eval "$resolved_cmd" </dev/null >/dev/null 2>&1 &
+        echo "fifo_exec_server: resolved_cmd=[$resolved_cmd]" >&2
+        eval "$resolved_cmd" </dev/null >>"$LOG" 2>&1 &
     else
         echo "fifo_exec_server: glibc-run 找不到: $GLIBC_RUN" >&2
     fi
