@@ -230,7 +230,7 @@ class Proot {
         sb.appendLine("# b) chmod imagefs 脚本 (startexec / glibc-run / fifo_exec_server)")
         sb.appendLine("#    imagefs 是 Android 侧文件, proot 内普通用户可能看不到 +x")
         sb.appendLine("""chmod +x /imagefs/usr/local/bin/startexec.sh /imagefs/usr/local/bin/glibc-run.sh /imagefs/usr/local/bin/fifo_exec_server.sh 2>/dev/null || true""")
-        sb.appendLine("""export PATH="/imagefs/usr/local/bin:$PATH"""")
+        sb.appendLine("""export PATH="/imagefs/usr/local/bin:${'$'}PATH"""")
         sb.appendLine()
         // c) 启 fifo_exec_server (后台), 跟 termux 脚本里 . fifo_exec_server & 一致
         //    它会创建 /tmp/.exec.fifo + /tmp/.exec-lock, 监听 FIFO
