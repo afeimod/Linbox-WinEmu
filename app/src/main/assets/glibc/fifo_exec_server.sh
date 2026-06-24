@@ -1,7 +1,7 @@
 #!/system/bin/sh
 # fifo_exec_server.sh
 #
-# Android 端跑的 FIFO server (mobox 风格)。
+# Android 端跑的 FIFO server (mobox 风格, 跟用户在 termux 的原型一致)。
 # 由 linboxapp (Android 进程) fork /system/bin/sh 跑这个脚本。
 #
 # 关键架构 (用户原话):
@@ -20,13 +20,11 @@
 #   所以 fifo server 必须跑在 Android 进程空间,
 #   派发时直接 fork /system/bin/sh 跑 imagefs 里的 glibc-run.sh。
 #
-# 防死锁关键点:
-#   1. server 只在需要 read 时临时打开 FIFO,读完立即关闭。
-#      这样 wineserver 等孙子进程不会继承 FIFO fd,不会导致
-#      "永远有写者 → server read 永不返回" 的死锁。
-#   2. 派发子进程用 setsid 脱离 server 进程组,避免被 server 的
-#      signal 影响。
-#   3. 派发时显式 close server 的所有 fd (>&- 关闭所有 fd 的写端)。
+# 防死锁关键 (v6):
+#   server 用 exec 3<>"$FIFO" 持有读写端, 这样 read 不会因没人写而 EOF。
+#   派发时, subshell 继承 fd 3, 但 subshell 不需要写 FIFO,
+#   用 exec 3<&- 关闭 subshell 的 fd 3, 这样 box64+wine 子进程继承
+#   不到 FIFO fd, 不会因 wineserver 持有写端导致 server read 死锁。
 #
 # 角色分工:
 #   [Android linbox 进程]
@@ -34,9 +32,8 @@
 #           ├── 创建 /data/data/.../cache/tmp/.exec.fifo
 #           ├── 创建 /data/data/.../cache/tmp/.exec-lock
 #           └── while [ -e LOCK ]; do
-#                 临时打开 FIFO 读一行 cmd
-#                 关闭 FIFO fd (避免泄漏给子进程)
-#                 后台派发: /system/bin/sh $GLIBC_RUN $cmd
+#                 read cmd <&3
+#                 派发: fork sh (subshell 内 close fd 3) 跑 glibc-run.sh
 #               done
 
 # ============================================================
@@ -62,72 +59,63 @@ touch "$LOCK" || { echo "fifo_exec_server: 无法创建 $LOCK" >&2; exit 1; }
 echo "[$(date +%H:%M:%S 2>/dev/null || echo unknown)] server started pid=$$" > "$LOG"
 echo "fifo_exec_server: 启动 pid=$$ FIFO=$FIFO" >&2
 
+# FIFO 保持读写 (read 不会因没人写而 EOF)
+exec 3<>"$FIFO"
+
 # ============================================================
 # 主循环: 锁文件存在就一直跑
 #
-# 防死锁核心:
-#   - 每次 read 前临时打开 FIFO,读完后立即关闭 fd
-#   - 这样 wine 子进程 fork 时不会继承 FIFO fd
-#   - 子进程死掉时,wineserver 等也不会"永远持有 FIFO"
+# 防死锁核心 (v6):
+#   - server 持有 fd 3 (读写), 保证 read 不会 EOF
+#   - 派发 subshell 时, 在 subshell 内 exec 3<&- 关闭 fd 3
+#     (这样 subshell fork 的 box64/wine 子进程继承不到 FIFO fd,
+#      wineserver 不会持有 FIFO 写端, server 的 read 不会卡死)
+#   - 注意: 0/1/2 不能关 (subshell 需要 stdout/stderr 写 log, stdin 从 <dev/null 喂)
 # ============================================================
 while [ -e "$LOCK" ]; do
-    # 临时打开 FIFO (只读),读一行,关闭
-    # read 阻塞等 startexec 写一行
     cmd=""
-    if read -r cmd < "$FIFO"; then
-        # 读成功,关闭 fd (read 已经读完,fd 在 if 块结束自动关,
-        # 但保险起见显式关一下,避免在子进程继承)
-        :
-
-        # 跳过空行
-        if [ -z "$cmd" ]; then
+    read -r cmd <&3 || {
+        # EOF: FIFO 没人写或被关。重建 FIFO, 继续。
+        exec 3<&- 2>/dev/null || true
+        rm -f "$FIFO" 2>/dev/null || true
+        mkfifo "$FIFO" 2>/dev/null || {
+            sleep 0.1
             continue
-        fi
+        }
+        chmod 0666 "$FIFO" 2>/dev/null || true
+        exec 3<>"$FIFO"
+        continue
+    }
 
-        ts="$(date +%H:%M:%S 2>/dev/null || echo unknown)"
-        echo "[$ts] exec: $cmd" >> "$LOG"
-        echo "fifo_exec_server: 派发 cmd=[$cmd]" >&2
+    # 跳过空行
+    [ -z "$cmd" ] && continue
 
-        # 派发: Android 进程直接 fork /system/bin/sh 跑 glibc-run
-        #
-        # 替换 cmd 开头的 "glibc-run" 为绝对路径
-        if [ -x "$GLIBC_RUN" ]; then
-            resolved_cmd="$(echo "$cmd" | sed 's|^glibc-run |/system/bin/sh '"$GLIBC_RUN"' |' | sed 's|^glibc-run$|/system/bin/sh '"$GLIBC_RUN"'|')"
-            echo "fifo_exec_server: resolved_cmd=[$resolved_cmd]" >&2
+    ts="$(date +%H:%M:%S 2>/dev/null || echo unknown)"
+    echo "[$ts] exec: $cmd" >> "$LOG"
+    echo "fifo_exec_server: 派发 cmd=[$cmd]" >&2
 
-            # 关键: 用 setsid + 关闭 server 的所有 fd, 避免 fd 泄漏给 wine 子进程
-            # setsid: 创建新 session, 子进程脱离 server 的 process group
-            # exec 0>&- / 1>&- / 2>&- / 3>&-: 关闭 stdin/stdout/stderr/fd3
-            #
-            # 这里 subshell 已经 return, 但我们要保证后面 eval 后台跑
-            # 的子进程不会继承 server 持有的 fd。Android sh 没有
-            # "exec N<&-" 在 background 子进程的语法, 我们用 () 子 shell
-            # + setsid 来隔离。
-            (
-                # 子 shell 内: 关闭所有 fd (0/1/2 + 可能的 3+)
-                exec 0<&- 1<&- 2<&-
-                # 关 3-9 之间的 fd (server 可能持有的)
-                i=3
-                while [ "$i" -lt 32 ]; do
-                    eval "exec $i<&-" 2>/dev/null || true
-                    i=$((i + 1))
-                done
-                # 现在 exec 派发的命令 (完全脱离 server 的 fd 上下文)
-                exec /system/bin/sh -c "$resolved_cmd"
-            ) </dev/null >>"$LOG" 2>&1 &
-        else
-            echo "fifo_exec_server: glibc-run 找不到: $GLIBC_RUN" >&2
-        fi
+    # 派发: Android 进程直接 fork /system/bin/sh 跑 glibc-run
+    #
+    # 替换 cmd 开头的 "glibc-run" 为绝对路径
+    if [ -x "$GLIBC_RUN" ]; then
+        resolved_cmd="$(echo "$cmd" | sed 's|^glibc-run |/system/bin/sh '"$GLIBC_RUN"' |' | sed 's|^glibc-run$|/system/bin/sh '"$GLIBC_RUN"'|')"
+        echo "fifo_exec_server: resolved_cmd=[$resolved_cmd]" >&2
+
+        # subshell 内 exec 3<&- 关掉 FIFO fd, box64/wine 子进程继承不到
+        # stdin 重定向 <dev/null (避免 wine 等交互阻塞 server)
+        # stdout/stderr 重定向到 LOG (调试可见)
+        # background & (wine 本身常驻, server 立刻读下一条)
+        (
+            exec 3<&-  # 关闭 server 持有的 FIFO fd, 防止 fd 泄漏给 wine 子进程
+            eval "$resolved_cmd"
+        ) </dev/null >>"$LOG" 2>&1 &
     else
-        # read 失败 (EOF / FIFO 被关)
-        # 通常因为 startexec 打开 FIFO 写完 echo 立即关, 触发 EOF
-        # 这是正常的, 重建 FIFO 等下一条命令
-        echo "fifo_exec_server: read EOF, 重建 FIFO" >&2
-        sleep 0.05  # 避免 busy loop
+        echo "fifo_exec_server: glibc-run 找不到: $GLIBC_RUN" >&2
     fi
 done
 
 # 锁文件被删了, server 退出
-echo "fifo_exec_server: lock 被删, 退出" >&2
+exec 3<&- 2>/dev/null || true
 rm -f "$FIFO" "$LOCK" 2>/dev/null || true
+echo "fifo_exec_server: 退出" >&2
 exit 0
