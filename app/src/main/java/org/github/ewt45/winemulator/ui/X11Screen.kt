@@ -66,8 +66,6 @@ fun X11Screen(
         while (true) {
             val newShowControls = prefs.getBoolean("show_touchscreen_controls", false)
             val newProfileId = prefs.getInt(InputControlsFragment.SELECTED_PROFILE_ID, 0)
-            // 虚拟按键 scancode 翻译开关(修方向键 8246)
-            val newUseAndroidKeycode = prefs.getBoolean("virtualKeysUseAndroidKeycode", true)
 
             if (newShowControls != showTouchscreenControls) {
                 Log.d("X11Screen", "showTouchscreenControls changed: $showTouchscreenControls -> $newShowControls")
@@ -77,8 +75,6 @@ fun X11Screen(
                 Log.d("X11Screen", "currentProfileId changed: $currentProfileId -> $newProfileId")
                 currentProfileId = newProfileId
             }
-            // 即时推送给 X11InputSender，下次按虚拟按键就生效
-            x11InputSender.setUseAndroidKeycode(newUseAndroidKeycode)
             delay(300)
         }
     }
@@ -158,9 +154,6 @@ fun X11Screen(
                     }
                     lorieView?.let {
                         x11InputSender.initialize(it)
-                        // 初始化后从 SharedPreferences 读虚拟按键 scancode 翻译开关的当前值,
-                        // 保证用户进 X11 页面时拿到最新设置(不需要重启 X11 session 就能生效)
-                        x11InputSender.refreshUseAndroidKeycodeFromPrefs(ctx)
                         // 在初始化后强制重置鼠标按钮状态，防止首次启动时鼠标卡在按下状态
                         x11InputSender.forceResetMouseButtons()
                         renderData.scale = android.graphics.PointF(1f, 1f)
