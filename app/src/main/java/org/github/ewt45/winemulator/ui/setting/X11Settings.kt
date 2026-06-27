@@ -130,6 +130,12 @@ fun X11Settings(
             enabled = x11State.keepScreenOn,
             onEnabledChange = settingVm::onChangeX11KeepScreenOn
         )
+
+        // 硬件键盘扫描码兼容开关（termux-x11 preference: hardwareKbdScancodesWorkaround）
+        X11HwKbdScancodesWorkaround(
+            enabled = x11State.hwKbdScancodesWorkaround,
+            onEnabledChange = settingVm::onChangeX11HwKbdScancodesWorkaround
+        )
     }
 }
 
@@ -254,6 +260,39 @@ fun X11KeepScreenOn(
 }
 
 /**
+ * 硬件键盘扫描码兼容开关
+ * 对应 termux-x11 preference 的 hardwareKbdScancodesWorkaround
+ *
+ * 关闭(false)时 termux-x11 直接透传虚拟按键的 X11 keycode，避免被错误地当作 Android
+ * scancode 再次映射到 Symbian 扫描码（例如 8246 等错位值），导致方向键失灵。
+ *
+ * 默认 false。
+ */
+@Composable
+fun X11HwKbdScancodesWorkaround(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+) {
+    TitleAndContent(
+        title = "硬件键盘扫描码兼容",
+        subTitle = "对应 termux-x11 preference 的 hardwareKbdScancodesWorkaround。\n" +
+                "关闭时直接透传虚拟按键的 X11 keycode，避免方向键被错误识别为 Symbian 扫描码(如 8246)。\n" +
+                "当前: ${if (enabled) "启用" else "关闭"}（推荐关闭）"
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("启用扫描码兼容")
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChange
+            )
+        }
+    }
+}
+
+/**
  * X11设置预览
  */
 @Composable
@@ -270,5 +309,6 @@ fun X11SettingsPreview() {
         X11ScreenOrientation(screenOrientation, { screenOrientation = it })
         X11DisplayScale(displayScale, { displayScale = it })
         X11KeepScreenOn(keepScreenOn, { keepScreenOn = it })
+        X11HwKbdScancodesWorkaround(false) { _ -> }
     }
 }
