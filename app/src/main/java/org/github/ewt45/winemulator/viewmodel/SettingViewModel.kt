@@ -94,12 +94,10 @@ class SettingViewModel : ViewModel() {
                     // 保持屏幕常亮
                     val keepScreenOn = data[x11_keep_screen_on.key] ?: x11_keep_screen_on.default
                     putBoolean("keepScreenOn", keepScreenOn)
-                    // 虚拟按键方向键修复开关
-                    // DataStore=true  -> 写到 AAR pref "hardwareKbdScancodesWorkaround" = false (修方向键)
-                    // DataStore=false -> 写到 AAR pref "hardwareKbdScancodesWorkaround" = true  (AAR 默认)
+                    // 虚拟按键方向键修复开关(写到 fixDirectionKeys, X11InputSender 直接读)
                     val fixDirection = data[x11_virtual_keys_fix_direction.key] ?: x11_virtual_keys_fix_direction.default
-                    putBoolean("hardwareKbdScancodesWorkaround", !fixDirection)
-                    Log.i(TAG, "syncX11SettingsToSharedPrefs: fixDirectionKeys=$fixDirection -> hardwareKbdScancodesWorkaround=${!fixDirection}")
+                    putBoolean("fixDirectionKeys", fixDirection)
+                    Log.i(TAG, "syncX11SettingsToSharedPrefs: fixDirectionKeys=$fixDirection")
                     
                     // 分辨率: 使用general_resolution保持与原有逻辑一致
                     val resolution = data[general_resolution.key] ?: general_resolution.default
@@ -391,10 +389,11 @@ class SettingViewModel : ViewModel() {
         editDateStoreAsync(x11_keep_screen_on.key, enabled)
     }
     fun onChangeX11VirtualKeysFixDirection(enabled: Boolean) {
-        // 写到 AAR pref "hardwareKbdScancodesWorkaround" = 取反(开=false 修方向键, 关=true AAR 默认)
-        val prefValue = !enabled
-        Log.i(TAG, "onChangeX11VirtualKeysFixDirection: enabled=$enabled -> hardwareKbdScancodesWorkaround=$prefValue")
-        sharedPrefs?.edit()?.putBoolean("hardwareKbdScancodesWorkaround", prefValue)?.apply()
+        // 写到 "fixDirectionKeys" 这个 SharedPreferences key, X11InputSender 直接读它。
+        // 这个 pref 不是 termux-x11 AAR 的 pref, 是 app 自己定义的, 控制 sendEvdevKeyEvent
+        // 是否走 scancode->Android keycode 翻译(修方向键 8246/rtyu)。
+        Log.i(TAG, "onChangeX11VirtualKeysFixDirection: enabled=$enabled -> fixDirectionKeys=$enabled")
+        sharedPrefs?.edit()?.putBoolean("fixDirectionKeys", enabled)?.apply()
         editDateStoreAsync(x11_virtual_keys_fix_direction.key, enabled)
     }
     
