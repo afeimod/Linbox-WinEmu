@@ -111,6 +111,8 @@ object Consts {
         val x11_display_scale by item("x11_display_scale", 100)
         // X11 Settings - 保持屏幕常亮
         val x11_keep_screen_on by item("x11_keep_screen_on", true)
+        // X11 Settings - termux-x11 硬件键盘扫描码兼容开关（false=直接透传虚拟按键的X11 keycode，避免 Symbian 扫描码错位）
+        val x11_hw_kbd_scancodes_workaround by item("x11_hw_kbd_scancodes_workaround", false)
         // X11 Settings - 全屏模式
         val x11_fullscreen by item("x11_fullscreen", true)
         // X11 Settings - 使用刘海屏区域
