@@ -1,11 +1,8 @@
 package org.github.ewt45.winemulator.inputcontrols
 
-import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.KeyEvent
-import androidx.preference.PreferenceManager
 import com.termux.x11.input.InputEventSender
 import com.termux.x11.input.InputStub
 import com.termux.x11.input.RenderData
@@ -51,25 +48,6 @@ class X11InputSender {
     // 保留 InputEventSender 引用, 只用于 resetMouseButtons 之类必须走 wrapper 的
     // 兜底场景; 正式按键/鼠标路径全用 inputStub。
     private var inputEventSender: InputEventSender? = null
-
-    /**
-     * 虚拟按键方向键修复开关。
-     *
-     * termux-x11 [InputStub.sendKeyEvent] 签名是 sendKeyEvent(int scanCode, int keyCode, boolean),
-     * 第二参数必须传 Android KeyEvent.keycode, 但原 [sendEvdevKeyEvent] 第二参数错传了 PC AT
-     * scancode (例如方向键 72 不是合法 Android keycode), native 端 fall back 后方向键被错位解释为
-     * R/T/Y/U 字符。
-     *
-     * - on=true  (默认, 修复): 第二参数用 scancodeToAndroidKeycode 表翻译成 Android keycode,
-     *                     方向键 72/80/75/77 -> 19/20/21/22 (DPAD_UP/DOWN/LEFT/RIGHT), 正确。
-     * - on=false (原行为):   第二参数也传 scancode, 维持 master 原逻辑, 方向键可能 8246/rtyu。
-     *
-     * 由 [SettingViewModel.onChangeX11VirtualKeysFixDirection] 在用户改开关时写到
-     * SharedPreferences, 这里读 SharedPreferences。
-     */
-    @Volatile
-    var fixDirectionKeys: Boolean = true
-        private set
     private val handler = Handler(Looper.getMainLooper())
 
     // RenderData for touch events - needs to be set from LorieView
@@ -134,40 +112,10 @@ class X11InputSender {
         // abc-fix 这里是同步调 xServer.sendKeyEvent, 但 master 之前用的是异步
         // handler.post, 行为一致 (主线程顺序执行); 这里也用 post 避免阻塞触摸事件循环。
         handler.post {
-            // termux-x11 LorieView.sendKeyEvent 签名: sendKeyEvent(int scanCode, int keyCode, boolean keyDown)
-            //   第一参数 scanCode: PC AT Set 1 scancode (Binding.toEvdev() 返回的值)
-            //   第二参数 keyCode:  Android KeyEvent.KEYCODE_* 常量
-            //
-            // 之前 bug: 第二参数也传了 PC AT scancode (例如 72), 但 72 不是合法 Android keycode,
-            //   termux-x11 native 端会 fall back 按 Android keycode=72 处理, 命中某条错位路径。
-            //   方向键 72/80/75/77 对应的 Android keycode 是 19/20/21/22 (DPAD_UP/DOWN/LEFT/RIGHT),
-            //   native 错位处理后被解释成 R/T/Y/U 字符 (印证用户报告的"rtyu")。
-            //
-            // 修法: 第一参数保持 PC AT scancode, 第二参数用 scancodeToAndroidKeycode 表翻成 Android keycode。
-            // 开关 fixDirectionKeys=true 时走翻译(修方向键), false 时维持原行为(可能 8246/rtyu, 用户可选项)。
-            val keyCode = if (fixDirectionKeys) scancodeToAndroidKeycode(scancode) else scancode
-            stub.sendKeyEvent(scancode, keyCode, isDown)
+            // 关键: scancode 同时作 keysym 和 scancode, 跟 abc-fix 一致。
+            // termux-x11 native 端会从 scancode 反查 X11 keysym。
+            stub.sendKeyEvent(scancode, scancode, isDown)
         }
-    }
-
-    /**
-     * 从 SharedPreferences 读 "fixDirectionKeys" 当前值(默认 true)推到 [fixDirectionKeys]。
-     * 由 X11Screen 在 init LorieView 后调一次。
-     */
-    fun refreshFixDirectionKeysFromPrefs(context: Context) {
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val v = prefs.getBoolean("fixDirectionKeys", true)
-        Log.i("X11InputSender", "refreshFixDirectionKeysFromPrefs: $v")
-        fixDirectionKeys = v
-    }
-
-    /**
-     * 由 SettingViewModel.onChangeX11VirtualKeysFixDirection 在用户改开关后即时调,
-     * 下次按虚拟按键就生效, 不需要重启 X11 session。
-     */
-    fun setFixDirectionKeys(enabled: Boolean) {
-        Log.i("X11InputSender", "setFixDirectionKeys: $enabled")
-        fixDirectionKeys = enabled
     }
 
     /**
