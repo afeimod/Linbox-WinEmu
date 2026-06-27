@@ -94,10 +94,14 @@ class SettingViewModel : ViewModel() {
                     // 保持屏幕常亮
                     val keepScreenOn = data[x11_keep_screen_on.key] ?: x11_keep_screen_on.default
                     putBoolean("keepScreenOn", keepScreenOn)
-                    // 虚拟按键方向键修复开关(写到 fixDirectionKeys, X11InputSender 直接读)
+                    // 虚拟按键方向键修复开关
+                    // DataStore 存用户语义(开关 on=修方向键), 写到 termux-x11 AAR pref "hardwareKbdScancodesWorkaround" 时取反:
+                    //   开关 on  -> hardwareKbdScancodesWorkaround = false (修方向键)
+                    //   开关 off -> hardwareKbdScancodesWorkaround = true  (AAR XML 默认值, 方向键可能 8246)
                     val fixDirection = data[x11_virtual_keys_fix_direction.key] ?: x11_virtual_keys_fix_direction.default
-                    putBoolean("fixDirectionKeys", fixDirection)
-                    Log.i(TAG, "syncX11SettingsToSharedPrefs: fixDirectionKeys=$fixDirection")
+                    val prefValue = !fixDirection
+                    putBoolean("hardwareKbdScancodesWorkaround", prefValue)
+                    Log.i(TAG, "syncX11SettingsToSharedPrefs: fixDirectionKeys=$fixDirection -> hardwareKbdScancodesWorkaround=$prefValue")
                     
                     // 分辨率: 使用general_resolution保持与原有逻辑一致
                     val resolution = data[general_resolution.key] ?: general_resolution.default
@@ -389,11 +393,15 @@ class SettingViewModel : ViewModel() {
         editDateStoreAsync(x11_keep_screen_on.key, enabled)
     }
     fun onChangeX11VirtualKeysFixDirection(enabled: Boolean) {
-        // 写到 "fixDirectionKeys" 这个 SharedPreferences key, X11InputSender 直接读它。
-        // 这个 pref 不是 termux-x11 AAR 的 pref, 是 app 自己定义的, 控制 sendEvdevKeyEvent
-        // 是否走 scancode->Android keycode 翻译(修方向键 8246/rtyu)。
-        Log.i(TAG, "onChangeX11VirtualKeysFixDirection: enabled=$enabled -> fixDirectionKeys=$enabled")
-        sharedPrefs?.edit()?.putBoolean("fixDirectionKeys", enabled)?.apply()
+        // 写到 termux-x11 AAR 的 pref "hardwareKbdScancodesWorkaround", 取反:
+        //   enabled=true  (用户开)  -> hardwareKbdScancodesWorkaround = false (修方向键)
+        //   enabled=false (用户关)  -> hardwareKbdScancodesWorkaround = true  (AAR XML 默认)
+        // 这等价于手动执行 termux-x11-preference "hardwareKbdScancodesWorkaround":"false"/"true"。
+        // termux-x11 AAR 注册了 SharedPreferences.OnSharedPreferenceChangeListener,
+        // 任意 pref 变化会自动 reload, 不需要重启 X11 session。
+        val prefValue = !enabled
+        Log.i(TAG, "onChangeX11VirtualKeysFixDirection: enabled=$enabled -> hardwareKbdScancodesWorkaround=$prefValue")
+        sharedPrefs?.edit()?.putBoolean("hardwareKbdScancodesWorkaround", prefValue)?.apply()
         editDateStoreAsync(x11_virtual_keys_fix_direction.key, enabled)
     }
     
