@@ -282,7 +282,7 @@ fun X11HwKbdScancodesWorkaround(
     TitleAndContent(
         title = "修复虚拟按键方向键错位",
         subTitle = "对应 termux-x11 AAR 的 hardwareKbdScancodesWorkaround preference。\n" +
-                "AAR XML 默认值是 true (开启"兼容"模式), 但这个"兼容"模式反而把虚拟按键的方向键" +
+                "AAR XML 默认值是 true (开启兼容模式), 但这个兼容模式反而把虚拟按键的方向键\n" +
                 "错位成 Symbian 扫描码 8246 (方向键失灵)。\n" +
                 "开启本开关会写到 AAR pref = ${if (actualAarValue) "true" else "false"}, 关闭本开关写到 " +
                 "AAR pref = ${if (!actualAarValue) "true" else "false"}。\n" +
