@@ -41,7 +41,6 @@ import org.github.ewt45.winemulator.Consts.Pref.x11_screen_orientation
 import org.github.ewt45.winemulator.Consts.Pref.x11_display_scale
 import org.github.ewt45.winemulator.Consts.Pref.x11_keep_screen_on
 import org.github.ewt45.winemulator.Consts.Pref.x11_hw_kbd_scancodes_workaround
-import org.github.ewt45.winemulator.Consts.Pref.x11_virtual_keys_use_android_keycode
 import org.github.ewt45.winemulator.Consts.Pref.x11_fullscreen
 import org.github.ewt45.winemulator.Consts.Pref.x11_hide_cutout
 import org.github.ewt45.winemulator.Consts.Pref.x11_pip_mode
@@ -95,9 +94,13 @@ class SettingViewModel : ViewModel() {
                     val keepScreenOn = data[x11_keep_screen_on.key] ?: x11_keep_screen_on.default
                     putBoolean("keepScreenOn", keepScreenOn)
                     // 硬件键盘扫描码兼容开关（写入 termux-x11 读取的 SharedPreferences）
-                    val hwKbd = data[x11_hw_kbd_scancodes_workaround.key] ?: x11_hw_kbd_scancodes_workaround.default
-                    putBoolean("hardwareKbdScancodesWorkaround", hwKbd)
-                    Log.i(TAG, "syncX11SettingsToSharedPrefs: hardwareKbdScancodesWorkaround=$hwKbd written to ${prefs.javaClass.name}")
+                    // DataStore 里存的是用户语义"修复方向键错位"（true=修复）, 写到 AAR 的 pref key 时取反:
+                    //   DataStore=true  -> hardwareKbdScancodesWorkaround=false (修方向键)
+                    //   DataStore=false -> hardwareKbdScancodesWorkaround=true  (AAR 默认行为)
+                    val hwKbdFix = data[x11_hw_kbd_scancodes_workaround.key] ?: x11_hw_kbd_scancodes_workaround.default
+                    val hwKbdPref = !hwKbdFix
+                    putBoolean("hardwareKbdScancodesWorkaround", hwKbdPref)
+                    Log.i(TAG, "syncX11SettingsToSharedPrefs: fixDirectionKeys=$hwKbdFix -> hardwareKbdScancodesWorkaround=$hwKbdPref written to ${prefs.javaClass.name}")
                     // 分辨率: 使用general_resolution保持与原有逻辑一致
                     val resolution = data[general_resolution.key] ?: general_resolution.default
                     if (resolution.contains("x")) {
@@ -167,7 +170,6 @@ class SettingViewModel : ViewModel() {
             x11_display_scale.run { pref[key] ?: default },
             x11_keep_screen_on.run { pref[key] ?: default },
             x11_hw_kbd_scancodes_workaround.run { pref[key] ?: default },
-            x11_virtual_keys_use_android_keycode.run { pref[key] ?: default },
             x11_fullscreen.run { pref[key] ?: default },
             x11_hide_cutout.run { pref[key] ?: default },
             x11_pip_mode.run { pref[key] ?: default },
@@ -388,18 +390,14 @@ class SettingViewModel : ViewModel() {
         editDateStoreAsync(x11_keep_screen_on.key, enabled)
     }
     fun onChangeX11HwKbdScancodesWorkaround(enabled: Boolean) {
-        Log.i(TAG, "onChangeX11HwKbdScancodesWorkaround: $enabled")
-        // 直接写入SharedPreferences，确保立即生效
-        sharedPrefs?.edit()?.putBoolean("hardwareKbdScancodesWorkaround", enabled)?.apply()
-        // 同时保存到DataStore
+        // enabled = 用户语义"是否修复方向键错位"
+        // termux-x11 pref `hardwareKbdScancodesWorkaround` 取反:
+        //   enabled=true  -> 写 false (AAR XML 默认 true 会错位, 写 false 修方向键)
+        //   enabled=false -> 写 true  (AAR 默认行为, 方向键可能 8246)
+        val prefValue = !enabled
+        Log.i(TAG, "onChangeX11HwKbdScancodesWorkaround: enabled=$enabled (user semantic) -> hardwareKbdScancodesWorkaround=$prefValue")
+        sharedPrefs?.edit()?.putBoolean("hardwareKbdScancodesWorkaround", prefValue)?.apply()
         editDateStoreAsync(x11_hw_kbd_scancodes_workaround.key, enabled)
-    }
-    fun onChangeX11VirtualKeysUseAndroidKeycode(enabled: Boolean) {
-        Log.i(TAG, "onChangeX11VirtualKeysUseAndroidKeycode: $enabled")
-        // 虚拟按键 scancode 翻译开关写到 SharedPreferences 让 X11InputSender 直接读
-        sharedPrefs?.edit()?.putBoolean("virtualKeysUseAndroidKeycode", enabled)?.apply()
-        // 同时保存到DataStore
-        editDateStoreAsync(x11_virtual_keys_use_android_keycode.key, enabled)
     }
 
     /**
@@ -466,8 +464,8 @@ data class PrefX11(
     val screenOrientation: Int,
     val displayScale: Int,
     val keepScreenOn: Boolean,
+    /** 用户语义: true=修复方向键 8246 错位 (写到 AAR pref 时取反为 hardwareKbdScancodesWorkaround=false) */
     val hwKbdScancodesWorkaround: Boolean,
-    val virtualKeysUseAndroidKeycode: Boolean,
     val fullscreen: Boolean,
     val hideCutout: Boolean,
     val pipMode: Boolean,
@@ -480,7 +478,6 @@ private val PrefX11_DEFAULT = PrefX11(
     x11_display_scale.default,
     x11_keep_screen_on.default,
     x11_hw_kbd_scancodes_workaround.default,
-    x11_virtual_keys_use_android_keycode.default,
     x11_fullscreen.default,
     x11_hide_cutout.default,
     x11_pip_mode.default,
