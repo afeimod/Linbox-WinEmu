@@ -41,6 +41,7 @@ import org.github.ewt45.winemulator.Consts.Pref.x11_screen_orientation
 import org.github.ewt45.winemulator.Consts.Pref.x11_display_scale
 import org.github.ewt45.winemulator.Consts.Pref.x11_keep_screen_on
 import org.github.ewt45.winemulator.Consts.Pref.x11_hw_kbd_scancodes_workaround
+import org.github.ewt45.winemulator.Consts.Pref.x11_virtual_keys_use_android_keycode
 import org.github.ewt45.winemulator.Consts.Pref.x11_fullscreen
 import org.github.ewt45.winemulator.Consts.Pref.x11_hide_cutout
 import org.github.ewt45.winemulator.Consts.Pref.x11_pip_mode
@@ -96,6 +97,7 @@ class SettingViewModel : ViewModel() {
                     // 硬件键盘扫描码兼容开关（写入 termux-x11 读取的 SharedPreferences）
                     val hwKbd = data[x11_hw_kbd_scancodes_workaround.key] ?: x11_hw_kbd_scancodes_workaround.default
                     putBoolean("hardwareKbdScancodesWorkaround", hwKbd)
+                    Log.i(TAG, "syncX11SettingsToSharedPrefs: hardwareKbdScancodesWorkaround=$hwKbd written to ${prefs.javaClass.name}")
                     // 分辨率: 使用general_resolution保持与原有逻辑一致
                     val resolution = data[general_resolution.key] ?: general_resolution.default
                     if (resolution.contains("x")) {
@@ -165,6 +167,7 @@ class SettingViewModel : ViewModel() {
             x11_display_scale.run { pref[key] ?: default },
             x11_keep_screen_on.run { pref[key] ?: default },
             x11_hw_kbd_scancodes_workaround.run { pref[key] ?: default },
+            x11_virtual_keys_use_android_keycode.run { pref[key] ?: default },
             x11_fullscreen.run { pref[key] ?: default },
             x11_hide_cutout.run { pref[key] ?: default },
             x11_pip_mode.run { pref[key] ?: default },
@@ -385,10 +388,18 @@ class SettingViewModel : ViewModel() {
         editDateStoreAsync(x11_keep_screen_on.key, enabled)
     }
     fun onChangeX11HwKbdScancodesWorkaround(enabled: Boolean) {
+        Log.i(TAG, "onChangeX11HwKbdScancodesWorkaround: $enabled")
         // 直接写入SharedPreferences，确保立即生效
         sharedPrefs?.edit()?.putBoolean("hardwareKbdScancodesWorkaround", enabled)?.apply()
         // 同时保存到DataStore
         editDateStoreAsync(x11_hw_kbd_scancodes_workaround.key, enabled)
+    }
+    fun onChangeX11VirtualKeysUseAndroidKeycode(enabled: Boolean) {
+        Log.i(TAG, "onChangeX11VirtualKeysUseAndroidKeycode: $enabled")
+        // 虚拟按键 scancode 翻译开关写到 SharedPreferences 让 X11InputSender 直接读
+        sharedPrefs?.edit()?.putBoolean("virtualKeysUseAndroidKeycode", enabled)?.apply()
+        // 同时保存到DataStore
+        editDateStoreAsync(x11_virtual_keys_use_android_keycode.key, enabled)
     }
 
     /**
@@ -456,6 +467,7 @@ data class PrefX11(
     val displayScale: Int,
     val keepScreenOn: Boolean,
     val hwKbdScancodesWorkaround: Boolean,
+    val virtualKeysUseAndroidKeycode: Boolean,
     val fullscreen: Boolean,
     val hideCutout: Boolean,
     val pipMode: Boolean,
@@ -468,6 +480,7 @@ private val PrefX11_DEFAULT = PrefX11(
     x11_display_scale.default,
     x11_keep_screen_on.default,
     x11_hw_kbd_scancodes_workaround.default,
+    x11_virtual_keys_use_android_keycode.default,
     x11_fullscreen.default,
     x11_hide_cutout.default,
     x11_pip_mode.default,
