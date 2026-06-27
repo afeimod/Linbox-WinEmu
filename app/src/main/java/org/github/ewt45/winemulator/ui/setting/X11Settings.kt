@@ -136,6 +136,12 @@ fun X11Settings(
             enabled = x11State.hwKbdScancodesWorkaround,
             onEnabledChange = settingVm::onChangeX11HwKbdScancodesWorkaround
         )
+
+        // 虚拟按键 scancode → Android keycode 翻译开关（修复方向键 8246 错位）
+        X11VirtualKeysUseAndroidKeycode(
+            enabled = x11State.virtualKeysUseAndroidKeycode,
+            onEnabledChange = settingVm::onChangeX11VirtualKeysUseAndroidKeycode
+        )
     }
 }
 
@@ -293,6 +299,44 @@ fun X11HwKbdScancodesWorkaround(
 }
 
 /**
+ * 虚拟按键 scancode → Android keycode 翻译开关（直接修你移植的虚拟按键 8246 错位）
+ *
+ * 开(true)=X11InputSender.sendEvdevKeyEvent 内部把 PC AT scancode 翻译成 Android
+ * KeyEvent.keycode 字段再传给 termux-x11 native 端, 让 native 端按 keycode 正确反查 X11
+ * keysym(方向键 72/80/75/77 → KEYCODE_DPAD_UP/DOWN/LEFT/RIGHT → XK_Up/Down/Left/Right)。
+ *
+ * 关(false)=维持原行为(scancode 直接当 keycode 灌进去, termux-x11 内部按这个"假 keycode"
+ * 反查 keysym 会命中 XK_KP_Insert 之类的错位值, eka2l1 再把 XK_KP_Insert 映射到 Symbian
+ * 扫描码 8246, 表现为方向键失灵)。
+ *
+ * 默认 true(开启=修方向键错位)。
+ */
+@Composable
+fun X11VirtualKeysUseAndroidKeycode(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+) {
+    TitleAndContent(
+        title = "虚拟按键 scancode 翻译",
+        subTitle = "开启时把虚拟按键的 PC AT scancode 翻译成 Android KeyEvent.keycode 再传给 " +
+                "termux-x11, 修复方向键被错位成 Symbian 扫描码 8246 的问题。\n" +
+                "关闭时维持原透传行为（方向键可能失灵）。\n" +
+                "当前: ${if (enabled) "启用 (推荐)" else "关闭"}"
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("启用 scancode 翻译")
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChange
+            )
+        }
+    }
+}
+
+/**
  * X11设置预览
  */
 @Composable
@@ -310,5 +354,6 @@ fun X11SettingsPreview() {
         X11DisplayScale(displayScale, { displayScale = it })
         X11KeepScreenOn(keepScreenOn, { keepScreenOn = it })
         X11HwKbdScancodesWorkaround(false) { _ -> }
+        X11VirtualKeysUseAndroidKeycode(true) { _ -> }
     }
 }
