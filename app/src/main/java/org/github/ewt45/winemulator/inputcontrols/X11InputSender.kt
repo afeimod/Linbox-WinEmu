@@ -114,11 +114,6 @@ class X11InputSender {
         handler.post {
             // 关键: scancode 同时作 keysym 和 scancode, 跟 abc-fix 一致。
             // termux-x11 native 端会从 scancode 反查 X11 keysym。
-            //
-            // 方向键 8246 错位的修法不在这里 (见 X11Settings 的 hardwareKbdScancodesWorkaround
-            // 开关: 由 SettingViewModel.onChangeX11HwKbdScancodesWorkaround 在 App 启动 / 改设置时
-            // 写到 com.termux.x11 的 SharedPreferences, termux-x11 AAR 内部读这个 key 决定如何
-            // 处理 stub.sendKeyEvent, 跟这条发送路径本身无关)。
             stub.sendKeyEvent(scancode, scancode, isDown)
         }
     }
