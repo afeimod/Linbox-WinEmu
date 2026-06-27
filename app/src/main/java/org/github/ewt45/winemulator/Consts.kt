@@ -111,12 +111,9 @@ object Consts {
         val x11_display_scale by item("x11_display_scale", 100)
         // X11 Settings - 保持屏幕常亮
         val x11_keep_screen_on by item("x11_keep_screen_on", true)
-        // X11 Settings - termux-x11 硬件键盘扫描码兼容开关
-        // 对应 termux-x11 AAR 里的 pref key "hardwareKbdScancodesWorkaround"。
-        // AAR XML 默认值是 true。true 时 native 端会"尝试做兼容"反而把虚拟按键方向键错位成 Symbian 扫描码 8246。
-        // 我们的开关 on=true 写 false (修方向键), on=false 写 true (AAR 默认行为, 方向键可能 8246)。
-        // DataStore 里存的是用户友好的"是否修复方向键错位"语义 (true=修复), 同步到 SharedPreferences 时取反。
-        val x11_hw_kbd_scancodes_workaround by item("x11_hw_kbd_scancodes_workaround", true)
+        // X11 Settings - termux-x11 AAR 虚拟按键方向键修复开关 (对应 pref "hardwareKbdScancodesWorkaround")
+        // 用户语义: true=打开修复(写到 AAR pref=false, 方向键正确); false=关闭(写到 AAR pref=true, AAR 默认行为)
+        val x11_virtual_keys_fix_direction by item("x11_virtual_keys_fix_direction", true)
         // X11 Settings - 全屏模式
         val x11_fullscreen by item("x11_fullscreen", true)
         // X11 Settings - 使用刘海屏区域
