@@ -66,8 +66,6 @@ fun X11Screen(
         while (true) {
             val newShowControls = prefs.getBoolean("show_touchscreen_controls", false)
             val newProfileId = prefs.getInt(InputControlsFragment.SELECTED_PROFILE_ID, 0)
-            // 虚拟按键方向键修复开关(修 8246/rtyu)
-            val newFixDirection = prefs.getBoolean("fixDirectionKeys", true)
 
             if (newShowControls != showTouchscreenControls) {
                 Log.d("X11Screen", "showTouchscreenControls changed: $showTouchscreenControls -> $newShowControls")
@@ -77,8 +75,6 @@ fun X11Screen(
                 Log.d("X11Screen", "currentProfileId changed: $currentProfileId -> $newProfileId")
                 currentProfileId = newProfileId
             }
-            // 即时推送给 X11InputSender, 下次按虚拟按键就生效
-            x11InputSender.setFixDirectionKeys(newFixDirection)
             delay(300)
         }
     }
