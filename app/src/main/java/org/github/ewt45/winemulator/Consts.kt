@@ -113,6 +113,12 @@ object Consts {
         val x11_keep_screen_on by item("x11_keep_screen_on", true)
         // X11 Settings - termux-x11 硬件键盘扫描码兼容开关（false=直接透传虚拟按键的X11 keycode，避免 Symbian 扫描码错位）
         val x11_hw_kbd_scancodes_workaround by item("x11_hw_kbd_scancodes_workaround", false)
+        // X11 Settings - 虚拟按键走 Android KeyEvent keycode 翻译开关
+        // 开=true 时 X11InputSender.sendEvdevKeyEvent 把 PC AT scancode 翻译成 Android KeyEvent.keycode 再传给 termux-x11 native 端,
+        // 让 native 端能正确反查 X11 keysym(避免方向键被错位成 XK_KP_Insert -> Symbian 扫描码 8246);
+        // 关=false 时维持原行为(scancode 直接当 keycode 透传, 可能 8246)。
+        // 默认 true(打开=修方向键错位)。
+        val x11_virtual_keys_use_android_keycode by item("x11_virtual_keys_use_android_keycode", true)
         // X11 Settings - 全屏模式
         val x11_fullscreen by item("x11_fullscreen", true)
         // X11 Settings - 使用刘海屏区域
