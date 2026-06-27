@@ -1,11 +1,8 @@
 package org.github.ewt45.winemulator.inputcontrols
 
-import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.KeyEvent
-import androidx.preference.PreferenceManager
 import com.termux.x11.input.InputEventSender
 import com.termux.x11.input.InputStub
 import com.termux.x11.input.RenderData
@@ -52,21 +49,6 @@ class X11InputSender {
     // 兜底场景; 正式按键/鼠标路径全用 inputStub。
     private var inputEventSender: InputEventSender? = null
     private val handler = Handler(Looper.getMainLooper())
-
-    /**
-     * 虚拟按键 scancode → Android KeyEvent.keycode 翻译开关。
-     *
-     * on=true  (默认): sendEvdevKeyEvent 把 PC AT scancode 查表翻成 Android KeyEvent.keycode,
-     *                 第一个参数传 keycode, 第二个参数传 scancode, 让 termux-x11 native
-     *                 端按 keycode 正确反查 X11 keysym(修方向键 8246 错位)。
-     * on=false:        维持原行为 — scancode 直接当 keycode 灌进去(原 master 写法),
-     *                 termux-x11 内部按这个"假 keycode"反查 keysym 会错位。
-     *
-     * 由 [SettingViewModel.onChangeX11VirtualKeysUseAndroidKeycode] 在用户改开关时调。
-     */
-    @Volatile
-    var useAndroidKeycode: Boolean = true
-        private set
 
     // RenderData for touch events - needs to be set from LorieView
     var renderData: RenderData? = null
@@ -130,42 +112,15 @@ class X11InputSender {
         // abc-fix 这里是同步调 xServer.sendKeyEvent, 但 master 之前用的是异步
         // handler.post, 行为一致 (主线程顺序执行); 这里也用 post 避免阻塞触摸事件循环。
         handler.post {
-            if (useAndroidKeycode) {
-                // 开启翻译: PC AT scancode -> Android KeyEvent.keycode 喂给 native 端。
-                // 这样方向键 72/80/75/77 才能正确反查 X11 keysym (XK_Up/Down/Left/Right),
-                // 而不是被当"假 keycode"错位成 XK_KP_Insert -> Symbian 扫描码 8246。
-                val androidKeycode = scancodeToAndroidKeycode(scancode)
-                if (androidKeycode != 0) {
-                    stub.sendKeyEvent(androidKeycode, scancode, isDown)
-                } else {
-                    // 翻译表里没有这个 scancode, 降级用 scancode 同时作 keycode + scancode 透传
-                    stub.sendKeyEvent(scancode, scancode, isDown)
-                }
-            } else {
-                // 关闭翻译: 维持原 master 行为 — scancode 直接当 keycode 灌进去。
-                stub.sendKeyEvent(scancode, scancode, isDown)
-            }
+            // 关键: scancode 同时作 keysym 和 scancode, 跟 abc-fix 一致。
+            // termux-x11 native 端会从 scancode 反查 X11 keysym。
+            //
+            // 方向键 8246 错位的修法不在这里 (见 X11Settings 的 hardwareKbdScancodesWorkaround
+            // 开关: 由 SettingViewModel.onChangeX11HwKbdScancodesWorkaround 在 App 启动 / 改设置时
+            // 写到 com.termux.x11 的 SharedPreferences, termux-x11 AAR 内部读这个 key 决定如何
+            // 处理 stub.sendKeyEvent, 跟这条发送路径本身无关)。
+            stub.sendKeyEvent(scancode, scancode, isDown)
         }
-    }
-
-    /**
-     * 由 [SettingViewModel.onChangeX11VirtualKeysUseAndroidKeycode] 在用户改开关时调。
-     * @param enabled true=开启 scancode->Android keycode 翻译(修方向键 8246)
-     */
-    fun setUseAndroidKeycode(enabled: Boolean) {
-        Log.i("X11InputSender", "setUseAndroidKeycode: $enabled")
-        useAndroidKeycode = enabled
-    }
-
-    /**
-     * 从 SharedPreferences 读 `virtualKeysUseAndroidKeycode` 的当前值(默认 true)。
-     * 在 [initialize] 时调一次兜底, 这样即使 UI 没调 setter 也能拿到最新值。
-     */
-    fun refreshUseAndroidKeycodeFromPrefs(context: Context) {
-        val prefs = PreferenceManager.getDefaultSharedPreferences(context)
-        val v = prefs.getBoolean("virtualKeysUseAndroidKeycode", true)
-        Log.i("X11InputSender", "refreshUseAndroidKeycodeFromPrefs: $v")
-        useAndroidKeycode = v
     }
 
     /**
