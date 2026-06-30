@@ -710,6 +710,23 @@ class InputControlsView(context: Context?) : View(context) {
         touchpadView?.mouseMove(x, y, action)
     }
 
+    /**
+     * Mouse button binding -> X11InputSender.sendMouseButtonEvent 期望的 Int 编号.
+     * 1=LEFT 2=MIDDLE 3=RIGHT 4=SCROLL_UP 5=SCROLL_DOWN.
+     * 不复用 Binding.getPointerButton() (返回 Pointer.Button?), 那个返回 AAR 里的 enum,
+     * 跟 X11InputSender 内部用的 Int 编号不一定一致; 这里直接映射成 Int 避免出错.
+     */
+    private fun getPointerButtonInt(binding: Binding): Int? {
+        return when (binding) {
+            Binding.MOUSE_LEFT_BUTTON -> 1
+            Binding.MOUSE_MIDDLE_BUTTON -> 2
+            Binding.MOUSE_RIGHT_BUTTON -> 3
+            Binding.MOUSE_SCROLL_UP -> 4
+            Binding.MOUSE_SCROLL_DOWN -> 5
+            else -> null
+        }
+    }
+
     fun handleInputEvent(binding: Binding, isActionDown: Boolean) {
         handleInputEvent(binding, isActionDown, 0f)
     }
@@ -755,6 +772,20 @@ class InputControlsView(context: Context?) : View(context) {
                     0f
                 }
                 if (isActionDown) createMouseMoveTimer()
+            } else if (binding === Binding.MOUSE_LEFT_BUTTON
+                || binding === Binding.MOUSE_MIDDLE_BUTTON
+                || binding === Binding.MOUSE_RIGHT_BUTTON
+                || binding === Binding.MOUSE_SCROLL_UP
+                || binding === Binding.MOUSE_SCROLL_DOWN) {
+                // 鼠标按钮 / 滚轮: 走 InputEventHandler.onPointerButton 路径
+                // 不能走 onKeyEvent, 因为 toEvdev() 对这些 binding 返回 0,
+                // X11InputSender.sendEvdevKeyEvent 会过滤掉. sendMouseButtonEvent 的
+                // button 参数跟下面 getPointerButtonInt() 定义的 Int 编号一致:
+                //   1=LEFT 2=MIDDLE 3=RIGHT 4=SCROLL_UP 5=SCROLL_DOWN.
+                val button = getPointerButtonInt(binding)
+                if (button != null) {
+                    handler.onPointerButton(button, isActionDown)
+                }
             } else {
                 // 键盘按键处理
                 if (isActionDown) {
@@ -785,10 +816,21 @@ class InputControlsView(context: Context?) : View(context) {
      */
     fun updateKeyState(binding: Binding, isActive: Boolean) {
         val handler = inputEventHandler ?: return
-        
+
+        // 鼠标 binding 走 onPointerButton 路径 (跟 handleInputEvent 保持一致)
+        val mouseButton = getPointerButtonInt(binding)
+        if (mouseButton != null) {
+            if (isActive) {
+                handler.onPointerButton(mouseButton, true)
+            } else {
+                handler.onPointerButton(mouseButton, false)
+            }
+            return
+        }
+
         // 获取当前按键的实际状态
         val isCurrentlyPressed = pressedKeys.contains(binding)
-        
+
         // 状态变化时的处理
         if (isActive && !isCurrentlyPressed) {
             // 从释放变为按下
@@ -812,6 +854,12 @@ class InputControlsView(context: Context?) : View(context) {
      */
     fun sendKeyDown(binding: Binding) {
         val handler = inputEventHandler ?: return
+        // 鼠标 binding 走 onPointerButton 路径 (跟 handleInputEvent 保持一致)
+        val mouseButton = getPointerButtonInt(binding)
+        if (mouseButton != null) {
+            handler.onPointerButton(mouseButton, true)
+            return
+        }
         // 发送按下事件
         handler.onKeyEvent(binding.toEvdev(), true)
         // 添加到pressedKeys以启用重复机制
@@ -827,6 +875,12 @@ class InputControlsView(context: Context?) : View(context) {
      */
     fun sendKeyUp(binding: Binding) {
         val handler = inputEventHandler ?: return
+        // 鼠标 binding 走 onPointerButton 路径 (跟 handleInputEvent 保持一致)
+        val mouseButton = getPointerButtonInt(binding)
+        if (mouseButton != null) {
+            handler.onPointerButton(mouseButton, false)
+            return
+        }
         // 发送释放事件
         handler.onKeyEvent(binding.toEvdev(), false)
         // 从pressedKeys移除
@@ -906,14 +960,20 @@ class InputControlsView(context: Context?) : View(context) {
      */
     fun releaseAllPressedKeys() {
         val handler = inputEventHandler ?: return
-        if (pressedKeys.isEmpty()) return
-        // 复制一份再清, 避免迭代过程中修改集合
-        val toRelease = pressedKeys.toList()
-        pressedKeys.clear()
-        stopKeyRepeat()
-        for (binding in toRelease) {
-            // 跟正常释放走同一个出口, 走 InputEventHandler 转发
-            handler.onKeyEvent(binding.toEvdev(), false)
+        // 1. 释放已跟踪的键盘 binding (在 pressedKeys 里的)
+        if (pressedKeys.isNotEmpty()) {
+            val toRelease = pressedKeys.toList()
+            pressedKeys.clear()
+            stopKeyRepeat()
+            for (binding in toRelease) {
+                handler.onKeyEvent(binding.toEvdev(), false)
+            }
+        }
+        // 2. 释放所有鼠标 button (MOUSE_LEFT/MIDDLE/RIGHT), 这些 binding 不进 pressedKeys
+        //    但切后台/切 profile 时候要丢释放事件避免 X server 端永久卡住按下状态.
+        for (binding in arrayOf(Binding.MOUSE_LEFT_BUTTON, Binding.MOUSE_MIDDLE_BUTTON, Binding.MOUSE_RIGHT_BUTTON)) {
+            val button = getPointerButtonInt(binding) ?: continue
+            handler.onPointerButton(button, false)
         }
     }
 
