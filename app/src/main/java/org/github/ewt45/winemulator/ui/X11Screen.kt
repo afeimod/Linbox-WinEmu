@@ -23,6 +23,7 @@ import org.github.ewt45.winemulator.inputcontrols.InputControlsManager
 import org.github.ewt45.winemulator.inputcontrols.InputControlsView
 import org.github.ewt45.winemulator.inputcontrols.X11InputSender
 import org.github.ewt45.winemulator.inputcontrols.InputEventHandler
+import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel
 import kotlinx.coroutines.delay
 
@@ -53,7 +54,23 @@ fun X11Screen(
     val context = LocalContext.current
     val prefs = PreferenceManager.getDefaultSharedPreferences(context)
 
-    val x11InputSender = remember { X11InputSender() }
+    val x11InputSender = remember {
+        X11InputSender().apply {
+            // 从 SharedPreferences 同步读 hardwareKbdScancodesWorkaround 开关 (默认 true).
+            // SettingViewModel.onChangeHardwareKbdScancodesWorkaround 会同步写 SharedPreferences,
+            // syncX11SettingsToSharedPrefs 也会在启动时同步 DataStore → SharedPreferences,
+            // 所以这里同步读 SharedPreferences 拿到的是最新值. 万一没写, Consts.Pref 的 default
+            // 就是 true, 不会拿到错误的 false.
+            try {
+                hardwareKbdScancodesWorkaround = prefs.getBoolean(
+                    Consts.Pref.inputcontrols_hardware_kbd_scancodes_workaround.key.name,
+                    Consts.Pref.inputcontrols_hardware_kbd_scancodes_workaround.default
+                )
+            } catch (t: Throwable) {
+                Log.e("X11Screen", "读取 hardwareKbdScancodesWorkaround pref 失败, 用默认值 true", t)
+            }
+        }
+    }
     val renderData = remember { RenderData() }
     val manager = remember { InputControlsManager(context) }
 
@@ -66,6 +83,11 @@ fun X11Screen(
         while (true) {
             val newShowControls = prefs.getBoolean("show_touchscreen_controls", false)
             val newProfileId = prefs.getInt(InputControlsFragment.SELECTED_PROFILE_ID, 0)
+            // 同步 hardwareKbdScancodesWorkaround pref (设置界面里改了之后能立即生效)
+            val newHwKbdWorkaround = prefs.getBoolean(
+                Consts.Pref.inputcontrols_hardware_kbd_scancodes_workaround.key.name,
+                Consts.Pref.inputcontrols_hardware_kbd_scancodes_workaround.default
+            )
 
             if (newShowControls != showTouchscreenControls) {
                 Log.d("X11Screen", "showTouchscreenControls changed: $showTouchscreenControls -> $newShowControls")
@@ -74,6 +96,10 @@ fun X11Screen(
             if (newProfileId != currentProfileId) {
                 Log.d("X11Screen", "currentProfileId changed: $currentProfileId -> $newProfileId")
                 currentProfileId = newProfileId
+            }
+            if (newHwKbdWorkaround != x11InputSender.hardwareKbdScancodesWorkaround) {
+                Log.d("X11Screen", "hardwareKbdScancodesWorkaround changed: ${x11InputSender.hardwareKbdScancodesWorkaround} -> $newHwKbdWorkaround")
+                x11InputSender.hardwareKbdScancodesWorkaround = newHwKbdWorkaround
             }
             delay(300)
         }
