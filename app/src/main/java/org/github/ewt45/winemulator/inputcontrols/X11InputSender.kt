@@ -50,6 +50,27 @@ class X11InputSender {
     private var inputEventSender: InputEventSender? = null
     private val handler = Handler(Looper.getMainLooper())
 
+    /**
+     * 虚拟按键发送路径开关: 对应 termux-x11 AAR 的 `hardwareKbdScancodesWorkaround` pref.
+     *
+     * - **true (默认)** = 走 Android keycode 路径:
+     *   `stub.sendKeyEvent(0, scancodeToAndroidKeycode(scancode), isDown)`.
+     *   这个跟 Android 输入法 (IME) 发上来的 KeyEvent 在 termux-x11 native 内部走的是
+     *   同一条路径 (preferScancodes=false 时的 keyCode 路径), 让方向键/退格/Enter 等
+     *   能像调用安卓输入法那样在 X11 软件里起作用. 这也是 X11 用户在某些游戏 / 模拟器
+     *   软件里"虚拟按键不能移动但安卓输入法的方向键可以"的根因 — termux-x11 默认
+     *   不读 hardwareKbdScancodesWorkaround 这个 pref, native 路径只看 inputStub
+     *   传进来的两个 int 参数实际代表什么.
+     *
+     * - **false** = 走 PC AT scancode 路径:
+     *   `stub.sendKeyEvent(scancode, scancode, isDown)`. native 端从 scancode 字段
+     *   反查 X11 keysym, 适合某些不认 Android keycode 只认 PC AT scancode 的软件.
+     *
+     * @see <a href="https://github.com/termux/termux-x11/blob/master/app/src/main/java/com/termux/x11/input/InputEventSender.java">InputEventSender.java</a>
+     */
+    @Volatile
+    var hardwareKbdScancodesWorkaround: Boolean = true
+
     // RenderData for touch events - needs to be set from LorieView
     var renderData: RenderData? = null
 
@@ -112,9 +133,25 @@ class X11InputSender {
         // abc-fix 这里是同步调 xServer.sendKeyEvent, 但 master 之前用的是异步
         // handler.post, 行为一致 (主线程顺序执行); 这里也用 post 避免阻塞触摸事件循环。
         handler.post {
-            // 关键: scancode 同时作 keysym 和 scancode, 跟 abc-fix 一致。
-            // termux-x11 native 端会从 scancode 反查 X11 keysym。
-            stub.sendKeyEvent(scancode, scancode, isDown)
+            if (hardwareKbdScancodesWorkaround) {
+                // === Android keycode 路径 (默认, 跟 Android IME 行为一致) ===
+                // 第一参数 (scanCode) 传 0, 第二参数 (keyCode) 传 PC AT scancode 对应的
+                // Android KeyEvent.keycode. termux-x11 native 端会把这个 keycode 当作
+                // 硬件键盘按键事件处理, 跟 Android 输入法输入的方向键走完全相同的 native
+                // 路径, 这样 X11 端的 wine / 模拟器 / 游戏等软件能正确识别方向键.
+                val androidKeycode = scancodeToAndroidKeycode(scancode)
+                if (androidKeycode > 0) {
+                    stub.sendKeyEvent(0, androidKeycode, isDown)
+                } else {
+                    // scancode 表里没有的按键 (极少, 比如某些小键盘组合键), 降级到
+                    // scancode 路径, 跟 false 模式行为一致, 保证按键不丢.
+                    stub.sendKeyEvent(scancode, scancode, isDown)
+                }
+            } else {
+                // === PC AT scancode 路径 (兼容老行为, 某些 X11 软件只认这个) ===
+                // 第一第二参数都传 scancode, native 端从 scancode 字段反查 X11 keysym.
+                stub.sendKeyEvent(scancode, scancode, isDown)
+            }
         }
     }
 
