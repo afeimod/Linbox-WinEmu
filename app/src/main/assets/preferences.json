@@ -1,4 +1,5 @@
 {
   "general_theme_mode": 1,
-  "inputcontrols_enabled": false
+  "inputcontrols_enabled": false,
+  "inputcontrols_hardware_kbd_scancodes_workaround": true
 }
