@@ -192,16 +192,24 @@ class X11InputSender {
 
     /**
      * Send mouse button event
-     * 跟 abc-fix `sendMouseEvent(int x, int y, int button, boolean isDown, boolean isAbsolute)` 一致,
-     * 用 (0, 0, button, isDown, false) 表示纯按钮事件 (无位置变化)。
+     * 跟 abc-fix `sendMouseEvent(int x, int y, int button, boolean isDown, boolean isAbsolute)` 一致。
+     *
+     * **关键: relative=true (最后一个参数) — 不要用 absolute (false)**.
+     *
+     * 绝对坐标模式 (relative=false) 下, (0, 0) 会被 termux-x11 native 端解释为 "屏幕左上角" ——
+     * 按下/释放纯按钮事件会瞬时把光标拽到 (0, 0) 并在该位置点击, 后续 motion 事件在这个错误基准
+     * 上叠加, 看上去就是 "鼠标失灵" / "光标飘到左上角" / "右键点击不到目标".
+     *
+     * termux-x11 自己的 InputEventSender wrapper 处理纯按钮事件时也是 pos=null + relative 透传,
+     * 让 native 端只更新按键状态, 不动光标位置. 这里跟它走完全相同的路径.
      */
     fun sendMouseButtonEvent(button: Int, isDown: Boolean) {
         val stub = inputStub ?: return
         handler.post {
             when (button) {
-                1 -> stub.sendMouseEvent(0f, 0f, com.termux.x11.input.InputStub.BUTTON_LEFT, isDown, false)
-                2 -> stub.sendMouseEvent(0f, 0f, com.termux.x11.input.InputStub.BUTTON_MIDDLE, isDown, false)
-                3 -> stub.sendMouseEvent(0f, 0f, com.termux.x11.input.InputStub.BUTTON_RIGHT, isDown, false)
+                1 -> stub.sendMouseEvent(0f, 0f, com.termux.x11.input.InputStub.BUTTON_LEFT, isDown, true)
+                2 -> stub.sendMouseEvent(0f, 0f, com.termux.x11.input.InputStub.BUTTON_MIDDLE, isDown, true)
+                3 -> stub.sendMouseEvent(0f, 0f, com.termux.x11.input.InputStub.BUTTON_RIGHT, isDown, true)
                 4 -> if (isDown) stub.sendMouseWheelEvent(0f, -1f)  // scroll up
                 5 -> if (isDown) stub.sendMouseWheelEvent(0f, 1f)   // scroll down
             }
