@@ -31,6 +31,7 @@ import org.github.ewt45.winemulator.Consts.Pref.general_rootfs_lang
 import org.github.ewt45.winemulator.Consts.Pref.general_shared_ext_path
 import org.github.ewt45.winemulator.Consts.Pref.inputcontrols_enabled
 import org.github.ewt45.winemulator.Consts.Pref.inputcontrols_haptics
+import org.github.ewt45.winemulator.Consts.Pref.inputcontrols_hardware_kbd_scancodes_workaround
 import org.github.ewt45.winemulator.Consts.Pref.inputcontrols_opacity
 import org.github.ewt45.winemulator.Consts.Pref.inputcontrols_profile_id
 import org.github.ewt45.winemulator.Consts.Pref.proot_bool_options
@@ -92,6 +93,10 @@ class SettingViewModel : ViewModel() {
                     // 保持屏幕常亮
                     val keepScreenOn = data[x11_keep_screen_on.key] ?: x11_keep_screen_on.default
                     putBoolean("keepScreenOn", keepScreenOn)
+                    // hardwareKbdScancodesWorkaround: 同步到 SharedPreferences 供 X11InputSender 读
+                    val hwKbdWorkaround = data[inputcontrols_hardware_kbd_scancodes_workaround.key]
+                        ?: inputcontrols_hardware_kbd_scancodes_workaround.default
+                    putBoolean(inputcontrols_hardware_kbd_scancodes_workaround.key.name, hwKbdWorkaround)
                     // 分辨率: 使用general_resolution保持与原有逻辑一致
                     val resolution = data[general_resolution.key] ?: general_resolution.default
                     if (resolution.contains("x")) {
@@ -164,6 +169,7 @@ class SettingViewModel : ViewModel() {
             x11_hide_cutout.run { pref[key] ?: default },
             x11_pip_mode.run { pref[key] ?: default },
             x11_resolution.run { pref[key] ?: default },
+            inputcontrols_hardware_kbd_scancodes_workaround.run { pref[key] ?: default },
         )
     }
     val x11State = stateInSimple(PrefX11_DEFAULT, x11Flow)
@@ -379,6 +385,20 @@ class SettingViewModel : ViewModel() {
         // 同时保存到DataStore
         editDateStoreAsync(x11_keep_screen_on.key, enabled)
     }
+    /**
+     * 虚拟按键 hardwareKbdScancodesWorkaround 开关
+     * true = 走 Android keycode 路径 (跟安卓输入法行为一致, X11 虚拟方向键起作用)
+     * false = 走 PC AT scancode 路径 (兼容老行为)
+     */
+    fun onChangeHardwareKbdScancodesWorkaround(enabled: Boolean) {
+        // 同步写 SharedPreferences 供 X11InputSender 读 (X11Screen 里轮询)
+        sharedPrefs?.edit()?.putBoolean(
+            inputcontrols_hardware_kbd_scancodes_workaround.key.name,
+            enabled
+        )?.apply()
+        // 同时保存到DataStore让 x11State flow 更新
+        editDateStoreAsync(inputcontrols_hardware_kbd_scancodes_workaround.key, enabled)
+    }
 
     /**
      * 获取当前选择的登录用户名
@@ -448,6 +468,7 @@ data class PrefX11(
     val hideCutout: Boolean,
     val pipMode: Boolean,
     val resolution: String,
+    val hardwareKbdScancodesWorkaround: Boolean,
 )
 
 private val PrefX11_DEFAULT = PrefX11(
@@ -459,6 +480,7 @@ private val PrefX11_DEFAULT = PrefX11(
     x11_hide_cutout.default,
     x11_pip_mode.default,
     x11_resolution.default,
+    inputcontrols_hardware_kbd_scancodes_workaround.default,
 )
 
 /** 顶部操作按钮类型 */
