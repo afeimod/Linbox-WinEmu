@@ -98,6 +98,14 @@ object Consts {
         val inputcontrols_profile_id by item("inputcontrols_profile_id", -1)
         val inputcontrols_opacity by item("inputcontrols_opacity", 0.4f)
         val inputcontrols_haptics by item("inputcontrols_haptics", true)
+        // X11 虚拟按键 — 模拟安卓输入法行为(发送 Android keycode) 而不是 PC AT scancode.
+        // true(默认) = stub.sendKeyEvent(0, androidKeycode, isDown), 跟安卓输入法走同一条
+        //   termux-x11 native 路径, 让方向键等能在 X11 软件里像硬件键盘一样触发.
+        // false = stub.sendKeyEvent(scancode, scancode, isDown), 走纯 X11 scancode 反查 keysym 路径,
+        //   适合某些不认 Android keycode 只认 PC AT scancode 的软件.
+        // 命名沿用 termux-x11 AAR 里的 hardwareKbdScancodesWorkaround (虽然那个 pref 在
+        // termux-x11 native 端没引用, 但用户已经在 AAR 设置里见过这个开关名, 沿用更直观).
+        val inputcontrols_hardware_kbd_scancodes_workaround by item("inputcontrols_hardware_kbd_scancodes_workaround", true)
         
         // Theme Settings
         // 主题偏好: 0 = 跟随系统, 1 = 暗色主题, 2 = 亮色主题
