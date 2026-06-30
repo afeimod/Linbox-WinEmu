@@ -130,6 +130,13 @@ fun X11Settings(
             enabled = x11State.keepScreenOn,
             onEnabledChange = settingVm::onChangeX11KeepScreenOn
         )
+
+        // 虚拟按键发送路径 (hardwareKbdScancodesWorkaround)
+        // 走 Android keycode 路径以让 X11 虚拟方向键能像安卓输入法一样起作用
+        X11HardwareKbdScancodesWorkaround(
+            enabled = x11State.hardwareKbdScancodesWorkaround,
+            onEnabledChange = settingVm::onChangeHardwareKbdScancodesWorkaround
+        )
     }
 }
 
@@ -245,6 +252,37 @@ fun X11KeepScreenOn(
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Text("保持屏幕常亮")
+            Switch(
+                checked = enabled,
+                onCheckedChange = onEnabledChange
+            )
+        }
+    }
+}
+
+/**
+ * 虚拟按键发送路径开关 (hardwareKbdScancodesWorkaround)
+ * 启用 = 走 Android keycode 路径, 跟安卓输入法走同一条 termux-x11 native 路径,
+ *        方向键/退格/Enter 等在 X11 软件里能像调用安卓输入法那样起作用.
+ * 关闭 = 走 PC AT scancode 路径, 适合某些只认 scancode 不认 Android keycode 的软件.
+ */
+@Composable
+fun X11HardwareKbdScancodesWorkaround(
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+) {
+    TitleAndContent(
+        title = "虚拟按键发送 Android 按键码",
+        subTitle = "启用 (默认) 时, 虚拟按键按 Android 按键码发送, 跟安卓输入法方向键走同一条路径, " +
+                "在 X11 端 wine / 模拟器 / 游戏等软件里能像调用安卓输入法一样起作用. " +
+                "关闭时按 PC AT scancode 发送, 适合某些只认物理扫描码的 X11 软件. " +
+                "如果虚拟方向键等按键在 X11 界面里不起作用, 保持启用即可."
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Text("模拟安卓输入法")
             Switch(
                 checked = enabled,
                 onCheckedChange = onEnabledChange
