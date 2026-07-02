@@ -129,10 +129,30 @@ class InputControlsView(context: Context?) : View(context) {
     private val touchpadTapThresholdPx: Float = 8f
 
     /**
-     * "轻点" 最大按压时长 (毫秒). DOWN 起到 UP 起, 总时长 < 这个值才算轻点.
-     * 超时视为 "长按", UP 不补发单击事件 (避免长按误触发点击).
+     * 触摸板 "轻点 vs 拖动 vs 长按锁定" 阈值 (毫秒).
+     *
+     * 语义:
+     * - DOWN 起到 UP 起, 总时长 < 这个值 + 总位移 < touchpadTapThresholdPx → 轻点 = 单击
+     * - DOWN 起 达到这个时长 还没抬手也没移动 → "长按锁定": 自动发 left button down,
+     *   进入 drag 模式. 后续 MOVE 发 onPointerMove 变成 drag (X11 选中 / 拖窗).
+     *   UP 时发 left up.
+     *
+     * 类比 Windows Precision Touchpad 的 "按住拖动" / macOS 的 "长按锁定" 行为.
      */
     private val touchpadTapMaxDurationMs: Long = 500L
+
+    /**
+     * "长按锁定" 延时触发器.
+     * DOWN 后 500ms 还没抬手 → 调 onLongPressLock 发送 left down, 进入 drag 模式.
+     *
+     * 取消场景:
+     * - UP (抬手) -> 取消
+     * - MOVE 超阈值 变成纯移动 -> 取消 (用户想 "纯移动光标", 不是 "长按拖动")
+     * - 第二根手指落下变双指右键 -> 取消
+     * - onDetachedFromWindow / setProfile / 关闭虚拟按键 -> 取消
+     */
+    private val handler = Handler(Looper.getMainLooper())
+    private var longPressLockRunnable: Runnable? = null
 
     /**
      * 兼容字段, 旧代码用过的 touchpadLeftButtonDown 状态标记.
@@ -141,6 +161,13 @@ class InputControlsView(context: Context?) : View(context) {
      */
     @Suppress("unused")
     private var touchpadLeftButtonDown = false
+
+    /**
+     * touchpad 是否处于"长按拖动"模式 (long press lock).
+     * 当长按锁触发后置 true, 期间 MOVE 发 onPointerMove 会产生 drag 效果 (因为 down 已发).
+     * UP 后置 false.
+     */
+    private var longPressLockActive = false
 
     /**
      * touchpad 双指右键状态.
@@ -651,23 +678,25 @@ class InputControlsView(context: Context?) : View(context) {
                     }
 
                     if (!elementHandled) {
-                        // 空白处的手指: 纯移动 + 轻点点击 + 双指右键
+                        // 空白处的手指: 纯移动 + 轻点点击 + 双指右键 + 长按拖动
                         //
                         // 行为:
-                        // - 单指 DOWN: 只记录 startX/Y + downTime, 不发 button down.
-                        //              避免 MOVE 变成 drag.
+                        // - 单指 DOWN: 记录 startX/Y + downTime, 不发 button down.
+                        //              启动 500ms "长按锁定" 延时器: 超时后发 left down 进入 drag.
+                        //              避免 MOVE 变成 drag (超时前 MOVE 仍是纯移动).
                         // - 双指 DOWN (第二根手指落下时):
-                        //              取消单指的"轻点单击"待定状态, 发 right button down.
+                        //              取消长按锁定延时器, 发 right button down.
                         //              类比笔记本触摸板"两指点按 = 右键".
                         //              后续任何 finger UP 不会发 right down (只发一次).
                         // - MOVE: 阈值内 (总位移 < 8px) 不发 onPointerMove, 避免单击时轻微
-                        //         抖动导致光标意外飘. 超阈值后正常发 onPointerMove (移动光标).
-                        //         因为 DOWN 期间永远没 down, MOVE 不会变成 drag.
+                        //         抖动导致光标意外飘. 超阈值后:
+                        //         * 如果长按锁定还没触发 -> 取消长按延时器, 走纯移动
+                        //         * 如果长按锁定已触发 -> 发 onPointerMove (drag)
                         // - UP:   最后一根 touchpad 手指抬起时:
-                        //         - 如果在双指右键状态: 发 right button up, 清状态.
-                        //         - 如果之前是单击 (单指) + 总位移 < 阈值 + 时长 < 500ms:
-                        //           补发 down + up (单击)
-                        //         - 其他: 不补发 (拖动 / 长按)
+                        //         - 如果在双指右键状态: 发 right up, 清状态.
+                        //         - 如果在长按锁定 drag 模式: 发 left up, 清状态.
+                        //         - 否则: 总位移 < 阈值 + 时长 < 500ms → 补发 left down + up (单击)
+                        //         - 其他: 不补发
                         touchPointers.put(
                             actionPointerId,
                             TouchPointerState(
@@ -678,12 +707,22 @@ class InputControlsView(context: Context?) : View(context) {
                                 downTimeMs = android.os.SystemClock.uptimeMillis()
                             )
                         )
-                        // 双指右键: 第二根手指落在空白处时, 立即发 right down.
+                        // 双指右键: 第二根手指落在空白处时, 立即发 right down + 取消长按锁定.
                         // 之前"单指可能是单击"的待定状态 (通过 touchPointers.size() 判断)
                         // 会被 UP 路径自动检测到 touchPointers.size()==0 时不再走单击补发逻辑.
-                        if (!rightButtonDown && touchPointers.size() >= 2) {
-                            inputEventHandler?.onPointerButton(3, true) // X11 button 3 = right
-                            rightButtonDown = true
+                        //
+                        // 边界: 如果长按锁定已发 left down, 此时第二根手指落下.
+                        // 这里选择"忽略双指" (不补发 right down), 保持 left down drag 状态.
+                        // (X11 协议上同时多 button down 是合法的, 但为了状态简单不增加混乱)
+                        if (touchPointers.size() >= 2 && !longPressLockActive) {
+                            cancelLongPressLock()
+                            if (!rightButtonDown) {
+                                inputEventHandler?.onPointerButton(3, true) // X11 button 3 = right
+                                rightButtonDown = true
+                            }
+                        } else {
+                            // 单指第一根 DOWN (或长按锁定中落下第二根): 启动/不重置长按锁定
+                            scheduleLongPressLock()
                         }
                     }
 
@@ -723,6 +762,11 @@ class InputControlsView(context: Context?) : View(context) {
                                     state.lastY = y
                                     continue
                                 }
+                                // 超阈值 -> 进入"拖动"区
+                                // 如果长按锁定还没触发, 取消延时器 (用户想"纯移动光标", 不是"长按拖动")
+                                if (!longPressLockActive) {
+                                    cancelLongPressLock()
+                                }
                                 val dx = x - state.lastX
                                 val dy = y - state.lastY
                                 state.lastX = x
@@ -751,9 +795,12 @@ class InputControlsView(context: Context?) : View(context) {
                     // - 拿 state 算总位移 + 按压时长
                     // - 最后一根 touchpad 手指抬起时:
                     //   - 如果是双指右键状态: 发 right up, 清状态
+                    //   - 如果是长按锁定 drag 模式: 发 left up, 清状态
                     //   - 否则: 评估"轻点" vs "拖动" vs "长按", 轻点补发单击
                     val state = touchPointers.get(actionPointerId)
                     if (state != null) {
+                        // 抬手先取消长按锁定延时器 (如果还没触发)
+                        cancelLongPressLock()
                         touchPointers.remove(actionPointerId)
                         // 最后一根 touchpad 手指抬起 -> 处理收尾
                         if (touchPointers.size() == 0) {
@@ -761,6 +808,10 @@ class InputControlsView(context: Context?) : View(context) {
                                 // 双指右键: 之前第二根 DOWN 时发了 right down, 这里补 right up
                                 inputEventHandler?.onPointerButton(3, false) // X11 button 3 = right
                                 rightButtonDown = false
+                            } else if (longPressLockActive) {
+                                // 长按锁定 drag: 之前 longPressLockRunnable 发了 left down, 这里补 left up
+                                inputEventHandler?.onPointerButton(1, false) // X11 button 1 = left
+                                longPressLockActive = false
                             } else {
                                 // 单击 vs 拖动 vs 长按 判定
                                 val totalDx = x - state.startX
@@ -1154,18 +1205,51 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     /**
+     * 启动长按锁定延时器.
+     * 500ms 后 (如果还没被取消) 调 onLongPressLock 发送 left down, 进入 drag 模式.
+     */
+    private fun scheduleLongPressLock() {
+        cancelLongPressLock()
+        val r = Runnable {
+            // 延时器到点: 发送 left down, 进入 drag 模式
+            if (touchPointers.size() > 0 && !rightButtonDown && !longPressLockActive) {
+                inputEventHandler?.onPointerButton(1, true) // X11 button 1 = left
+                longPressLockActive = true
+            }
+        }
+        longPressLockRunnable = r
+        handler.postDelayed(r, touchpadTapMaxDurationMs)
+    }
+
+    /**
+     * 取消长按锁定延时器.
+     * 场景: UP / MOVE 超阈值 / 双指右键 / 切 profile / 关闭虚拟按键 / View 销毁
+     */
+    private fun cancelLongPressLock() {
+        longPressLockRunnable?.let { handler.removeCallbacks(it) }
+        longPressLockRunnable = null
+    }
+
+    /**
      * 释放所有 touchpad (空白处) 状态.
      * 用于 onDetachedFromWindow / setProfile / showTouchscreenControls=false 等场景
-     * 避免"切后台后右键卡在按下"或"重复补发单击".
+     * 避免"切后台后右键/长按拖动 卡在按下"或"重复补发单击".
      */
     private fun releaseAllTouchpadButtons() {
         val handler = inputEventHandler ?: return
+        // 取消长按锁定延时器 (如果还没触发)
+        cancelLongPressLock()
         // 如果 right down 处于按下状态, 兑底发 right up
         if (rightButtonDown) {
             handler.onPointerButton(3, false) // X11 button 3 = right
             rightButtonDown = false
         }
-        // DOWN 期间从未发过 left down, 所以不需要发 left up.
+        // 如果 longPressLockActive, 兑底发 left up
+        if (longPressLockActive) {
+            handler.onPointerButton(1, false) // X11 button 1 = left
+            longPressLockActive = false
+        }
+        // DOWN 期间从未发过 left down (除了 longPressLock 路径), 所以不需要发 left up.
         // 但需要清空 pointer 跟踪, 避免下次启动时状态错乱 (这个由调方 clear()).
     }
 
