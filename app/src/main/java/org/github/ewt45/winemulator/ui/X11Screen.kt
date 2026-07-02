@@ -125,12 +125,18 @@ fun X11Screen(
         InputControlsView(context).apply {
             this.setEditMode(false)
             this.inputEventHandler = inputEventHandler
+            // 初始化时同步虚拟按键开关, 避免在 Compose 还没跑 LaunchedEffect 前
+            // InputControlsView 默认 isClickable=true 而误吃触摸事件
+            // 这里 readBack 用 prefs 里的最新值, 跟 LaunchedEffect 用同一个数据源
+            val initialShow = prefs.getBoolean("show_touchscreen_controls", false)
+            this.setShowTouchscreenControlsValue(initialShow)
         }
     }
 
     // 监听显示开关变化并实时更新视图
     LaunchedEffect(showTouchscreenControls) {
-        inputControlsView.showTouchscreenControls = showTouchscreenControls
+        // 用 setter 方法, 走到 InputControlsView 里完整的释放按键 + 调可点击状态逻辑
+        inputControlsView.setShowTouchscreenControlsValue(showTouchscreenControls)
         Log.d("X11Screen", "Updated showTouchscreenControls: $showTouchscreenControls")
     }
 
@@ -161,7 +167,7 @@ fun X11Screen(
 
         // 无论状态是否变化，都立即刷新 InputControlsView
         // 这样可以确保新建配置后立即生效
-        inputControlsView.showTouchscreenControls = newShowControls
+        inputControlsView.setShowTouchscreenControlsValue(newShowControls)
         val newProfile = if (newProfileId != 0) manager.getProfile(newProfileId) else manager.getProfiles().firstOrNull()
         inputControlsView.setProfile(newProfile)
         Log.d("X11Screen", "refreshControlsImmediately: show=$newShowControls, profile=${newProfile?.name}")
