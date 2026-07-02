@@ -20,6 +20,7 @@ import java.util.TimerTask
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import android.util.SparseArray
 
 /**
  * InputControlsView - Adapted for Linbox compatibility
@@ -85,6 +86,33 @@ class InputControlsView(context: Context?) : View(context) {
     private var mouseMoveTimer: Timer? = null
     private val mouseMoveOffset = PointF()
     private val counterMap = HashMap<String, Int>()
+
+    /**
+     * 跟踪每一个 pointer 在本 View 上的状态。
+     * key = pointerId, value = TouchPointerState (lastX/lastY/isPointerDown/isCapturedByElement)。
+     *
+     * 背景: Android 多点触控派发下, 一旦 InputControlsView 在某个 pointer 的 ACTION_DOWN 里
+     * return true, 后续该手势内所有 pointer 的所有事件 (包括其他手的) 都会派给本 View,
+     * 不会回流到 LorieView. 所以本 View 必须自己处理"非按键区域的手指",
+     * 把它转成相对鼠标事件 + (可选) 左键事件, 否则用户的另一只手就动不了.
+     *
+     * 每个手指用 pointerId 独立跟踪, 互不干扰:
+     * - 命中按键的手指: 由 ControlElement 跟踪 (currentPointerId 机制), 本字段不参与
+     * - 落在空白处的手指: 走 touchpad 路径, 维护 lastX/lastY 计算 delta
+     * - 双手多指时: 每个 pointerId 独立的 lastX/lastY, 不会因为多手指同时存在而错位
+     */
+    private val touchPointers = SparseArray<TouchPointerState>()
+
+    /** 是否有任何"非按键手指"当前正按住左键, 用于避免重复发 button down. */
+    private var touchpadButtonDown = false
+
+    /**
+     * 单个 pointer 的跟踪状态
+     */
+    private class TouchPointerState(
+        var lastX: Float,
+        var lastY: Float
+    )
     
     // Key repeat support for continuous press
     private val pressedKeys = mutableSetOf<Binding>()
@@ -137,6 +165,12 @@ class InputControlsView(context: Context?) : View(context) {
         super.onDetachedFromWindow()
         // 修复: 兜底释放所有按下的虚拟按键, 防止"卡键" / "角色还在走"这种 bug
         releaseAllPressedKeys()
+        // 清理 touchpad 状态 + 释放左键, 防止"切换窗口后鼠标卡在按下"
+        if (touchpadButtonDown) {
+            inputEventHandler?.onPointerButton(1, false)
+            touchpadButtonDown = false
+        }
+        touchPointers.clear()
         // 清理按键重复定时器资源，防止内存泄漏
         stopKeyRepeat()
         keyRepeatScheduler.shutdown()
@@ -274,6 +308,12 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     fun setProfile(profile: ControlsProfile?) {
+        // 切配置时清理触摸状态, 避免新配置继承了旧配置的 touchpad 状态
+        if (touchpadButtonDown) {
+            inputEventHandler?.onPointerButton(1, false)
+            touchpadButtonDown = false
+        }
+        touchPointers.clear()
         if (profile != null) {
             this.profile = profile
             deselectAllElements()
@@ -300,6 +340,12 @@ class InputControlsView(context: Context?) : View(context) {
             if (!value) {
                 // 关闭时释放所有按下的虚拟按键, 避免幽灵按
                 releaseAllPressedKeys()
+                // 关闭时同步释放 touchpad 左键 + 清空 pointer 跟踪
+                if (touchpadButtonDown) {
+                    inputEventHandler?.onPointerButton(1, false)
+                    touchpadButtonDown = false
+                }
+                touchPointers.clear()
                 // 关闭时让 view 不再拦截事件, 透传给下层 LorieView
                 isClickable = false
                 isFocusable = false
@@ -545,23 +591,23 @@ class InputControlsView(context: Context?) : View(context) {
             return true
         }
 
-        // Non-edit mode: 按 pointer 精确路由
+        // Non-edit mode: 按 pointer 独立路由, 支持一只手按虚拟按键 + 另一只手在空白处拖鼠标
         //
-        // 设计原则:
-        // 1. InputControlsView 在 View 叠加顺序上位于 LorieView 之上, 但它只在 pointer
-        //    命中虚拟按键时才拦截, 其他位置一律 return false 透传给 LorieView。
-        // 2. 避免'一在按键上滑, 另一手被绑成鼠标'的 bug:
-        //    旧实现里 ACTION_MOVE 会遍历所有 pointer 把未命中的丢给 touchpad 模拟鼠标,
-        //    导致另一只手的点击被模拟成鼠标乱飘. 这里彻底取消 touchpad 模拟路径,
-        //    空白处一律走 LorieView 的原生鼠标控制 (LorieView 自己会处理触摸发鼠标事件).
-        // 3. Android 事件派发语义: View 一旦在某个 pointer 的 ACTION_DOWN 里 return true,
-        //    后续该 pointer 的所有 MOVE/UP 都派给该 View, 不会回流给其他 View.
-        //    所以 InputControlsView 只对"已 claim 的 pointer"维持 return true,
-        //    对 ACTION_POINTER_DOWN 不命中的 pointer 返回 false, 那个 pointer 会自然
-        //    落到 LorieView 去, 两只手互不干扰.
+        // Android 多点触控派发语义提醒: 一旦本 View 在某个 pointer 的 ACTION_DOWN 里
+        // return true, 该手势内所有 pointer 的所有事件都会派给本 View, 不会回流给
+        // LorieView. 所以本 View 必须为"落在空白处的手指"自己提供鼠标控制逻辑
+        // (相对鼠标移动 + 左键按下/释放), 不能依赖 LorieView 帮我们处理.
+        //
+        // 逐 pointer 路由:
+        // - 命中虚拟按键的手指: 走 ControlElement.handleTouchDown/Move/Up, 按键响应
+        // - 落在空白处的手指: 走 touchpad 路径, 维护 lastX/lastY 计算 delta, 转 onPointerMove
+        //
+        // 关键: 每个 pointer 独立维护 lastX/lastY (用 SparseArray 按 pointerId 跟踪),
+        // 避免"多个手指共用一个 lastX 导致 delta 错位". 左手按按键右手拖鼠标时,
+        // 右手的滑动只会计算右手自己的 delta, 不会跟左手位置混在一起.
         if (profile != null) {
-            val actionIndex = event.actionIndex
             val actionMasked = event.actionMasked
+            val actionIndex = event.actionIndex
             val actionPointerId = event.getPointerId(actionIndex)
 
             when (actionMasked) {
@@ -569,7 +615,7 @@ class InputControlsView(context: Context?) : View(context) {
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
 
-                    // 检查当前 pointer 是否命中某个虚拟按键
+                    // 先检查当前 pointer 是否命中虚拟按键
                     var elementHandled = false
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchDown(actionPointerId, x, y)) {
@@ -578,37 +624,82 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // 命中 -> claim 这个 pointer (return true), 后续 MOVE/UP 都给本 View
-                    // 不命中 -> 不 claim (return false), 该 pointer 透传给下层 LorieView
-                    return elementHandled
+                    if (!elementHandled) {
+                        // 空白处的手指: 走 touchpad 路径
+                        // 如果还没有任何手指在按左键, 才发左键 down (避免多指重复 down 导致状态错乱)
+                        if (touchPointers.size() == 0 && !touchpadButtonDown) {
+                            inputEventHandler?.onPointerButton(1, true) // X11 button 1 = left
+                            touchpadButtonDown = true
+                        }
+                        touchPointers.put(actionPointerId, TouchPointerState(x, y))
+                    }
+
+                    // 返回 true: 本手势必须由本 View 接管, 否则后续事件收不到
+                    return true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    // 本 View 已 claim 至少一个 pointer (按键上的那只手), 后续 MOVE 都会到这.
-                    // 对所有 pointer 独立判断: 命中按键的调 handleTouchMove, 没命中的不动.
-                    // 之所以遍历所有 pointer: 多个按键被多指同时按的场景要支持.
-                    // 返回 true 因为本手势已被本 View claim, 不能 release.
+                    // 对每个 pointer 独立判断:
+                    // - 命中按键的: 交给 ControlElement 处理 (会决定是否还在按键上, 离开则释放)
+                    // - 落在空白处的: 计算 delta, 推 onPointerMove
                     for (i in 0 until event.pointerCount) {
                         val pointerId = event.getPointerId(i)
                         val x = event.getX(i)
                         val y = event.getY(i)
+
+                        var hitElement = false
                         for (element in profile!!.getElements()) {
                             if (element.handleTouchMove(pointerId, x, y)) {
+                                hitElement = true
                                 break
                             }
+                        }
+
+                        if (!hitElement) {
+                            // 空白处的手指 (或本来就没在按键上但已存在的 touchpad pointer)
+                            val state = touchPointers.get(pointerId)
+                            if (state != null) {
+                                val dx = x - state.lastX
+                                val dy = y - state.lastY
+                                state.lastX = x
+                                state.lastY = y
+                                if (dx != 0f || dy != 0f) {
+                                    inputEventHandler?.onPointerMove(dx.toInt(), dy.toInt())
+                                }
+                            }
+                            // state == null 意味着这个 pointer 没在 touchPointers 里
+                            // (可能原因: 该 pointer 在 View 范围外 / 是多指中的边缘 pointer / 历史事件)
+                            // 简单忽略, 不当作问题
                         }
                     }
                     return true
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
-                    // 只释放当前 pointer 对应的按键. 同一手势内其他被 claim 的 pointer
-                    // 会在它自己的 UP 事件里释放 (Android 会按 pointer 分别派发).
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
+
+                    // 先尝试从按键上释放
                     for (element in profile!!.getElements()) {
-                        element.handleTouchUp(actionPointerId, x, y)
+                        if (element.handleTouchUp(actionPointerId, x, y)) {
+                            break
+                        }
                     }
+
+                    // 如果这个 pointer 是 touchpad 上的, 从跟踪里移除
+                    val wasTouchpad = touchPointers.indexOfKey(actionPointerId) >= 0
+                    if (wasTouchpad) {
+                        touchPointers.remove(actionPointerId)
+                        // 当最后一根 touchpad 手指抬起, 才发左键 up
+                        if (touchpadButtonDown && touchPointers.size() == 0) {
+                            inputEventHandler?.onPointerButton(1, false) // X11 button 1 = left
+                            touchpadButtonDown = false
+                        }
+                    }
+
+                    // 兜底: 同一个 pointer 不会同时在按键 + touchpad, 所以上面是互斥的.
+                    // 如果啥都没匹配 (例如 View 收到一个陌生的 pointer up), 也保持 return true
+                    // 保证该手势其他已 claim 的 pointer 还能继续接收事件.
                     return true
                 }
             }
