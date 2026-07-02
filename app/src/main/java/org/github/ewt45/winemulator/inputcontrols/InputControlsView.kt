@@ -103,9 +103,6 @@ class InputControlsView(context: Context?) : View(context) {
      */
     private val touchPointers = SparseArray<TouchPointerState>()
 
-    /** 是否有任何"非按键手指"当前正按住左键, 用于避免重复发 button down. */
-    private var touchpadButtonDown = false
-
     /**
      * 单个 pointer 的跟踪状态
      */
@@ -165,11 +162,7 @@ class InputControlsView(context: Context?) : View(context) {
         super.onDetachedFromWindow()
         // 修复: 兜底释放所有按下的虚拟按键, 防止"卡键" / "角色还在走"这种 bug
         releaseAllPressedKeys()
-        // 清理 touchpad 状态 + 释放左键, 防止"切换窗口后鼠标卡在按下"
-        if (touchpadButtonDown) {
-            inputEventHandler?.onPointerButton(1, false)
-            touchpadButtonDown = false
-        }
+        // 清理 touchpad pointer 跟踪, 避免下次启动时状态错乱
         touchPointers.clear()
         // 清理按键重复定时器资源，防止内存泄漏
         stopKeyRepeat()
@@ -309,10 +302,6 @@ class InputControlsView(context: Context?) : View(context) {
 
     fun setProfile(profile: ControlsProfile?) {
         // 切配置时清理触摸状态, 避免新配置继承了旧配置的 touchpad 状态
-        if (touchpadButtonDown) {
-            inputEventHandler?.onPointerButton(1, false)
-            touchpadButtonDown = false
-        }
         touchPointers.clear()
         if (profile != null) {
             this.profile = profile
@@ -340,11 +329,7 @@ class InputControlsView(context: Context?) : View(context) {
             if (!value) {
                 // 关闭时释放所有按下的虚拟按键, 避免幽灵按
                 releaseAllPressedKeys()
-                // 关闭时同步释放 touchpad 左键 + 清空 pointer 跟踪
-                if (touchpadButtonDown) {
-                    inputEventHandler?.onPointerButton(1, false)
-                    touchpadButtonDown = false
-                }
+                // 关闭时清空 touchpad pointer 跟踪
                 touchPointers.clear()
                 // 关闭时让 view 不再拦截事件, 透传给下层 LorieView
                 isClickable = false
@@ -625,12 +610,18 @@ class InputControlsView(context: Context?) : View(context) {
                     }
 
                     if (!elementHandled) {
-                        // 空白处的手指: 走 touchpad 路径
-                        // 如果还没有任何手指在按左键, 才发左键 down (避免多指重复 down 导致状态错乱)
-                        if (touchPointers.size() == 0 && !touchpadButtonDown) {
-                            inputEventHandler?.onPointerButton(1, true) // X11 button 1 = left
-                            touchpadButtonDown = true
-                        }
+                        // 空白处的手指: 走纯移动模式
+                        //
+                        // 设计选择: 空白处不自动发左键 down, 只发 onPointerMove 相对位移.
+                        // 原因: 上一版发 button down 后, 用户在空白处拖动会变成 "按下+拖动"
+                        // (drag/框选/拖窗), 不符合"虚拟摇杆+空白处纯移动鼠标"的预期.
+                        //
+                        // 需要点击鼠标? 两种方式:
+                        // 1. 在虚拟按键配置里设一个 "鼠标左键" 按键, 主动点那个按键
+                        // 2. 出 InputControlsView 范围去点 LorieView 自身 (LorieView 会原生
+                        //    处理触摸为鼠标点击)
+                        //
+                        // 仅记录 lastX/lastY 用于后续 MOVE 算 delta
                         touchPointers.put(actionPointerId, TouchPointerState(x, y))
                     }
 
@@ -687,14 +678,9 @@ class InputControlsView(context: Context?) : View(context) {
                     }
 
                     // 如果这个 pointer 是 touchpad 上的, 从跟踪里移除
-                    val wasTouchpad = touchPointers.indexOfKey(actionPointerId) >= 0
-                    if (wasTouchpad) {
+                    // 纯移动模式下不需发 button up, 直接清理跟踪即可
+                    if (touchPointers.indexOfKey(actionPointerId) >= 0) {
                         touchPointers.remove(actionPointerId)
-                        // 当最后一根 touchpad 手指抬起, 才发左键 up
-                        if (touchpadButtonDown && touchPointers.size() == 0) {
-                            inputEventHandler?.onPointerButton(1, false) // X11 button 1 = left
-                            touchpadButtonDown = false
-                        }
                     }
 
                     // 兜底: 同一个 pointer 不会同时在按键 + touchpad, 所以上面是互斥的.
