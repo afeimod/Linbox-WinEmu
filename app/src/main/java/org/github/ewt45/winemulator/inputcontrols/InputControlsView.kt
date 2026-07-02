@@ -545,7 +545,20 @@ class InputControlsView(context: Context?) : View(context) {
             return true
         }
 
-        // Non-edit mode: handle virtual controls and touchpad
+        // Non-edit mode: 按 pointer 精确路由
+        //
+        // 设计原则:
+        // 1. InputControlsView 在 View 叠加顺序上位于 LorieView 之上, 但它只在 pointer
+        //    命中虚拟按键时才拦截, 其他位置一律 return false 透传给 LorieView。
+        // 2. 避免'一在按键上滑, 另一手被绑成鼠标'的 bug:
+        //    旧实现里 ACTION_MOVE 会遍历所有 pointer 把未命中的丢给 touchpad 模拟鼠标,
+        //    导致另一只手的点击被模拟成鼠标乱飘. 这里彻底取消 touchpad 模拟路径,
+        //    空白处一律走 LorieView 的原生鼠标控制 (LorieView 自己会处理触摸发鼠标事件).
+        // 3. Android 事件派发语义: View 一旦在某个 pointer 的 ACTION_DOWN 里 return true,
+        //    后续该 pointer 的所有 MOVE/UP 都派给该 View, 不会回流给其他 View.
+        //    所以 InputControlsView 只对"已 claim 的 pointer"维持 return true,
+        //    对 ACTION_POINTER_DOWN 不命中的 pointer 返回 false, 那个 pointer 会自然
+        //    落到 LorieView 去, 两只手互不干扰.
         if (profile != null) {
             val actionIndex = event.actionIndex
             val actionMasked = event.actionMasked
@@ -555,97 +568,52 @@ class InputControlsView(context: Context?) : View(context) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
-                    var handled = false
-                    touchpadView?.setPointerButtonLeftEnabled(true)
 
+                    // 检查当前 pointer 是否命中某个虚拟按键
+                    var elementHandled = false
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchDown(actionPointerId, x, y)) {
-                            handled = true
-                            val binding = element.getBindingAt(0)
-                            if (binding == Binding.MOUSE_LEFT_BUTTON) {
-                                touchpadView?.setPointerButtonLeftEnabled(false)
-                            }
+                            elementHandled = true
+                            break
                         }
                     }
 
-                    // 只有当没有虚拟按钮处理时才传递给 touchpad
-                    if (!handled) {
-                        touchpadView?.onTouchEvent(event)
-                    }
-                    // 如果虚拟按钮处理了，返回true；否则返回false让LorieView处理
-                    return handled
+                    // 命中 -> claim 这个 pointer (return true), 后续 MOVE/UP 都给本 View
+                    // 不命中 -> 不 claim (return false), 该 pointer 透传给下层 LorieView
+                    return elementHandled
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    // Track each pointer to see if it's handled by an element
-                    val unhandledPointers = mutableListOf<MotionEvent.PointerCoords>()
-                    val unhandledPointerProperties = mutableListOf<MotionEvent.PointerProperties>()
-
+                    // 本 View 已 claim 至少一个 pointer (按键上的那只手), 后续 MOVE 都会到这.
+                    // 对所有 pointer 独立判断: 命中按键的调 handleTouchMove, 没命中的不动.
+                    // 之所以遍历所有 pointer: 多个按键被多指同时按的场景要支持.
+                    // 返回 true 因为本手势已被本 View claim, 不能 release.
                     for (i in 0 until event.pointerCount) {
                         val pointerId = event.getPointerId(i)
                         val x = event.getX(i)
                         val y = event.getY(i)
-                        var pointerHandled = false
-
                         for (element in profile!!.getElements()) {
                             if (element.handleTouchMove(pointerId, x, y)) {
-                                pointerHandled = true
                                 break
                             }
                         }
-
-                        // If this pointer is not handled by any element, record it
-                        if (!pointerHandled) {
-                            val properties = MotionEvent.PointerProperties()
-                            event.getPointerProperties(i, properties)
-                            unhandledPointerProperties.add(properties)
-
-                            val coords = MotionEvent.PointerCoords()
-                            event.getPointerCoords(i, coords)
-                            unhandledPointers.add(coords)
-                        }
-                    }
-
-                    // Pass unhandled pointers to touchpad for cursor movement
-                    if (unhandledPointers.isNotEmpty()) {
-                        val newEvent = MotionEvent.obtain(
-                            event.downTime, event.eventTime, event.action,
-                            unhandledPointers.size, unhandledPointerProperties.toTypedArray(),
-                            unhandledPointers.toTypedArray(), event.metaState, event.buttonState,
-                            event.xPrecision, event.yPrecision, event.deviceId, event.edgeFlags,
-                            event.source, event.flags
-                        )
-                        touchpadView?.onTouchEvent(newEvent)
-                        newEvent.recycle()
                     }
                     return true
                 }
 
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
+                    // 只释放当前 pointer 对应的按键. 同一手势内其他被 claim 的 pointer
+                    // 会在它自己的 UP 事件里释放 (Android 会按 pointer 分别派发).
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
-                    var handled = false
-
                     for (element in profile!!.getElements()) {
-                        if (element.handleTouchUp(actionPointerId, x, y)) {
-                            handled = true
-                        }
+                        element.handleTouchUp(actionPointerId, x, y)
                     }
-
-                    // 只有当没有虚拟按钮处理时才传递给 touchpad
-                    if (!handled) {
-                        touchpadView?.onTouchEvent(event)
-                    }
-                    // 如果虚拟按钮处理了，返回true；否则返回false让LorieView处理
-                    return handled
+                    return true
                 }
             }
-        } else {
-            // No profile configured, pass events to touchpad for cursor movement
-            touchpadView?.onTouchEvent(event)
-            // 返回false让LorieView处理原生X11鼠标控制
-            return false
         }
+        // profile == null 或未匹配到 action 分支: 不拦截, 透传给下层 LorieView
         return false
     }
 
