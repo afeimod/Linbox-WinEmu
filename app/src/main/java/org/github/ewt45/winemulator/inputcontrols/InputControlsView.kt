@@ -141,6 +141,13 @@ class InputControlsView(context: Context?) : View(context) {
      */
     @Suppress("unused")
     private var touchpadLeftButtonDown = false
+
+    /**
+     * touchpad 双指右键状态.
+     * 当第二根手指落在空白处时发 right button down, 全部空白处手指抬起时发 right button up.
+     * 类比笔记本触摸板 "两指点按 = 右键".
+     */
+    private var rightButtonDown = false
     
     // Key repeat support for continuous press
     private val pressedKeys = mutableSetOf<Binding>()
@@ -644,23 +651,23 @@ class InputControlsView(context: Context?) : View(context) {
                     }
 
                     if (!elementHandled) {
-                        // 空白处的手指: 纯移动 + 轻点点击
+                        // 空白处的手指: 纯移动 + 轻点点击 + 双指右键
                         //
                         // 行为:
-                        // - DOWN: 只记录 startX/Y + downTime, **不发 button down**.
-                        //         这样 DOWN 期间不进入 "按下" 状态, MOVE 不会变成 drag.
-                        // - MOVE: 算 delta, 发 onPointerMove 移动光标.
-                        //         总位移 < 阈值时也算 (轻微抖动也是移动, 但用户感觉是 "轻点").
-                        //         但阈值内不抑制: 因为这里 DOWN 期间永远没 down, MOVE 永远
-                        //         只是相对位移, 不会变成 drag. 不需要额外抑制.
-                        // - UP:   根据总位移 + 按压时长决定:
-                        //         - 总位移 < 阈值 + 时长 < 500ms → "轻点", 补发 down + up (单击)
-                        //         - 总位移 >= 阈值 → "拖动", 不补发 (DOWN 期间没 down)
-                        //         - 时长 >= 500ms → "长按", 不补发
-                        //
-                        // 优点: "拖动鼠标" 永远不会变成 drag/框选. "轻点" 仍然是单击.
-                        // 缺点: 长按 (例如拖窗点住不动) 不会 down, 这个 View 覆盖整个屏幕,
-                        //       用户得专门点 "鼠标左键" 虚拟按键.
+                        // - 单指 DOWN: 只记录 startX/Y + downTime, 不发 button down.
+                        //              避免 MOVE 变成 drag.
+                        // - 双指 DOWN (第二根手指落下时):
+                        //              取消单指的"轻点单击"待定状态, 发 right button down.
+                        //              类比笔记本触摸板"两指点按 = 右键".
+                        //              后续任何 finger UP 不会发 right down (只发一次).
+                        // - MOVE: 阈值内 (总位移 < 8px) 不发 onPointerMove, 避免单击时轻微
+                        //         抖动导致光标意外飘. 超阈值后正常发 onPointerMove (移动光标).
+                        //         因为 DOWN 期间永远没 down, MOVE 不会变成 drag.
+                        // - UP:   最后一根 touchpad 手指抬起时:
+                        //         - 如果在双指右键状态: 发 right button up, 清状态.
+                        //         - 如果之前是单击 (单指) + 总位移 < 阈值 + 时长 < 500ms:
+                        //           补发 down + up (单击)
+                        //         - 其他: 不补发 (拖动 / 长按)
                         touchPointers.put(
                             actionPointerId,
                             TouchPointerState(
@@ -671,6 +678,13 @@ class InputControlsView(context: Context?) : View(context) {
                                 downTimeMs = android.os.SystemClock.uptimeMillis()
                             )
                         )
+                        // 双指右键: 第二根手指落在空白处时, 立即发 right down.
+                        // 之前"单指可能是单击"的待定状态 (通过 touchPointers.size() 判断)
+                        // 会被 UP 路径自动检测到 touchPointers.size()==0 时不再走单击补发逻辑.
+                        if (!rightButtonDown && touchPointers.size() >= 2) {
+                            inputEventHandler?.onPointerButton(3, true) // X11 button 3 = right
+                            rightButtonDown = true
+                        }
                     }
 
                     // 返回 true: 本手势必须由本 View 接管, 否则后续事件收不到
@@ -735,23 +749,32 @@ class InputControlsView(context: Context?) : View(context) {
 
                     // touchpad (空白处) 手指抬起:
                     // - 拿 state 算总位移 + 按压时长
-                    // - 最后一根 touchpad 手指抬起时, 如果是"轻点"则补发 down + up
+                    // - 最后一根 touchpad 手指抬起时:
+                    //   - 如果是双指右键状态: 发 right up, 清状态
+                    //   - 否则: 评估"轻点" vs "拖动" vs "长按", 轻点补发单击
                     val state = touchPointers.get(actionPointerId)
                     if (state != null) {
                         touchPointers.remove(actionPointerId)
-                        // 只有最后一根 touchpad 抬起时才补发单击, 避免多指重复触发
+                        // 最后一根 touchpad 手指抬起 -> 处理收尾
                         if (touchPointers.size() == 0) {
-                            val totalDx = x - state.startX
-                            val totalDy = y - state.startY
-                            val totalDist = kotlin.math.abs(totalDx) + kotlin.math.abs(totalDy)
-                            val durationMs = android.os.SystemClock.uptimeMillis() - state.downTimeMs
+                            if (rightButtonDown) {
+                                // 双指右键: 之前第二根 DOWN 时发了 right down, 这里补 right up
+                                inputEventHandler?.onPointerButton(3, false) // X11 button 3 = right
+                                rightButtonDown = false
+                            } else {
+                                // 单击 vs 拖动 vs 长按 判定
+                                val totalDx = x - state.startX
+                                val totalDy = y - state.startY
+                                val totalDist = kotlin.math.abs(totalDx) + kotlin.math.abs(totalDy)
+                                val durationMs = android.os.SystemClock.uptimeMillis() - state.downTimeMs
 
-                            if (totalDist < touchpadTapThresholdPx && durationMs < touchpadTapMaxDurationMs) {
-                                // 轻点: 补发单击 down + up
-                                inputEventHandler?.onPointerButton(1, true)
-                                inputEventHandler?.onPointerButton(1, false)
+                                if (totalDist < touchpadTapThresholdPx && durationMs < touchpadTapMaxDurationMs) {
+                                    // 轻点: 补发单击 down + up
+                                    inputEventHandler?.onPointerButton(1, true)
+                                    inputEventHandler?.onPointerButton(1, false)
+                                }
+                                // 其他情况 (拖动 / 长按) 都不补发, 符合"空白处纯移动"的语义
                             }
-                            // 其他情况 (拖动 / 长按) 都不补发, 符合"空白处纯移动"的语义
                         }
                     }
 
@@ -1132,13 +1155,18 @@ class InputControlsView(context: Context?) : View(context) {
 
     /**
      * 释放所有 touchpad (空白处) 状态.
-     * 纯移动 + 轻点点击 模式下, DOWN 期间不维护 left down 状态, 所以这里只需要清
-     * pointer 跟踪. 任何场景下 (onDetachedFromWindow / setProfile / showTouchscreenControls=false)
-     * 都不可能有 left down 卡住, 但为了代码一致性仍保留这个 hook.
+     * 用于 onDetachedFromWindow / setProfile / showTouchscreenControls=false 等场景
+     * 避免"切后台后右键卡在按下"或"重复补发单击".
      */
     private fun releaseAllTouchpadButtons() {
-        // 纯移动模式下 DOWN 期间从未发过 down, 也不需要发 up. 只需清跟踪即可.
-        // 调这个方法的 onDetachedFromWindow/setProfile/setter 会紧跟着 clear().
+        val handler = inputEventHandler ?: return
+        // 如果 right down 处于按下状态, 兑底发 right up
+        if (rightButtonDown) {
+            handler.onPointerButton(3, false) // X11 button 3 = right
+            rightButtonDown = false
+        }
+        // DOWN 期间从未发过 left down, 所以不需要发 left up.
+        // 但需要清空 pointer 跟踪, 避免下次启动时状态错乱 (这个由调方 clear()).
     }
 
     fun sendText(text: String?) {
