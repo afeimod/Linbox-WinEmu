@@ -55,7 +55,6 @@ class InputControlsView(context: Context?) : View(context) {
             // 当 inputEventHandler 被设置时，同时更新 touchpadView
             touchpadView?.inputEventHandler = value
         }
-    var showTouchscreenControlsVal: Boolean = true
     var overlayOpacityVal: Float = DEFAULT_OVERLAY_OPACITY
     // Touchpad view reference
     var touchpadView: TouchpadViewCompat? = null
@@ -151,7 +150,8 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     fun setShowTouchscreenControlsValue(showVal: Boolean) {
-        this.showTouchscreenControlsVal = showVal
+        // 走 property setter, 自动同步字段 + 释放按键 + 调整可点击状态
+        this.showTouchscreenControls = showVal
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -278,10 +278,31 @@ class InputControlsView(context: Context?) : View(context) {
         }
     }
 
+    /**
+     * 虚拟按键总开关。
+     * - true:  正常显示虚拟按键并消费对应位置的触摸
+     * - false: 不绘制虚拟按键，且不拦截任何触摸事件 (onTouchEvent/handleTouchEvent/onHoverEvent
+     *          /onGenericMotionEvent 都 return false, 让事件透传给下层 LorieView)
+     *
+     * 关闭时还会兜底释放所有按下的虚拟按键, 防止"看不见了但角色还在走"这种幽灵按 bug。
+     */
     var showTouchscreenControls: Boolean
         get() = showTouchscreenControlsVal
         set(value) {
+            if (showTouchscreenControlsVal == value) return
             showTouchscreenControlsVal = value
+            if (!value) {
+                // 关闭时释放所有按下的虚拟按键, 避免幽灵按
+                releaseAllPressedKeys()
+                // 关闭时让 view 不再拦截事件, 透传给下层 LorieView
+                isClickable = false
+                isFocusable = false
+                isFocusableInTouchMode = false
+            } else {
+                isClickable = true
+                isFocusable = true
+                isFocusableInTouchMode = true
+            }
             invalidate()
         }
 
@@ -390,6 +411,8 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        // 关闭虚拟按键时不消费 motion event, 透传给下层 LorieView
+        if (!showTouchscreenControls) return false
         if (!editMode && profile != null) {
             val controller = profile!!.getController(event.deviceId)
             if (controller != null && controller.updateStateFromMotionEvent(event)) {
@@ -410,10 +433,14 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
+        // 关闭虚拟按键时不消费悬停事件, 透传给下层 LorieView
+        if (!showTouchscreenControls) return false
         return false
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // 关闭虚拟按键时不消费任何触摸事件, 返回 false 让事件透传给下层 (LorieView)
+        if (!showTouchscreenControls) return false
         if (editMode && readyToDraw) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -465,6 +492,9 @@ class InputControlsView(context: Context?) : View(context) {
      * 4. Properly handle mouse/touchpad input without early returns
      */
     fun handleTouchEvent(event: MotionEvent): Boolean {
+        // 关闭虚拟按键时不消费任何触摸事件, 透传给下层 (LorieView)
+        // 兜底拦截: 防止有人绕过 onTouchEvent 直接调 handleTouchEvent
+        if (!showTouchscreenControls) return false
         // Handle mouse input - pass through to touchpad for cursor movement
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             // Process mouse events for cursor movement
