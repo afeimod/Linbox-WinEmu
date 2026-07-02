@@ -20,6 +20,7 @@ import java.util.TimerTask
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
+import android.util.SparseArray
 
 /**
  * InputControlsView - Adapted for Linbox compatibility
@@ -55,6 +56,11 @@ class InputControlsView(context: Context?) : View(context) {
             // 当 inputEventHandler 被设置时，同时更新 touchpadView
             touchpadView?.inputEventHandler = value
         }
+    /**
+     * 虚拟按键开关的 backing field。
+     * showTouchscreenControls / showTouchscreenControlsVal 两个名字都委托给这个字段,
+     * 外部代码用哪个名字写都能触发同样的 set 副作用 (释放按键 + 调可点击状态)。
+     */
     var showTouchscreenControlsVal: Boolean = true
     var overlayOpacityVal: Float = DEFAULT_OVERLAY_OPACITY
     // Touchpad view reference
@@ -80,6 +86,95 @@ class InputControlsView(context: Context?) : View(context) {
     private var mouseMoveTimer: Timer? = null
     private val mouseMoveOffset = PointF()
     private val counterMap = HashMap<String, Int>()
+
+    /**
+     * 跟踪每一个 pointer 在本 View 上的状态。
+     * key = pointerId, value = TouchPointerState (lastX/lastY/isPointerDown/isCapturedByElement)。
+     *
+     * 背景: Android 多点触控派发下, 一旦 InputControlsView 在某个 pointer 的 ACTION_DOWN 里
+     * return true, 后续该手势内所有 pointer 的所有事件 (包括其他手的) 都会派给本 View,
+     * 不会回流到 LorieView. 所以本 View 必须自己处理"非按键区域的手指",
+     * 把它转成相对鼠标事件 + (可选) 左键事件, 否则用户的另一只手就动不了.
+     *
+     * 每个手指用 pointerId 独立跟踪, 互不干扰:
+     * - 命中按键的手指: 由 ControlElement 跟踪 (currentPointerId 机制), 本字段不参与
+     * - 落在空白处的手指: 走 touchpad 路径, 维护 lastX/lastY 计算 delta
+     * - 双手多指时: 每个 pointerId 独立的 lastX/lastY, 不会因为多手指同时存在而错位
+     */
+    private val touchPointers = SparseArray<TouchPointerState>()
+
+    /**
+     * 单个 pointer 的跟踪状态
+     *
+     * - lastX/lastY: 上一帧位置, 用于算 delta (发 onPointerMove)
+     * - startX/startY: DOWN 时的起点, 用于判断总位移是否超过阈值
+     * - downTimeMs: DOWN 的时间戳 (SystemClock.uptimeMillis), 用于 UP 时判断"长按 vs 轻点"
+     */
+    private class TouchPointerState(
+        var lastX: Float,
+        var lastY: Float,
+        val startX: Float,
+        val startY: Float,
+        val downTimeMs: Long
+    )
+
+    /**
+     * 触摸板 "轻点 vs 拖动" 阈值 (像素).
+     * 手指总位移 < 这个值且按压时长 < tapMaxDurationMs 才视为 "轻点" = 单击,
+     * DOWN 期间不发 down 也不发 MOVE, UP 时补发 down + 立即 up.
+     *
+     * 总位移 >= 阈值: 视为"拖动", 期间只发 onPointerMove (不按下任何键),
+     * UP 时啥都不补发 (因为没 down).
+     */
+    private val touchpadTapThresholdPx: Float = 8f
+
+    /**
+     * 触摸板 "轻点 vs 拖动 vs 长按锁定" 阈值 (毫秒).
+     *
+     * 语义:
+     * - DOWN 起到 UP 起, 总时长 < 这个值 + 总位移 < touchpadTapThresholdPx → 轻点 = 单击
+     * - DOWN 起 达到这个时长 还没抬手也没移动 → "长按锁定": 自动发 left button down,
+     *   进入 drag 模式. 后续 MOVE 发 onPointerMove 变成 drag (X11 选中 / 拖窗).
+     *   UP 时发 left up.
+     *
+     * 类比 Windows Precision Touchpad 的 "按住拖动" / macOS 的 "长按锁定" 行为.
+     */
+    private val touchpadTapMaxDurationMs: Long = 500L
+
+    /**
+     * "长按锁定" 延时触发器.
+     * DOWN 后 500ms 还没抬手 → 调 onLongPressLock 发送 left down, 进入 drag 模式.
+     *
+     * 取消场景:
+     * - UP (抬手) -> 取消
+     * - MOVE 超阈值 变成纯移动 -> 取消 (用户想 "纯移动光标", 不是 "长按拖动")
+     * - 第二根手指落下变双指右键 -> 取消
+     * - onDetachedFromWindow / setProfile / 关闭虚拟按键 -> 取消
+     */
+    private val handler = Handler(Looper.getMainLooper())
+    private var longPressLockRunnable: Runnable? = null
+
+    /**
+     * 兼容字段, 旧代码用过的 touchpadLeftButtonDown 状态标记.
+     * 纯移动 + 轻点模式下, DOWN 期间不发 down, UP 时直接补 down/up, 不需要维护
+     * "是否在按 left" 的状态. 这个字段保留只是为代码一致性.
+     */
+    @Suppress("unused")
+    private var touchpadLeftButtonDown = false
+
+    /**
+     * touchpad 是否处于"长按拖动"模式 (long press lock).
+     * 当长按锁触发后置 true, 期间 MOVE 发 onPointerMove 会产生 drag 效果 (因为 down 已发).
+     * UP 后置 false.
+     */
+    private var longPressLockActive = false
+
+    /**
+     * touchpad 双指右键状态.
+     * 当第二根手指落在空白处时发 right button down, 全部空白处手指抬起时发 right button up.
+     * 类比笔记本触摸板 "两指点按 = 右键".
+     */
+    private var rightButtonDown = false
     
     // Key repeat support for continuous press
     private val pressedKeys = mutableSetOf<Binding>()
@@ -132,6 +227,9 @@ class InputControlsView(context: Context?) : View(context) {
         super.onDetachedFromWindow()
         // 修复: 兜底释放所有按下的虚拟按键, 防止"卡键" / "角色还在走"这种 bug
         releaseAllPressedKeys()
+        // 清理 touchpad 状态: 释放所有未抬起的 left button down, 避免"切换窗口后鼠标卡在按下"
+        releaseAllTouchpadButtons()
+        touchPointers.clear()
         // 清理按键重复定时器资源，防止内存泄漏
         stopKeyRepeat()
         keyRepeatScheduler.shutdown()
@@ -151,7 +249,8 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     fun setShowTouchscreenControlsValue(showVal: Boolean) {
-        this.showTouchscreenControlsVal = showVal
+        // 走 property setter, 自动同步字段 + 释放按键 + 调整可点击状态
+        this.showTouchscreenControls = showVal
     }
 
     override fun onDraw(canvas: Canvas) {
@@ -268,6 +367,9 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     fun setProfile(profile: ControlsProfile?) {
+        // 切配置时清理触摸状态, 避免新配置继承了旧配置的 touchpad 状态
+        releaseAllTouchpadButtons()
+        touchPointers.clear()
         if (profile != null) {
             this.profile = profile
             deselectAllElements()
@@ -278,10 +380,34 @@ class InputControlsView(context: Context?) : View(context) {
         }
     }
 
+    /**
+     * 虚拟按键总开关。
+     * - true:  正常显示虚拟按键并消费对应位置的触摸
+     * - false: 不绘制虚拟按键，且不拦截任何触摸事件 (onTouchEvent/handleTouchEvent/onHoverEvent
+     *          /onGenericMotionEvent 都 return false, 让事件透传给下层 LorieView)
+     *
+     * 关闭时还会兜底释放所有按下的虚拟按键, 防止"看不见了但角色还在走"这种幽灵按 bug。
+     */
     var showTouchscreenControls: Boolean
         get() = showTouchscreenControlsVal
         set(value) {
+            if (showTouchscreenControlsVal == value) return
             showTouchscreenControlsVal = value
+            if (!value) {
+                // 关闭时释放所有按下的虚拟按键, 避免幽灵按
+                releaseAllPressedKeys()
+                // 关闭时同步释放 touchpad 未抬起的 left button, 避免幽灵按
+                releaseAllTouchpadButtons()
+                touchPointers.clear()
+                // 关闭时让 view 不再拦截事件, 透传给下层 LorieView
+                isClickable = false
+                isFocusable = false
+                isFocusableInTouchMode = false
+            } else {
+                isClickable = true
+                isFocusable = true
+                isFocusableInTouchMode = true
+            }
             invalidate()
         }
 
@@ -390,6 +516,8 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     override fun onGenericMotionEvent(event: MotionEvent): Boolean {
+        // 关闭虚拟按键时不消费 motion event, 透传给下层 LorieView
+        if (!showTouchscreenControls) return false
         if (!editMode && profile != null) {
             val controller = profile!!.getController(event.deviceId)
             if (controller != null && controller.updateStateFromMotionEvent(event)) {
@@ -410,10 +538,14 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     override fun onHoverEvent(event: MotionEvent): Boolean {
+        // 关闭虚拟按键时不消费悬停事件, 透传给下层 LorieView
+        if (!showTouchscreenControls) return false
         return false
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // 关闭虚拟按键时不消费任何触摸事件, 返回 false 让事件透传给下层 (LorieView)
+        if (!showTouchscreenControls) return false
         if (editMode && readyToDraw) {
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
@@ -465,6 +597,9 @@ class InputControlsView(context: Context?) : View(context) {
      * 4. Properly handle mouse/touchpad input without early returns
      */
     fun handleTouchEvent(event: MotionEvent): Boolean {
+        // 关闭虚拟按键时不消费任何触摸事件, 透传给下层 (LorieView)
+        // 兜底拦截: 防止有人绕过 onTouchEvent 直接调 handleTouchEvent
+        if (!showTouchscreenControls) return false
         // Handle mouse input - pass through to touchpad for cursor movement
         if (event.isFromSource(InputDevice.SOURCE_MOUSE)) {
             // Process mouse events for cursor movement
@@ -509,78 +644,138 @@ class InputControlsView(context: Context?) : View(context) {
             return true
         }
 
-        // Non-edit mode: handle virtual controls and touchpad
+        // Non-edit mode: 按 pointer 独立路由, 支持一只手按虚拟按键 + 另一只手在空白处拖鼠标
+        //
+        // Android 多点触控派发语义提醒: 一旦本 View 在某个 pointer 的 ACTION_DOWN 里
+        // return true, 该手势内所有 pointer 的所有事件都会派给本 View, 不会回流给
+        // LorieView. 所以本 View 必须为"落在空白处的手指"自己提供鼠标控制逻辑
+        // (相对鼠标移动 + 左键按下/释放), 不能依赖 LorieView 帮我们处理.
+        //
+        // 逐 pointer 路由:
+        // - 命中虚拟按键的手指: 走 ControlElement.handleTouchDown/Move/Up, 按键响应
+        // - 落在空白处的手指: 走 touchpad 路径, 维护 lastX/lastY 计算 delta, 转 onPointerMove
+        //
+        // 关键: 每个 pointer 独立维护 lastX/lastY (用 SparseArray 按 pointerId 跟踪),
+        // 避免"多个手指共用一个 lastX 导致 delta 错位". 左手按按键右手拖鼠标时,
+        // 右手的滑动只会计算右手自己的 delta, 不会跟左手位置混在一起.
         if (profile != null) {
-            val actionIndex = event.actionIndex
             val actionMasked = event.actionMasked
+            val actionIndex = event.actionIndex
             val actionPointerId = event.getPointerId(actionIndex)
 
             when (actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
-                    var handled = false
-                    touchpadView?.setPointerButtonLeftEnabled(true)
 
+                    // 先检查当前 pointer 是否命中虚拟按键
+                    var elementHandled = false
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchDown(actionPointerId, x, y)) {
-                            handled = true
-                            val binding = element.getBindingAt(0)
-                            if (binding == Binding.MOUSE_LEFT_BUTTON) {
-                                touchpadView?.setPointerButtonLeftEnabled(false)
-                            }
+                            elementHandled = true
+                            break
                         }
                     }
 
-                    // 只有当没有虚拟按钮处理时才传递给 touchpad
-                    if (!handled) {
-                        touchpadView?.onTouchEvent(event)
+                    if (!elementHandled) {
+                        // 空白处的手指: 纯移动 + 轻点点击 + 双指右键 + 长按拖动
+                        //
+                        // 行为:
+                        // - 单指 DOWN: 记录 startX/Y + downTime, 不发 button down.
+                        //              启动 500ms "长按锁定" 延时器: 超时后发 left down 进入 drag.
+                        //              避免 MOVE 变成 drag (超时前 MOVE 仍是纯移动).
+                        // - 双指 DOWN (第二根手指落下时):
+                        //              取消长按锁定延时器, 发 right button down.
+                        //              类比笔记本触摸板"两指点按 = 右键".
+                        //              后续任何 finger UP 不会发 right down (只发一次).
+                        // - MOVE: 阈值内 (总位移 < 8px) 不发 onPointerMove, 避免单击时轻微
+                        //         抖动导致光标意外飘. 超阈值后:
+                        //         * 如果长按锁定还没触发 -> 取消长按延时器, 走纯移动
+                        //         * 如果长按锁定已触发 -> 发 onPointerMove (drag)
+                        // - UP:   最后一根 touchpad 手指抬起时:
+                        //         - 如果在双指右键状态: 发 right up, 清状态.
+                        //         - 如果在长按锁定 drag 模式: 发 left up, 清状态.
+                        //         - 否则: 总位移 < 阈值 + 时长 < 500ms → 补发 left down + up (单击)
+                        //         - 其他: 不补发
+                        touchPointers.put(
+                            actionPointerId,
+                            TouchPointerState(
+                                lastX = x,
+                                lastY = y,
+                                startX = x,
+                                startY = y,
+                                downTimeMs = android.os.SystemClock.uptimeMillis()
+                            )
+                        )
+                        // 双指右键: 第二根手指落在空白处时, 立即发 right down + 取消长按锁定.
+                        // 之前"单指可能是单击"的待定状态 (通过 touchPointers.size() 判断)
+                        // 会被 UP 路径自动检测到 touchPointers.size()==0 时不再走单击补发逻辑.
+                        //
+                        // 边界: 如果长按锁定已发 left down, 此时第二根手指落下.
+                        // 这里选择"忽略双指" (不补发 right down), 保持 left down drag 状态.
+                        // (X11 协议上同时多 button down 是合法的, 但为了状态简单不增加混乱)
+                        if (touchPointers.size() >= 2 && !longPressLockActive) {
+                            cancelLongPressLock()
+                            if (!rightButtonDown) {
+                                inputEventHandler?.onPointerButton(3, true) // X11 button 3 = right
+                                rightButtonDown = true
+                            }
+                        } else {
+                            // 单指第一根 DOWN (或长按锁定中落下第二根): 启动/不重置长按锁定
+                            scheduleLongPressLock()
+                        }
                     }
-                    // 如果虚拟按钮处理了，返回true；否则返回false让LorieView处理
-                    return handled
+
+                    // 返回 true: 本手势必须由本 View 接管, 否则后续事件收不到
+                    return true
                 }
 
                 MotionEvent.ACTION_MOVE -> {
-                    // Track each pointer to see if it's handled by an element
-                    val unhandledPointers = mutableListOf<MotionEvent.PointerCoords>()
-                    val unhandledPointerProperties = mutableListOf<MotionEvent.PointerProperties>()
-
+                    // 对每个 pointer 独立判断:
+                    // - 命中按键的: 交给 ControlElement 处理 (会决定是否还在按键上, 离开则释放)
+                    // - 落在空白处的: 纯移动模式, 阈值内 (总位移 < 8px) 不发 onPointerMove,
+                    //                 避免单击时光标意外飘. 超阈值后正常发 onPointerMove.
+                    //                 因为 DOWN 期间永远没 down, MOVE 不会变成 drag.
                     for (i in 0 until event.pointerCount) {
                         val pointerId = event.getPointerId(i)
                         val x = event.getX(i)
                         val y = event.getY(i)
-                        var pointerHandled = false
 
+                        var hitElement = false
                         for (element in profile!!.getElements()) {
                             if (element.handleTouchMove(pointerId, x, y)) {
-                                pointerHandled = true
+                                hitElement = true
                                 break
                             }
                         }
 
-                        // If this pointer is not handled by any element, record it
-                        if (!pointerHandled) {
-                            val properties = MotionEvent.PointerProperties()
-                            event.getPointerProperties(i, properties)
-                            unhandledPointerProperties.add(properties)
-
-                            val coords = MotionEvent.PointerCoords()
-                            event.getPointerCoords(i, coords)
-                            unhandledPointers.add(coords)
+                        if (!hitElement) {
+                            val state = touchPointers.get(pointerId)
+                            if (state != null) {
+                                // 总位移 < 阈值 -> 视为"未离开点击状态", 不发 MOVE (避免抖)
+                                val totalDx = x - state.startX
+                                val totalDy = y - state.startY
+                                val totalDist = kotlin.math.abs(totalDx) + kotlin.math.abs(totalDy)
+                                if (totalDist < touchpadTapThresholdPx) {
+                                    // 仅更新 lastX/Y, 方便超阈值后能算正确 delta
+                                    state.lastX = x
+                                    state.lastY = y
+                                    continue
+                                }
+                                // 超阈值 -> 进入"拖动"区
+                                // 如果长按锁定还没触发, 取消延时器 (用户想"纯移动光标", 不是"长按拖动")
+                                if (!longPressLockActive) {
+                                    cancelLongPressLock()
+                                }
+                                val dx = x - state.lastX
+                                val dy = y - state.lastY
+                                state.lastX = x
+                                state.lastY = y
+                                if (dx != 0f || dy != 0f) {
+                                    inputEventHandler?.onPointerMove(dx.toInt(), dy.toInt())
+                                }
+                            }
                         }
-                    }
-
-                    // Pass unhandled pointers to touchpad for cursor movement
-                    if (unhandledPointers.isNotEmpty()) {
-                        val newEvent = MotionEvent.obtain(
-                            event.downTime, event.eventTime, event.action,
-                            unhandledPointers.size, unhandledPointerProperties.toTypedArray(),
-                            unhandledPointers.toTypedArray(), event.metaState, event.buttonState,
-                            event.xPrecision, event.yPrecision, event.deviceId, event.edgeFlags,
-                            event.source, event.flags
-                        )
-                        touchpadView?.onTouchEvent(newEvent)
-                        newEvent.recycle()
                     }
                     return true
                 }
@@ -588,28 +783,60 @@ class InputControlsView(context: Context?) : View(context) {
                 MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> {
                     val x = event.getX(actionIndex)
                     val y = event.getY(actionIndex)
-                    var handled = false
 
+                    // 先尝试从按键上释放
                     for (element in profile!!.getElements()) {
                         if (element.handleTouchUp(actionPointerId, x, y)) {
-                            handled = true
+                            break
                         }
                     }
 
-                    // 只有当没有虚拟按钮处理时才传递给 touchpad
-                    if (!handled) {
-                        touchpadView?.onTouchEvent(event)
+                    // touchpad (空白处) 手指抬起:
+                    // - 拿 state 算总位移 + 按压时长
+                    // - 最后一根 touchpad 手指抬起时:
+                    //   - 如果是双指右键状态: 发 right up, 清状态
+                    //   - 如果是长按锁定 drag 模式: 发 left up, 清状态
+                    //   - 否则: 评估"轻点" vs "拖动" vs "长按", 轻点补发单击
+                    val state = touchPointers.get(actionPointerId)
+                    if (state != null) {
+                        // 抬手先取消长按锁定延时器 (如果还没触发)
+                        cancelLongPressLock()
+                        touchPointers.remove(actionPointerId)
+                        // 最后一根 touchpad 手指抬起 -> 处理收尾
+                        if (touchPointers.size() == 0) {
+                            if (rightButtonDown) {
+                                // 双指右键: 之前第二根 DOWN 时发了 right down, 这里补 right up
+                                inputEventHandler?.onPointerButton(3, false) // X11 button 3 = right
+                                rightButtonDown = false
+                            } else if (longPressLockActive) {
+                                // 长按锁定 drag: 之前 longPressLockRunnable 发了 left down, 这里补 left up
+                                inputEventHandler?.onPointerButton(1, false) // X11 button 1 = left
+                                longPressLockActive = false
+                            } else {
+                                // 单击 vs 拖动 vs 长按 判定
+                                val totalDx = x - state.startX
+                                val totalDy = y - state.startY
+                                val totalDist = kotlin.math.abs(totalDx) + kotlin.math.abs(totalDy)
+                                val durationMs = android.os.SystemClock.uptimeMillis() - state.downTimeMs
+
+                                if (totalDist < touchpadTapThresholdPx && durationMs < touchpadTapMaxDurationMs) {
+                                    // 轻点: 补发单击 down + up
+                                    inputEventHandler?.onPointerButton(1, true)
+                                    inputEventHandler?.onPointerButton(1, false)
+                                }
+                                // 其他情况 (拖动 / 长按) 都不补发, 符合"空白处纯移动"的语义
+                            }
+                        }
                     }
-                    // 如果虚拟按钮处理了，返回true；否则返回false让LorieView处理
-                    return handled
+
+                    // 兜底: 同一个 pointer 不会同时在按键 + touchpad, 上面互斥.
+                    // 如果啥都没匹配 (View 收到陌生 pointer up), 也保持 return true
+                    // 保证该手势其他已 claim 的 pointer 还能继续接收事件.
+                    return true
                 }
             }
-        } else {
-            // No profile configured, pass events to touchpad for cursor movement
-            touchpadView?.onTouchEvent(event)
-            // 返回false让LorieView处理原生X11鼠标控制
-            return false
         }
+        // profile == null 或未匹配到 action 分支: 不拦截, 透传给下层 LorieView
         return false
     }
 
@@ -710,6 +937,23 @@ class InputControlsView(context: Context?) : View(context) {
         touchpadView?.mouseMove(x, y, action)
     }
 
+    /**
+     * Mouse button binding -> X11InputSender.sendMouseButtonEvent 期望的 Int 编号.
+     * 1=LEFT 2=MIDDLE 3=RIGHT 4=SCROLL_UP 5=SCROLL_DOWN.
+     * 不复用 Binding.getPointerButton() (返回 Pointer.Button?), 那个返回 AAR 里的 enum,
+     * 跟 X11InputSender 内部用的 Int 编号不一定一致; 这里直接映射成 Int 避免出错.
+     */
+    private fun getPointerButtonInt(binding: Binding): Int? {
+        return when (binding) {
+            Binding.MOUSE_LEFT_BUTTON -> 1
+            Binding.MOUSE_MIDDLE_BUTTON -> 2
+            Binding.MOUSE_RIGHT_BUTTON -> 3
+            Binding.MOUSE_SCROLL_UP -> 4
+            Binding.MOUSE_SCROLL_DOWN -> 5
+            else -> null
+        }
+    }
+
     fun handleInputEvent(binding: Binding, isActionDown: Boolean) {
         handleInputEvent(binding, isActionDown, 0f)
     }
@@ -755,6 +999,20 @@ class InputControlsView(context: Context?) : View(context) {
                     0f
                 }
                 if (isActionDown) createMouseMoveTimer()
+            } else if (binding === Binding.MOUSE_LEFT_BUTTON
+                || binding === Binding.MOUSE_MIDDLE_BUTTON
+                || binding === Binding.MOUSE_RIGHT_BUTTON
+                || binding === Binding.MOUSE_SCROLL_UP
+                || binding === Binding.MOUSE_SCROLL_DOWN) {
+                // 鼠标按钮 / 滚轮: 走 InputEventHandler.onPointerButton 路径
+                // 不能走 onKeyEvent, 因为 toEvdev() 对这些 binding 返回 0,
+                // X11InputSender.sendEvdevKeyEvent 会过滤掉. sendMouseButtonEvent 的
+                // button 参数跟下面 getPointerButtonInt() 定义的 Int 编号一致:
+                //   1=LEFT 2=MIDDLE 3=RIGHT 4=SCROLL_UP 5=SCROLL_DOWN.
+                val button = getPointerButtonInt(binding)
+                if (button != null) {
+                    handler.onPointerButton(button, isActionDown)
+                }
             } else {
                 // 键盘按键处理
                 if (isActionDown) {
@@ -785,10 +1043,21 @@ class InputControlsView(context: Context?) : View(context) {
      */
     fun updateKeyState(binding: Binding, isActive: Boolean) {
         val handler = inputEventHandler ?: return
-        
+
+        // 鼠标 binding 走 onPointerButton 路径 (跟 handleInputEvent 保持一致)
+        val mouseButton = getPointerButtonInt(binding)
+        if (mouseButton != null) {
+            if (isActive) {
+                handler.onPointerButton(mouseButton, true)
+            } else {
+                handler.onPointerButton(mouseButton, false)
+            }
+            return
+        }
+
         // 获取当前按键的实际状态
         val isCurrentlyPressed = pressedKeys.contains(binding)
-        
+
         // 状态变化时的处理
         if (isActive && !isCurrentlyPressed) {
             // 从释放变为按下
@@ -812,6 +1081,12 @@ class InputControlsView(context: Context?) : View(context) {
      */
     fun sendKeyDown(binding: Binding) {
         val handler = inputEventHandler ?: return
+        // 鼠标 binding 走 onPointerButton 路径 (跟 handleInputEvent 保持一致)
+        val mouseButton = getPointerButtonInt(binding)
+        if (mouseButton != null) {
+            handler.onPointerButton(mouseButton, true)
+            return
+        }
         // 发送按下事件
         handler.onKeyEvent(binding.toEvdev(), true)
         // 添加到pressedKeys以启用重复机制
@@ -827,6 +1102,12 @@ class InputControlsView(context: Context?) : View(context) {
      */
     fun sendKeyUp(binding: Binding) {
         val handler = inputEventHandler ?: return
+        // 鼠标 binding 走 onPointerButton 路径 (跟 handleInputEvent 保持一致)
+        val mouseButton = getPointerButtonInt(binding)
+        if (mouseButton != null) {
+            handler.onPointerButton(mouseButton, false)
+            return
+        }
         // 发送释放事件
         handler.onKeyEvent(binding.toEvdev(), false)
         // 从pressedKeys移除
@@ -906,15 +1187,70 @@ class InputControlsView(context: Context?) : View(context) {
      */
     fun releaseAllPressedKeys() {
         val handler = inputEventHandler ?: return
-        if (pressedKeys.isEmpty()) return
-        // 复制一份再清, 避免迭代过程中修改集合
-        val toRelease = pressedKeys.toList()
-        pressedKeys.clear()
-        stopKeyRepeat()
-        for (binding in toRelease) {
-            // 跟正常释放走同一个出口, 走 InputEventHandler 转发
-            handler.onKeyEvent(binding.toEvdev(), false)
+        // 1. 释放已跟踪的键盘 binding (在 pressedKeys 里的)
+        if (pressedKeys.isNotEmpty()) {
+            val toRelease = pressedKeys.toList()
+            pressedKeys.clear()
+            stopKeyRepeat()
+            for (binding in toRelease) {
+                handler.onKeyEvent(binding.toEvdev(), false)
+            }
         }
+        // 2. 释放所有鼠标 button (MOUSE_LEFT/MIDDLE/RIGHT), 这些 binding 不进 pressedKeys
+        //    但切后台/切 profile 时候要丢释放事件避免 X server 端永久卡住按下状态.
+        for (binding in arrayOf(Binding.MOUSE_LEFT_BUTTON, Binding.MOUSE_MIDDLE_BUTTON, Binding.MOUSE_RIGHT_BUTTON)) {
+            val button = getPointerButtonInt(binding) ?: continue
+            handler.onPointerButton(button, false)
+        }
+    }
+
+    /**
+     * 启动长按锁定延时器.
+     * 500ms 后 (如果还没被取消) 调 onLongPressLock 发送 left down, 进入 drag 模式.
+     */
+    private fun scheduleLongPressLock() {
+        cancelLongPressLock()
+        val r = Runnable {
+            // 延时器到点: 发送 left down, 进入 drag 模式
+            if (touchPointers.size() > 0 && !rightButtonDown && !longPressLockActive) {
+                inputEventHandler?.onPointerButton(1, true) // X11 button 1 = left
+                longPressLockActive = true
+            }
+        }
+        longPressLockRunnable = r
+        handler.postDelayed(r, touchpadTapMaxDurationMs)
+    }
+
+    /**
+     * 取消长按锁定延时器.
+     * 场景: UP / MOVE 超阈值 / 双指右键 / 切 profile / 关闭虚拟按键 / View 销毁
+     */
+    private fun cancelLongPressLock() {
+        longPressLockRunnable?.let { handler.removeCallbacks(it) }
+        longPressLockRunnable = null
+    }
+
+    /**
+     * 释放所有 touchpad (空白处) 状态.
+     * 用于 onDetachedFromWindow / setProfile / showTouchscreenControls=false 等场景
+     * 避免"切后台后右键/长按拖动 卡在按下"或"重复补发单击".
+     */
+    private fun releaseAllTouchpadButtons() {
+        val handler = inputEventHandler ?: return
+        // 取消长按锁定延时器 (如果还没触发)
+        cancelLongPressLock()
+        // 如果 right down 处于按下状态, 兑底发 right up
+        if (rightButtonDown) {
+            handler.onPointerButton(3, false) // X11 button 3 = right
+            rightButtonDown = false
+        }
+        // 如果 longPressLockActive, 兑底发 left up
+        if (longPressLockActive) {
+            handler.onPointerButton(1, false) // X11 button 1 = left
+            longPressLockActive = false
+        }
+        // DOWN 期间从未发过 left down (除了 longPressLock 路径), 所以不需要发 left up.
+        // 但需要清空 pointer 跟踪, 避免下次启动时状态错乱 (这个由调方 clear()).
     }
 
     fun sendText(text: String?) {
