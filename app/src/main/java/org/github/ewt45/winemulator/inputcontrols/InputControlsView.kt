@@ -106,29 +106,40 @@ class InputControlsView(context: Context?) : View(context) {
     /**
      * 单个 pointer 的跟踪状态
      *
-     * - lastX/lastY: 上一帧位置, 用于算 delta
+     * - lastX/lastY: 上一帧位置, 用于算 delta (发 onPointerMove)
      * - startX/startY: DOWN 时的起点, 用于判断总位移是否超过阈值
+     * - downTimeMs: DOWN 的时间戳 (SystemClock.uptimeMillis), 用于 UP 时判断"长按 vs 轻点"
      */
     private class TouchPointerState(
         var lastX: Float,
         var lastY: Float,
         val startX: Float,
-        val startY: Float
+        val startY: Float,
+        val downTimeMs: Long
     )
 
     /**
-     * 触摸板 tapping 阈值 (像素). 手指总位移 (从 start 到当前) 超过这个值才视为"拖动",
-     * 在阈值内即使手指在轻微抖动也不发 onPointerMove, 避免单击时鼠标意外飘.
+     * 触摸板 "轻点 vs 拖动" 阈值 (像素).
+     * 手指总位移 < 这个值且按压时长 < tapMaxDurationMs 才视为 "轻点" = 单击,
+     * DOWN 期间不发 down 也不发 MOVE, UP 时补发 down + 立即 up.
      *
-     * 参考值: macOS / Windows 触摸板默认类似阈值都在 5~10px. 这里用 8px.
+     * 总位移 >= 阈值: 视为"拖动", 期间只发 onPointerMove (不按下任何键),
+     * UP 时啥都不补发 (因为没 down).
      */
     private val touchpadTapThresholdPx: Float = 8f
 
     /**
-     * touchpad (空白处) 是否有任何一个 pointer 正按着左键.
-     * 多指同时在空白处时, 只在第一根 DOWN 发 left down, 最后一根 UP 才发 left up.
-     * 避免 X server 端 down/up 次数不匹配导致状态错乱.
+     * "轻点" 最大按压时长 (毫秒). DOWN 起到 UP 起, 总时长 < 这个值才算轻点.
+     * 超时视为 "长按", UP 不补发单击事件 (避免长按误触发点击).
      */
+    private val touchpadTapMaxDurationMs: Long = 500L
+
+    /**
+     * 兼容字段, 旧代码用过的 touchpadLeftButtonDown 状态标记.
+     * 纯移动 + 轻点模式下, DOWN 期间不发 down, UP 时直接补 down/up, 不需要维护
+     * "是否在按 left" 的状态. 这个字段保留只是为代码一致性.
+     */
+    @Suppress("unused")
     private var touchpadLeftButtonDown = false
     
     // Key repeat support for continuous press
@@ -633,32 +644,31 @@ class InputControlsView(context: Context?) : View(context) {
                     }
 
                     if (!elementHandled) {
-                        // 空白处的手指: 触摸板 tapping 模式
+                        // 空白处的手指: 纯移动 + 轻点点击
                         //
-                        // 行为 (跟 macOS / Windows 笔记本触摸板一致):
-                        // - DOWN: 立即发左键 down, 记录起点. 这样"单击"能正常点到目标.
-                        // - MOVE: 计算总位移, 未超阈值时不发 onPointerMove (避免单击时手指轻微抖动
-                        //         导致鼠标意外飘); 超阈值后发 onPointerMove 拖动.
-                        // - UP:   如果之前发了 down, 这里发 up.
+                        // 行为:
+                        // - DOWN: 只记录 startX/Y + downTime, **不发 button down**.
+                        //         这样 DOWN 期间不进入 "按下" 状态, MOVE 不会变成 drag.
+                        // - MOVE: 算 delta, 发 onPointerMove 移动光标.
+                        //         总位移 < 阈值时也算 (轻微抖动也是移动, 但用户感觉是 "轻点").
+                        //         但阈值内不抑制: 因为这里 DOWN 期间永远没 down, MOVE 永远
+                        //         只是相对位移, 不会变成 drag. 不需要额外抑制.
+                        // - UP:   根据总位移 + 按压时长决定:
+                        //         - 总位移 < 阈值 + 时长 < 500ms → "轻点", 补发 down + up (单击)
+                        //         - 总位移 >= 阈值 → "拖动", 不补发 (DOWN 期间没 down)
+                        //         - 时长 >= 500ms → "长按", 不补发
                         //
-                        // 用户的"另一只手"场景: 虚拟摇杆按键 + 空白处点击/拖动
-                        // - 轻点空白: DOWN 发 down, UP 发 up -> 正常点击
-                        // - 拖动空白: DOWN 发 down, MOVE 超阈值开始发 onPointerMove, UP 发 up -> drag
-                        // - 玩 FPS 旋转视角: 玩家会"画圈"拖动, 一样走 drag 路径
-                        //
-                        // 多指 touchpad: 只有第一根 DOWN 发 left down (避免重复 down),
-                        // 最后一根 UP 才发 left up.
-                        if (!touchpadLeftButtonDown) {
-                            inputEventHandler?.onPointerButton(1, true) // X11 button 1 = left
-                            touchpadLeftButtonDown = true
-                        }
+                        // 优点: "拖动鼠标" 永远不会变成 drag/框选. "轻点" 仍然是单击.
+                        // 缺点: 长按 (例如拖窗点住不动) 不会 down, 这个 View 覆盖整个屏幕,
+                        //       用户得专门点 "鼠标左键" 虚拟按键.
                         touchPointers.put(
                             actionPointerId,
                             TouchPointerState(
                                 lastX = x,
                                 lastY = y,
                                 startX = x,
-                                startY = y
+                                startY = y,
+                                downTimeMs = android.os.SystemClock.uptimeMillis()
                             )
                         )
                     }
@@ -670,7 +680,9 @@ class InputControlsView(context: Context?) : View(context) {
                 MotionEvent.ACTION_MOVE -> {
                     // 对每个 pointer 独立判断:
                     // - 命中按键的: 交给 ControlElement 处理 (会决定是否还在按键上, 离开则释放)
-                    // - 落在空白处的: tapping 模式, 阈值内不发 onPointerMove, 超阈值才发
+                    // - 落在空白处的: 纯移动模式, 阈值内 (总位移 < 8px) 不发 onPointerMove,
+                    //                 避免单击时光标意外飘. 超阈值后正常发 onPointerMove.
+                    //                 因为 DOWN 期间永远没 down, MOVE 不会变成 drag.
                     for (i in 0 until event.pointerCount) {
                         val pointerId = event.getPointerId(i)
                         val x = event.getX(i)
@@ -687,26 +699,24 @@ class InputControlsView(context: Context?) : View(context) {
                         if (!hitElement) {
                             val state = touchPointers.get(pointerId)
                             if (state != null) {
-                                // 算 delta (用于 onPointerMove)
+                                // 总位移 < 阈值 -> 视为"未离开点击状态", 不发 MOVE (避免抖)
+                                val totalDx = x - state.startX
+                                val totalDy = y - state.startY
+                                val totalDist = kotlin.math.abs(totalDx) + kotlin.math.abs(totalDy)
+                                if (totalDist < touchpadTapThresholdPx) {
+                                    // 仅更新 lastX/Y, 方便超阈值后能算正确 delta
+                                    state.lastX = x
+                                    state.lastY = y
+                                    continue
+                                }
                                 val dx = x - state.lastX
                                 val dy = y - state.lastY
                                 state.lastX = x
                                 state.lastY = y
-
-                                // 总位移 (从 DOWN 起点算) -- 判断是否超阈值
-                                val totalDx = x - state.startX
-                                val totalDy = y - state.startY
-                                val totalDist = kotlin.math.abs(totalDx) + kotlin.math.abs(totalDy)
-
-                                if (totalDist >= touchpadTapThresholdPx) {
-                                    // 超阈值 -> 拖动, 发 onPointerMove
-                                    if (dx != 0f || dy != 0f) {
-                                        inputEventHandler?.onPointerMove(dx.toInt(), dy.toInt())
-                                    }
+                                if (dx != 0f || dy != 0f) {
+                                    inputEventHandler?.onPointerMove(dx.toInt(), dy.toInt())
                                 }
-                                // 阈值内 (totalDist < 8px) 不发 MOVE, 避免轻微抖动导致鼠标飘
                             }
-                            // state == null 忽略 (View 范围外 / 历史事件)
                         }
                     }
                     return true
@@ -723,15 +733,25 @@ class InputControlsView(context: Context?) : View(context) {
                         }
                     }
 
-                    // 如果这个 pointer 是 touchpad 上的, 收尾:
-                    // - 如果是最后一根 touchpad 手指抬起, 补发 up
-                    // - 清理跟踪
-                    val wasTouchpad = touchPointers.indexOfKey(actionPointerId) >= 0
-                    if (wasTouchpad) {
+                    // touchpad (空白处) 手指抬起:
+                    // - 拿 state 算总位移 + 按压时长
+                    // - 最后一根 touchpad 手指抬起时, 如果是"轻点"则补发 down + up
+                    val state = touchPointers.get(actionPointerId)
+                    if (state != null) {
                         touchPointers.remove(actionPointerId)
-                        if (touchpadLeftButtonDown && touchPointers.size() == 0) {
-                            inputEventHandler?.onPointerButton(1, false) // X11 button 1 = left
-                            touchpadLeftButtonDown = false
+                        // 只有最后一根 touchpad 抬起时才补发单击, 避免多指重复触发
+                        if (touchPointers.size() == 0) {
+                            val totalDx = x - state.startX
+                            val totalDy = y - state.startY
+                            val totalDist = kotlin.math.abs(totalDx) + kotlin.math.abs(totalDy)
+                            val durationMs = android.os.SystemClock.uptimeMillis() - state.downTimeMs
+
+                            if (totalDist < touchpadTapThresholdPx && durationMs < touchpadTapMaxDurationMs) {
+                                // 轻点: 补发单击 down + up
+                                inputEventHandler?.onPointerButton(1, true)
+                                inputEventHandler?.onPointerButton(1, false)
+                            }
+                            // 其他情况 (拖动 / 长按) 都不补发, 符合"空白处纯移动"的语义
                         }
                     }
 
@@ -1111,16 +1131,14 @@ class InputControlsView(context: Context?) : View(context) {
     }
 
     /**
-     * 释放所有 touchpad (空白处) 正在按下的左键.
-     * 用于 onDetachedFromWindow / setProfile / showTouchscreenControls=false 等场景
-     * 避免"切后台后左键卡在按下".
+     * 释放所有 touchpad (空白处) 状态.
+     * 纯移动 + 轻点点击 模式下, DOWN 期间不维护 left down 状态, 所以这里只需要清
+     * pointer 跟踪. 任何场景下 (onDetachedFromWindow / setProfile / showTouchscreenControls=false)
+     * 都不可能有 left down 卡住, 但为了代码一致性仍保留这个 hook.
      */
     private fun releaseAllTouchpadButtons() {
-        val handler = inputEventHandler ?: return
-        if (touchpadLeftButtonDown) {
-            handler.onPointerButton(1, false) // X11 button 1 = left
-            touchpadLeftButtonDown = false
-        }
+        // 纯移动模式下 DOWN 期间从未发过 down, 也不需要发 up. 只需清跟踪即可.
+        // 调这个方法的 onDetachedFromWindow/setProfile/setter 会紧跟着 clear().
     }
 
     fun sendText(text: String?) {
