@@ -55,6 +55,12 @@ class InputControlsView(context: Context?) : View(context) {
             // 当 inputEventHandler 被设置时，同时更新 touchpadView
             touchpadView?.inputEventHandler = value
         }
+    /**
+     * 虚拟按键开关的 backing field。
+     * showTouchscreenControls / showTouchscreenControlsVal 两个名字都委托给这个字段,
+     * 外部代码用哪个名字写都能触发同样的 set 副作用 (释放按键 + 调可点击状态)。
+     */
+    var showTouchscreenControlsVal: Boolean = true
     var overlayOpacityVal: Float = DEFAULT_OVERLAY_OPACITY
     // Touchpad view reference
     var touchpadView: TouchpadViewCompat? = null
