@@ -239,10 +239,44 @@ fun PrepareScreenImpl(prepareVm: PrepareViewModel, settingVm: SettingViewModel, 
                 prepareVm.onRootfsExtracted(result.rootfsDir.name)
             } catch (e: Throwable) {
                 e.printStackTrace()
-                reporter.msg(
-                    "安装失败: ${e.message ?: e::class.simpleName}\n${e.stackTraceToString()}",
-                    "安装失败，请检查网络或换个 image ref 重试。\n（日志可点击展开查看）"
-                )
+                // 按异常类型区分提示文本
+                val rawMsg = e.message ?: e::class.simpleName ?: "unknown"
+                val shortMsg = rawMsg.lineSequence().firstOrNull()?.take(200) ?: rawMsg
+                val (title, hint) = when {
+                    rawMsg.contains("integrity check failed", ignoreCase = true) ->
+                        "下载的 layer SHA-256 校验失败 (网络中断或被代理篡改)" to
+                        "请重新点同一按钮重试。已下载的 layer 会重用，仅重新下载未完成的层。\n（日志可点击展开查看）"
+                    rawMsg.contains("manifest", ignoreCase = true) && (
+                        rawMsg.contains("not found", ignoreCase = true) ||
+                        rawMsg.contains("does not exist", ignoreCase = true)
+                    ) ->
+                        "在 Docker Hub 找不到该镜像" to
+                        "请检查 image ref 是否正确（区分大小写，注意空格）\n（日志可点击展开查看）"
+                    rawMsg.contains("UnknownHostException", ignoreCase = true) ||
+                    rawMsg.contains("Failed to connect", ignoreCase = true) ||
+                    rawMsg.contains("Network is unreachable", ignoreCase = true) ||
+                    rawMsg.contains("timeout", ignoreCase = true) ||
+                    rawMsg.contains("Network error", ignoreCase = true) ||
+                    e is java.net.UnknownHostException ||
+                    e is java.net.SocketTimeoutException ||
+                    e is java.net.ConnectException ->
+                        "网络连接失败" to
+                        "请检查网络/DNS。oci_layers/ 里的 layer 已保留，重试不需要重新下载全部。\n（日志可点击展开查看）"
+                    rawMsg.contains("zstd", ignoreCase = true) ->
+                        "该镜像的 layer 使用 zstd 压缩" to
+                        "Android 暂不支持 zstd 解压，请换另一个 image ref。\n（日志可点击展开查看）"
+                    else ->
+                        "安装失败: $shortMsg" to
+                        "查看完整堆栈。\n（日志可点击展开查看）"
+                }
+                android.util.Log.e("PrepareScreen", "install failed: $rawMsg", e)
+                reporter.msg("✗ $title")
+                reporter.msg("  异常: ${e::class.simpleName}: $shortMsg")
+                // 只列前 12 行堆栈,避免消息过长
+                e.stackTrace.take(12).forEach { st ->
+                    reporter.msg("    at $st")
+                }
+                reporter.msg("✗ 提示: $hint", title)
                 reporter.stage = ProgressStage.DONE_FAILURE
             } finally {
                 isInstalling = false
