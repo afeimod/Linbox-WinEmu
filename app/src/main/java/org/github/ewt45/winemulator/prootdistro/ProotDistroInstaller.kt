@@ -76,25 +76,31 @@ object ProotDistroInstaller {
 
         try {
             rootfsDir.mkdirs()
+            reporter?.msg("step 1/4: 拉取 manifest + 下载所有 layer")
 
             // 3. 拉 manifest,得到 layer 列表
             val (manifest, imageConfig, baseUrl, token) =
                 pullImage(imageRef, rootfsDir, distArch, insecure, reporter)
+            reporter?.msg("step 2/4: 所有 layer 已下载并解压到 ${rootfsDir.name}/")
 
             // 4. 写 manifest.json
+            reporter?.msg("step 3/4: 写 rootfs manifest.json")
             saveContainerManifest(alias, imageRef, distArch, manifest, imageConfig)
 
             // 5. 后处理 rootfs
+            reporter?.msg("step 4/4: 后处理 rootfs (resolv.conf / hosts / Android UID / 假 /proc)")
             if (File(rootfsDir, "etc").isDirectory) {
-                reporter?.msg("写入 /etc/resolv.conf / /etc/hosts ...")
+                reporter?.msg("  写入 /etc/resolv.conf / /etc/hosts ...")
                 ProotDistroRootfsFix.writeResolvConf(rootfsDir)
                 ProotDistroRootfsFix.writeHosts(rootfsDir)
                 if (File(rootfsDir, "etc/passwd").isFile) {
-                    reporter?.msg("注册 Android UID/GID ...")
+                    reporter?.msg("  注册 Android UID/GID ...")
                     ProotDistroRootfsFix.registerAndroidIds(rootfsDir)
                 }
+            } else {
+                reporter?.msg("  (跳过: rootfs 中找不到 etc/ 目录,layer 似乎没解开?)")
             }
-            reporter?.msg("写入假 /proc 数据 ...")
+            reporter?.msg("  写入假 /proc 数据 ...")
             ProotDistroRootfsFix.setupFakeSysdata(rootfsDir)
 
             // 6. 给一个 .alias 文件方便在 linbox 列表里识别
@@ -104,12 +110,26 @@ object ProotDistroInstaller {
             reporter?.progress(1f)
             InstallResult(rootfsDir, imageRef, alias, distArch)
         } catch (e: Throwable) {
-            // 失败时清理掉半成品
+            // 失败时, 只清掉 rootfs 半成品, oci_layers/ 缓存保留以便重试时复用
             try {
                 if (rootfsDir.exists()) {
                     FileUtils.deleteDirectory(rootfsDir)
                 }
             } catch (_: Throwable) {}
+            // 在抛出前在 msg 末尾追加线索, 方便快速判断错误类型
+            e.message?.let { msg ->
+                when {
+                    msg.contains("integrity check failed", ignoreCase = true) ->
+                        android.util.Log.e("ProotDistroInstaller", "layer SHA-256 mismatch: $msg", e)
+                    msg.contains("manifest", ignoreCase = true) && msg.contains("not found", ignoreCase = true) ->
+                        android.util.Log.e("ProotDistroInstaller", "manifest/image 404: $msg", e)
+                    msg.contains("Network error", ignoreCase = true) ||
+                    msg.contains("Failed to connect", ignoreCase = true) ||
+                    msg.contains("timeout", ignoreCase = true) ||
+                    msg.contains("UnknownHost", ignoreCase = true) ->
+                        android.util.Log.e("ProotDistroInstaller", "network error: $msg", e)
+                }
+            }
             throw e
         }
     }
@@ -147,7 +167,7 @@ object ProotDistroInstaller {
             // 校验所有 layer 是否已缓存,如有缺失则只重新拉 token
             val layers = manifest.optJSONArray("layers")
             if (layers != null && allLayersCached(layers)) {
-                reporter?.msg("镜像已缓存,无需网络下载")
+                reporter?.msg("镜像已缓存,无需网络下载 (layers=${layers.length()})")
                 token = ""
                 baseUrl = if (registry.isEmpty()) ProotDistro.DOCKER_HUB_REGISTRY else "https://$registry"
             } else {
@@ -157,15 +177,17 @@ object ProotDistroInstaller {
                 baseUrl = auth.baseUrl
             }
         } else {
-            reporter?.msg("认证 registry...")
+            reporter?.msg("  → 认证 registry ${if (registry.isEmpty()) "(Docker Hub)" else registry}")
             val auth = ProotDistroAuth.getAuthToken(repo, registry, reporter, insecure)
             token = auth.token
             baseUrl = auth.baseUrl
-            reporter?.msg("获取 manifest $imageRef ...")
+            reporter?.msg("  → 获取 manifest $imageRef (arch=$arch)")
             val resolved = resolveSingleManifest(repo, tag, token, baseUrl, insecure, arch, imageRef, reporter)
             manifest = resolved.manifest
             imageConfig = resolved.imageConfig
-            saveManifestCache(imageRef, arch, manifest, imageConfig, repo)
+            // 即使后面 layer 失败, manifest 已拿到, 保存以便重试
+            try { saveManifestCache(imageRef, arch, manifest, imageConfig, repo) }
+            catch (e: Throwable) { reporter?.msg("  ! 保存 manifest 缓存失败: ${e.message}") }
         }
 
         // manifest 走两个分支都已被赋值,不可能为 null
@@ -178,6 +200,15 @@ object ProotDistroInstaller {
         }
 
         // 2. 逐层下载+解压
+        reporter?.msg("  → 共 $nLayers 个 layer")
+        // 先报一下已缓存多少个
+        val cachedCount = (0 until nLayers).count {
+            val d = layers.getJSONObject(it).optString("digest")
+            ProotDistroCache.layerCachePath(d).isFile
+        }
+        if (cachedCount > 0) {
+            reporter?.msg("    本地 oci_layers 缓存中已有 $cachedCount / $nLayers 个 layer")
+        }
         for (i in 0 until nLayers) {
             val layer = layers.getJSONObject(i)
             val digest = layer.optString("digest")
@@ -192,12 +223,15 @@ object ProotDistroInstaller {
             val shortId = digest.substringAfter(':').take(12)
             val cached = ProotDistroCache.layerCachePath(digest)
             if (cached.isFile) {
-                reporter?.msg("$shortId: layer ${i + 1}/$nLayers 已缓存,跳过下载")
+                reporter?.msg("  [${i + 1}/$nLayers] $shortId 已缓存 (${cached.length() / 1024} KB),解压中...")
                 applyLayer(cached, rootfsDir, reporter)
+                reporter?.msg("  [${i + 1}/$nLayers] $shortId 解压完成")
             } else {
-                reporter?.msg("$shortId: 下载 layer ${i + 1}/$nLayers (${layer.optLong("size", 0)} bytes)")
+                reporter?.msg("  [${i + 1}/$nLayers] $shortId 下载中 (${layer.optLong("size", 0) / 1024} KB)...")
                 val downloaded = downloadBlob(repo, digest, token, baseUrl, insecure, reporter)
+                reporter?.msg("  [${i + 1}/$nLayers] $shortId 下载完成, 解压中...")
                 applyLayer(downloaded, rootfsDir, reporter)
+                reporter?.msg("  [${i + 1}/$nLayers] $shortId 解压完成")
             }
         }
 

@@ -5,6 +5,7 @@ import kotlinx.coroutines.withContext
 import org.github.ewt45.winemulator.ui.components.TaskReporter
 import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.FileOutputStream
 import java.io.IOException
 import java.io.InputStream
@@ -30,8 +31,8 @@ import kotlin.math.min
  */
 object ProotDistroHttp {
 
-    private const val DEFAULT_MAX_RETRIES = 5
-    private const val DEFAULT_RETRY_DELAY_MS = 5_000L
+    private const val DEFAULT_MAX_RETRIES = 3
+    private const val DEFAULT_RETRY_DELAY_MS = 2_000L
 
     /**
      * 把 [block] 的结果返回,transient 错误按指数退避重试。
@@ -62,8 +63,19 @@ object ProotDistroHttp {
     private fun isRetryable(e: Throwable): Boolean {
         return when (e) {
             is IOException -> {
-                // SSL 证书校验失败 / 纯 HTTP 回 TLS 握手错误这种 deterministic 错误不重试
-                !(e is SSLHandshakeException && e.message?.contains("PKIX", ignoreCase = true) == true)
+                // 连接级错误 (UnknownHost / Connect / SocketTimeout) 都是 transient, 重试
+                // 但 SSL 证书错误 / HTTP 协议层错误 (404, 401) 不重试
+                when {
+                    e is java.net.UnknownHostException -> true
+                    e is java.net.SocketTimeoutException -> true
+                    e is java.net.ConnectException -> true
+                    e is SSLHandshakeException -> false
+                    e.message?.contains("401") == true -> false
+                    e.message?.contains("403") == true -> false
+                    e.message?.contains("404") == true -> false
+                    e is FileNotFoundException -> false
+                    else -> true
+                }
             }
             else -> true
         }
@@ -88,8 +100,8 @@ object ProotDistroHttp {
         while (true) {
             val conn = current.openConnection() as HttpURLConnection
             conn.instanceFollowRedirects = false
-            conn.connectTimeout = 30_000
-            conn.readTimeout = 60_000
+            conn.connectTimeout = 15_000
+            conn.readTimeout = 45_000
             for ((k, v) in headers) conn.setRequestProperty(k, v)
             if (conn is HttpsURLConnection && insecure) {
                 conn.sslSocketFactory = insecureSslContext().socketFactory
@@ -206,8 +218,18 @@ object ProotDistroHttp {
         retry(reporter, "GET $url") {
             val conn = openConnection(url, headers, insecure)
             try {
-                if (conn.responseCode !in 200..299) {
-                    throw IOException("HTTP ${conn.responseCode} ${conn.responseMessage}")
+                val code = conn.responseCode
+                if (code !in 200..299) {
+                    // 把响应 body 也读出来, 方便诊断
+                    val errBody = try {
+                        (if (code in 400..499) conn.errorStream else conn.inputStream)
+                            ?.use { it.readBytes() }?.toString(Charsets.UTF_8)?.take(500)
+                    } catch (_: Throwable) { null }
+                    val msg = buildString {
+                        append("HTTP ").append(code).append(' ').append(conn.responseMessage)
+                        if (!errBody.isNullOrBlank()) append(" body=").append(errBody.replace("\n", " "))
+                    }
+                    throw IOException(msg)
                 }
                 conn.inputStream.use { it.readBytes().toString(Charsets.UTF_8) }
             } finally {

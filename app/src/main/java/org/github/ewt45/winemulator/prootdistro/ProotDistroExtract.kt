@@ -48,21 +48,44 @@ object ProotDistroExtract {
         val totalSize = archive.length()
         val deferredLinks = ArrayList<Pair<List<String>, List<String>>>()
         val deferredDirs = ArrayList<Pair<File, Long>>()
+        var entriesProcessed = 0
+        var entriesSkipped = 0
+        var entriesWhiteout = 0
+        var entriesSymlink = 0
+        var entriesFile = 0
+        var entriesDir = 0
+        var entriesHardlink = 0
 
         val rawFh = BufferedInputStream(FileInputStream(archive))
         try {
             val counter = CountingInputStream(rawFh)
-            val isGzipped = isGzipHeader(counter)
-            val toRead = if (isGzipped) GZIPInputStream(counter) else counter
+            val (compression, streamForTar) = detectCompression(counter)
+            val toRead = when (compression) {
+                Compression.GZIP -> GZIPInputStream(streamForTar)
+                Compression.XZ -> org.tukaani.xz.XZInputStream(streamForTar)
+                Compression.NONE -> streamForTar
+            }
             val tis = TarArchiveInputStream(toRead, 1024 * 1024)
             try {
                 var entry: TarArchiveEntry? = tis.nextTarEntry
                 while (entry != null) {
+                    entriesProcessed++
+                    val before = entriesSkipped
                     processEntry(
                         entry, tis, rootfsDir,
                         handleWhiteouts = handleWhiteouts,
                         deferredLinks = deferredLinks,
                         deferredDirs = deferredDirs,
+                        statCallback = { kind ->
+                            when (kind) {
+                                StatKind.WHITEOUT -> entriesWhiteout++
+                                StatKind.SYMLINK -> entriesSymlink++
+                                StatKind.FILE -> entriesFile++
+                                StatKind.DIR -> entriesDir++
+                                StatKind.HARDLINK -> entriesHardlink++
+                                StatKind.SKIPPED -> entriesSkipped++
+                            }
+                        },
                     )
                     if (totalSize > 0 && reporter != null) {
                         val percent = (counter.count * 100 / totalSize).toInt().coerceIn(0, 100)
@@ -76,6 +99,9 @@ object ProotDistroExtract {
         } finally {
             rawFh.close()
         }
+        reporter?.msg("    解压 entry 统计: 共 $entriesProcessed 个, " +
+                "文件=$entriesFile, 目录=$entriesDir, symlink=$entriesSymlink, " +
+                "hardlink=$entriesHardlink, whiteout=$entriesWhiteout, 跳过=$entriesSkipped")
 
         // 第一阶段:所有 regular file 写完,现在处理 deferred hardlinks
         for ((destParts, srcParts) in deferredLinks) {
@@ -101,6 +127,9 @@ object ProotDistroExtract {
         }
     }
 
+    /** 统计信息 category for processEntry */
+    private enum class StatKind { FILE, DIR, SYMLINK, HARDLINK, WHITEOUT, SKIPPED }
+
     private fun processEntry(
         member: TarArchiveEntry,
         tis: TarArchiveInputStream,
@@ -108,23 +137,35 @@ object ProotDistroExtract {
         handleWhiteouts: Boolean,
         deferredLinks: MutableList<Pair<List<String>, List<String>>>,
         deferredDirs: MutableList<Pair<File, Long>>,
+        statCallback: (StatKind) -> Unit = {},
     ) {
         // 跳过 block/char/FIFO
-        if (member.isBlockDevice || member.isCharacterDevice || member.isFIFO) return
+        if (member.isBlockDevice || member.isCharacterDevice || member.isFIFO) {
+            statCallback(StatKind.SKIPPED); return
+        }
         // 跳过 socket (commons-compress 没 isSocket,用 mode 位检测)
         // S_IFSOCK = 0o140000 = 61440
-        if ((member.mode.toInt() and 61440) == 61440) return
+        if ((member.mode.toInt() and 61440) == 61440) {
+            statCallback(StatKind.SKIPPED); return
+        }
 
         val rawName = member.name.trim('/')
         val parts = rawName.split('/').filter { it.isNotEmpty() }
-        if (parts.isEmpty()) return
-        if (parts.any { it == ".." }) return
+        if (parts.isEmpty()) { statCallback(StatKind.SKIPPED); return }
+        if (parts.any { it == ".." }) {
+            statCallback(StatKind.SKIPPED)
+            android.util.Log.w("ProotDistroExtract", "skip path with .. : $rawName")
+            return
+        }
 
         // parent 走 safe-resolve,但最后一个 component 不跟 (我们要操作它自己)
-        val parent = safeResolve(rootfsDir, parts.dropLast(1)) ?: return
+        val parent = safeResolve(rootfsDir, parts.dropLast(1))
+        if (parent == null) { statCallback(StatKind.SKIPPED); return }
         val dest = File(parent, parts.last())
 
-        if (handleWhiteouts && applyWhiteout(parts, parent)) return
+        if (handleWhiteouts && applyWhiteout(parts, parent)) {
+            statCallback(StatKind.WHITEOUT); return
+        }
 
         if (!parent.exists()) parent.mkdirs()
 
@@ -151,6 +192,7 @@ object ProotDistroExtract {
                     }
                 } catch (_: Throwable) {}
                 deferredDirs.add(dest to (member.lastModifiedDate?.time ?: 0L))
+                statCallback(StatKind.DIR)
             }
 
             member.isSymbolicLink -> {
@@ -167,14 +209,16 @@ object ProotDistroExtract {
                         )
                     }
                 } catch (_: Throwable) {}
+                statCallback(StatKind.SYMLINK)
             }
 
             member.isLink -> {
                 // hardlink: 解析 linkname 的相对组件
                 val linkName = (member.linkName ?: "").trim('/')
                 val linkParts = linkName.split('/').filter { it.isNotEmpty() }
-                if (linkParts.any { it == ".." }) return
+                if (linkParts.any { it == ".." }) { statCallback(StatKind.SKIPPED); return }
                 deferredLinks.add(parts to linkParts)
+                statCallback(StatKind.HARDLINK)
             }
 
             member.isFile -> {
@@ -201,7 +245,12 @@ object ProotDistroExtract {
                     try {
                         dest.setLastModified(member.lastModifiedDate?.time ?: 0L)
                     } catch (_: Throwable) {}
-                } catch (_: Throwable) {}
+                    statCallback(StatKind.FILE)
+                } catch (e: Throwable) {
+                    statCallback(StatKind.SKIPPED)
+                    android.util.Log.w("ProotDistroExtract",
+                        "解压文件失败: $rawName (${e::class.simpleName}: ${e.message})")
+                }
             }
         }
     }
@@ -277,15 +326,69 @@ object ProotDistroExtract {
         return File(root, resolved.joinToString("/"))
     }
 
-    private fun isGzipHeader(input: java.io.InputStream): Boolean {
-        input.mark(2)
-        val b0 = input.read()
-        val b1 = input.read()
-        input.reset()
-        return b0 == 0x1F && b1 == 0x8B
+    /** 压缩格式 */
+    private enum class Compression { GZIP, XZ, NONE }
+
+    /**
+     * 探测 stream 开头的 magic bytes, 返回 (压缩格式, 可被 tar 重新读取的 stream)。
+     * 优先走 mark/reset; 不支持时改为 read + pushback SequenceInputStream。
+     */
+    private fun detectCompression(input: java.io.InputStream): Pair<Compression, java.io.InputStream> {
+        // 需要读 6 字节: gzip=2, xz=6 magic "FD 37 7A 58 5A 00"
+        val need = 6
+        val head: ByteArray
+        if (input.markSupported()) {
+            input.mark(need)
+            val buf = ByteArray(need)
+            var total = 0
+            while (total < need) {
+                val n = input.read(buf, total, need - total)
+                if (n < 0) break
+                total += n
+            }
+            input.reset()
+            head = if (total == need) buf else buf.copyOf(total)
+        } else {
+            val buf = ByteArray(need)
+            var total = 0
+            while (total < need) {
+                val n = input.read(buf, total, need - total)
+                if (n < 0) break
+                total += n
+            }
+            head = if (total == need) buf else buf.copyOf(total)
+            val pushback = java.io.SequenceInputStream(
+                java.io.ByteArrayInputStream(head),
+                input,
+            )
+            return classifyCompression(head) to pushback
+        }
+        return classifyCompression(head) to input
     }
 
-    /** 简易 InputStream 包装,统计读取字节数 */
+    private fun classifyCompression(head: ByteArray): Compression {
+        // gzip: 1F 8B
+        if (head.size >= 2 &&
+            (head[0].toInt() and 0xFF) == 0x1F &&
+            (head[1].toInt() and 0xFF) == 0x8B) {
+            return Compression.GZIP
+        }
+        // xz: FD 37 7A 58 5A 00
+        if (head.size >= 6 &&
+            (head[0].toInt() and 0xFF) == 0xFD &&
+            (head[1].toInt() and 0xFF) == 0x37 &&
+            (head[2].toInt() and 0xFF) == 0x7A &&
+            (head[3].toInt() and 0xFF) == 0x58 &&
+            (head[4].toInt() and 0xFF) == 0x5A &&
+            (head[5].toInt() and 0xFF) == 0x00) {
+            return Compression.XZ
+        }
+        return Compression.NONE
+    }
+
+    /** 简易 InputStream 包装,统计读取字节数。
+     * 透传 mark/reset/markSupported 给底层委托,这样 mark/reset 能被 GZIPInputStream 正确调用。
+     */
     private class CountingInputStream(private val delegate: java.io.InputStream) : java.io.InputStream() {
         var count: Long = 0L
             private set
@@ -299,6 +402,11 @@ object ProotDistroExtract {
             if (n > 0) count += n
             return n
         }
+        override fun available() = delegate.available()
+        override fun skip(n: Long): Long = delegate.skip(n)
+        override fun mark(readlimit: Int) = delegate.mark(readlimit)
+        override fun reset() = delegate.reset()
+        override fun markSupported(): Boolean = delegate.markSupported()
         override fun close() = delegate.close()
     }
 }
