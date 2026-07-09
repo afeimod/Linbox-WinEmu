@@ -86,4 +86,22 @@ object ProotDistroArch {
                 "linux/amd64, linux/arm/v7, linux/386, linux/riscv64)."
             )
     }
+
+    /**
+     * Arch Linux ARM 官方 rootfs tarball 的下载源, 按优先级排列。
+     *
+     * 背景: 官方 `docker.io/library/archlinux` 只发 x86_64, 没有 arm64;
+     * 而 DaoCloud 同步镜像里 `archlinuxarm/aarch64` 不在白名单 (403)。
+     * 因此 Arch Linux arm64 走特殊路径: 直接从 archlinuxarm.org 拉
+     * `ArchLinuxARM-aarch64-latest.tar.gz` (纯 rootfs tar.gz, 跳过 OCI layer),
+     * 走 [ProotDistroExtract] 直接解压。
+     *
+     * 国内优先清华 / 阿里云 / 网易 (沙盒里都 200), 海外 fallback 走官方欧洲服务器。
+     */
+    val ARCH_FALLBACK_TARBALL_URLS: List<String> = listOf(
+        "https://mirrors.tuna.tsinghua.edu.cn/archlinuxarm/os/ArchLinuxARM-aarch64-latest.tar.gz",
+        "https://mirrors.aliyun.com/archlinuxarm/os/ArchLinuxARM-aarch64-latest.tar.gz",
+        "https://mirrors.163.com/archlinuxarm/os/ArchLinuxARM-aarch64-latest.tar.gz",
+        "https://archlinuxarm.org/os/ArchLinuxARM-aarch64-latest.tar.gz",
+    )
 }

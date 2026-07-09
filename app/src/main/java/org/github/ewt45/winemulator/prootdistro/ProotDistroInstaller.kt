@@ -44,6 +44,8 @@ object ProotDistroInstaller {
      * @param overrideArch 强制使用某个 arch (null = 自动取本机 CPU)
      * @param insecure 跳过 TLS 证书校验 (不推荐)
      * @param reporter 进度报告器
+     * @param mirrors registry / mirror 候选列表, 按顺序尝试, 第一个成功的获胜。
+     *                 默认 [ProotDistroAuth.KNOWN_MIRRORS] (Docker Hub 优先, 国内镜像作为 fallback)
      */
     suspend fun install(
         imageRef: String,
@@ -51,6 +53,7 @@ object ProotDistroInstaller {
         overrideArch: String? = null,
         insecure: Boolean = false,
         reporter: TaskReporter? = null,
+        mirrors: List<ProotDistroAuth.Registry> = ProotDistroAuth.KNOWN_MIRRORS,
     ): InstallResult = withContext(Dispatchers.IO) {
         // 1. arch
         val deviceArch = ProotDistroArch.getDeviceCpuArch()
@@ -80,7 +83,7 @@ object ProotDistroInstaller {
 
             // 3. 拉 manifest,得到 layer 列表
             val (manifest, imageConfig, baseUrl, token) =
-                pullImage(imageRef, rootfsDir, distArch, insecure, reporter)
+                pullImage(imageRef, rootfsDir, distArch, insecure, reporter, mirrors)
             reporter?.msg("step 2/4: 所有 layer 已下载并解压到 ${rootfsDir.name}/")
 
             // 4. 写 manifest.json
@@ -134,6 +137,198 @@ object ProotDistroInstaller {
         }
     }
 
+    /**
+     * 从一个公开的 rootfs tarball URL 安装 (不走 OCI/Docker layer 流程)。
+     *
+     * 使用场景: Arch Linux ARM。
+     * 背景: 官方 `docker.io/library/archlinux` 只发 x86_64, 没有 arm64;
+     * DaoCloud 同步镜像里 `archlinuxarm/aarch64` 也不在白名单 (返回 403);
+     * GHCR 上公开仓库的匿名 token 也被拒绝。
+     * 因此走 [ProotDistroArch.ARCH_FALLBACK_TARBALL_URLS] 里的纯 rootfs tar.gz,
+     * 跳过 OCI manifest/layer,直接下载到 tmp 后调 [ProotDistroExtract] 解压。
+     *
+     * @param imageRef 在 [ProotDistroCatalog] 里给用户的"展示名",例如 "archlinux"
+     * @param customName 容器 alias
+     * @param reporter 进度
+     * @param tarballUrls 优先级排列的下载源 (默认 Arch Linux ARM 镜像列表)
+     */
+    suspend fun installFromTarball(
+        imageRef: String,
+        customName: String? = null,
+        reporter: TaskReporter? = null,
+        tarballUrls: List<String> = ProotDistroArch.ARCH_FALLBACK_TARBALL_URLS,
+    ): InstallResult = withContext(Dispatchers.IO) {
+        // 1. 解析 alias + 准备 rootfs 目录
+        val alias = customName?.takeIf { it.isNotBlank() }
+            ?: ProotDistroRefs.deriveAlias(imageRef)
+        ProotDistroNames.requireValidName(alias)
+        val rootfsDir = File(Consts.rootfsAllDir, alias)
+        val existing = rootfsDir.listFiles()
+        if (rootfsDir.exists() && existing != null && existing.isNotEmpty()) {
+            throw IllegalStateException(
+                "container '$alias' already exists. " +
+                "Use a different name, or remove the existing one."
+            )
+        }
+        val arch = ProotDistroArch.getDeviceCpuArch()
+
+        reporter?.msg("正在安装 $alias (从 rootfs tarball, arch=$arch)...")
+        reporter?.progress(0f)
+
+        try {
+            rootfsDir.mkdirs()
+            reporter?.msg("step 1/3: 下载 ArchLinuxARM rootfs tarball")
+
+            // 2. 逐个 mirror 试,第一个成功获胜
+            val tmpDir = ProotDistro.layerCacheDir
+            tmpDir.mkdirs()
+            val tmpTar = File(tmpDir, "archlinuxarm-${alias}.tar.gz")
+
+            var lastError: Throwable? = null
+            var downloadedFrom: String? = null
+            for (url in tarballUrls) {
+                try {
+                    reporter?.msg("  → 尝试: $url")
+                    ProotDistroHttp.retry(reporter, "下载 ${url.substringAfterLast('/')}") {
+                        val conn = ProotDistroHttp.openConnection(url, mapOf(
+                            "User-Agent" to ProotDistro.userAgent,
+                        ), insecure = false)
+                        try {
+                            if (conn.responseCode !in 200..299) {
+                                throw RuntimeException(
+                                    "HTTP ${conn.responseCode} ${conn.responseMessage} " +
+                                    "from $url"
+                                )
+                            }
+                            val totalSize = conn.contentLengthLong
+                            if (totalSize > 0) {
+                                reporter?.msg("    文件大小: ${totalSize / 1024 / 1024} MB")
+                            }
+                            tmpTar.outputStream().use { out ->
+                                conn.inputStream.use { input ->
+                                    val buffer = ByteArray(64 * 1024)
+                                    var done = 0L
+                                    while (true) {
+                                        val n = input.read(buffer)
+                                        if (n == -1) break
+                                        out.write(buffer, 0, n)
+                                        done += n
+                                        if (totalSize > 0 && reporter != null) {
+                                            val percent = (done * 100 / totalSize).toInt().coerceIn(0, 100)
+                                            reporter.progress(percent / 200f)  // 0 ~ 0.5
+                                        }
+                                    }
+                                }
+                            }
+                        } finally {
+                            conn.disconnect()
+                        }
+                    }
+                    downloadedFrom = url
+                    break
+                } catch (e: Throwable) {
+                    lastError = e
+                    reporter?.msg("    × 失败: ${e::class.simpleName}: ${e.message}")
+                    if (tmpTar.exists()) tmpTar.delete()
+                }
+            }
+            if (downloadedFrom == null) {
+                throw RuntimeException(
+                    "所有 Arch Linux ARM 镜像均下载失败。最后错误: " +
+                    (lastError?.message ?: "unknown")
+                )
+            }
+            reporter?.msg("  下载完成 (来自 $downloadedFrom)")
+
+            // 3. 解压
+            reporter?.msg("step 2/3: 解压 rootfs (跳过 OCI whiteout,这不是镜像层)")
+            reporter?.progress(0.5f)
+            try {
+                val innerReporter = reporter
+                ProotDistroExtract.extractTarToRootfs(
+                    archive = tmpTar,
+                    rootfsDir = rootfsDir,
+                    handleWhiteouts = false,
+                    reporter = object : TaskReporter() {
+                        override fun progress(percent: Float) {
+                            // 把解压映射到 0.5 ~ 0.95
+                            innerReporter?.progress(0.5f + percent * 0.45f)
+                        }
+                        override fun done(error: Exception?) {
+                            innerReporter?.done(error)
+                        }
+                        override fun msg(text: String?, title: String?) {
+                            innerReporter?.msg(text, title)
+                        }
+                    },
+                )
+            } finally {
+                // 不管解压成不成功,临时 tarball 都删掉 (ArchLinuxARM tarball ~250MB,不能留在 cache)
+                if (tmpTar.exists()) tmpTar.delete()
+            }
+            reporter?.msg("  解压完成")
+
+            // 4. 后处理 (跟 install() 一样)
+            reporter?.msg("step 3/3: 后处理 rootfs (resolv.conf / hosts / Android UID / 假 /proc)")
+
+            // 诊断: 顶层有几个 entry? etc 是什么? (加诊断信息,方便定位 ArchLinuxARM rootfs tarball 的结构问题)
+            val topEntries = rootfsDir.listFiles()?.map { f ->
+                val kind = when {
+                    java.nio.file.Files.isSymbolicLink(f.toPath()) -> "symlink->${java.nio.file.Files.readSymbolicLink(f.toPath())}"
+                    f.isDirectory -> "dir"
+                    else -> "file"
+                }
+                "${f.name}($kind)"
+            }?.take(20) ?: emptyList()
+            reporter?.msg("  rootfs 顶层: $topEntries")
+            val etcFile = File(rootfsDir, "etc")
+            val etcInfo = buildString {
+                append("exists=${etcFile.exists()}, isDir=${etcFile.isDirectory}")
+                if (java.nio.file.Files.isSymbolicLink(etcFile.toPath())) {
+                    append(", isSymlink=true, target=${java.nio.file.Files.readSymbolicLink(etcFile.toPath())}")
+                }
+            }
+            reporter?.msg("  etc 状态: $etcInfo")
+
+            if (File(rootfsDir, "etc").isDirectory) {
+                ProotDistroRootfsFix.writeResolvConf(rootfsDir)
+                ProotDistroRootfsFix.writeHosts(rootfsDir)
+                if (File(rootfsDir, "etc/passwd").isFile) {
+                    ProotDistroRootfsFix.registerAndroidIds(rootfsDir)
+                }
+            } else {
+                reporter?.msg("  (跳过: rootfs 中找不到 etc/ 目录, tarball 可能不是有效 rootfs)")
+            }
+            ProotDistroRootfsFix.setupFakeSysdata(rootfsDir)
+
+            // 5. 给一个 .alias 文件
+            Utils.Rootfs.setAlias(rootfsDir, alias)
+
+            // 6. 写一个伪 manifest 表明这是 tarball 来源
+            val manifestFile = File(rootfsDir, ".proot-distro-manifest.json")
+            runCatching {
+                val payload = JSONObject().apply {
+                    put("image_ref", imageRef)
+                    put("arch", arch)
+                    put("source", "tarball")
+                    put("source_url", downloadedFrom)
+                }
+                manifestFile.writeText(payload.toString(2))
+            }
+
+            reporter?.msg("安装完成: ${rootfsDir.absolutePath}")
+            reporter?.progress(1f)
+            InstallResult(rootfsDir, imageRef, alias, arch)
+        } catch (e: Throwable) {
+            try {
+                if (rootfsDir.exists()) {
+                    FileUtils.deleteDirectory(rootfsDir)
+                }
+            } catch (_: Throwable) {}
+            throw e
+        }
+    }
+
     // ----------------------------------------------------------------
     // 下面是参考 `proot_distro/helpers/docker/pull.py` 的核心流水线
     // ----------------------------------------------------------------
@@ -144,6 +339,7 @@ object ProotDistroInstaller {
         arch: String,
         insecure: Boolean,
         reporter: TaskReporter?,
+        mirrors: List<ProotDistroAuth.Registry> = ProotDistroAuth.KNOWN_MIRRORS,
     ): PullResult {
         val parsed = ProotDistroRefs.parseImageRef(imageRef)
         val registry = parsed.registry
@@ -168,19 +364,23 @@ object ProotDistroInstaller {
             val layers = manifest.optJSONArray("layers")
             if (layers != null && allLayersCached(layers)) {
                 reporter?.msg("镜像已缓存,无需网络下载 (layers=${layers.length()})")
+                // layer 都缓存了, 不需要重新认证
+                // 用第一个镜像当 baseUrl (脱常量就行, layer 下载用本地路径,不会真用到)
                 token = ""
-                baseUrl = if (registry.isEmpty()) ProotDistro.DOCKER_HUB_REGISTRY else "https://$registry"
+                baseUrl = mirrors.first().baseUrl
             } else {
                 reporter?.msg("部分 layer 缺失,重新认证 registry...")
-                val auth = ProotDistroAuth.getAuthToken(repo, registry, reporter, insecure)
+                val auth = ProotDistroAuth.getAuthToken(repo, mirrors, reporter, insecure)
                 token = auth.token
                 baseUrl = auth.baseUrl
+                reporter?.msg("  → 使用镜像: ${auth.registry}")
             }
         } else {
-            reporter?.msg("  → 认证 registry ${if (registry.isEmpty()) "(Docker Hub)" else registry}")
-            val auth = ProotDistroAuth.getAuthToken(repo, registry, reporter, insecure)
+            reporter?.msg("  → 认证 registry/mirror (共 ${mirrors.size} 个候选)")
+            val auth = ProotDistroAuth.getAuthToken(repo, mirrors, reporter, insecure)
             token = auth.token
             baseUrl = auth.baseUrl
+            reporter?.msg("  → 使用镜像: ${auth.registry} (${baseUrl})")
             reporter?.msg("  → 获取 manifest $imageRef (arch=$arch)")
             val resolved = resolveSingleManifest(repo, tag, token, baseUrl, insecure, arch, imageRef, reporter)
             manifest = resolved.manifest

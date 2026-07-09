@@ -3,6 +3,8 @@ package org.github.ewt45.winemulator.prootdistro
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.Utils
 import java.io.File
+import java.nio.file.Files
+import java.nio.file.Path
 
 /**
  * 参考 `proot_distro/helpers/rootfs.py`——
@@ -13,9 +15,7 @@ object ProotDistroRootfsFix {
     /** 写一个最小的 /etc/resolv.conf */
     fun writeResolvConf(rootfs: File) {
         val path = File(rootfs, "etc/resolv.conf")
-        try { if (path.exists()) path.delete() } catch (_: Throwable) {}
-        path.parentFile?.mkdirs()
-        path.writeText(
+        writeTextRobust(path,
             "nameserver ${ProotDistro.DEFAULT_PRIMARY_NS}\n" +
             "nameserver ${ProotDistro.DEFAULT_SECONDARY_NS}\n"
         )
@@ -24,9 +24,7 @@ object ProotDistroRootfsFix {
     /** 写一个最小的 /etc/hosts */
     fun writeHosts(rootfs: File) {
         val path = File(rootfs, "etc/hosts")
-        try { if (path.exists()) path.delete() } catch (_: Throwable) {}
-        path.parentFile?.mkdirs()
-        path.writeText(
+        writeTextRobust(path,
             """
             # IPv4.
             127.0.0.1   localhost.localdomain localhost
@@ -111,6 +109,53 @@ object ProotDistroRootfsFix {
         if (!f.exists()) {
             f.parentFile?.mkdirs()
             f.writeText(content)
+        }
+    }
+
+    /**
+     * 写文本文件: 会手动处理一个微妙场景——
+     * 如果父目录是 dangling symlink (ArchLinuxARM rootfs tarball 解压后常见),
+     * 默认 `f.writeText` 会调用 `FileOutputStream(this)` 直接报 ENOENT,
+     * 而 `parentFile?.mkdirs()` 会被 symlink 干扰。
+     *
+     * 这里:
+     *   1. 先 delete 已有文件 (如果是 dangling symlink 也走 unlink)
+     *   2. 递归创建父目录;遇到 symlink 先 unlink (即使 是个普通目录 symlink 也无所谓)
+     *   3. 用 FileOutputStream 写文本
+     */
+    private fun writeTextRobust(f: File, content: String) {
+        try {
+            if (Files.isSymbolicLink(f.toPath())) {
+                Files.delete(f.toPath())
+            } else if (f.exists()) {
+                f.delete()
+            }
+        } catch (_: Throwable) {}
+        try {
+            ensureDir(f.parentFile)
+            f.outputStream().use { it.write(content.toByteArray(Charsets.UTF_8)) }
+        } catch (e: Throwable) {
+            android.util.Log.e("ProotDistroRootfsFix",
+                "writeText failed for ${f.absolutePath}: ${e.message}")
+        }
+    }
+
+    /**
+     * 递归 mkdir 父目录,遇到 symlink 时先 unlink。
+     * 适用于 ArchLinuxARM rootfs 里某些目录被 symlink 了、链接目标不存在的场景。
+     */
+    private fun ensureDir(d: File?) {
+        if (d == null) return
+        try {
+            val path: Path = d.toPath()
+            if (Files.isSymbolicLink(path)) {
+                Files.delete(path)
+            }
+        } catch (_: Throwable) {}
+        if (!d.exists()) {
+            val parent = d.parentFile
+            if (parent != null && !parent.exists()) ensureDir(parent)
+            try { d.mkdirs() } catch (_: Throwable) {}
         }
     }
 
