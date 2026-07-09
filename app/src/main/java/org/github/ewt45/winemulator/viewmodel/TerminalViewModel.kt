@@ -190,32 +190,38 @@ class TerminalViewModel : ViewModel() {
                             continue
                         }
 
-                        // 处理回车符：将 \r\n 或 \r 视为换行
+                        // 处理回车符：仿照 termux 的“原地覆盖”语义。
+                        // - \r\n 当成正常换行（丢弃 \r，下次循环遇 \n 提交当前行）
+                        // - 单独的 \r 表示“回到行首重写进度”，直接清空当前 builder。
+                        //   进度后续字符会在新 buffer 里继续累积，最终会在 500ms 兑底提交时
+                        //   作为一条独立的“最终进度行”显示出来，不会堆中间过程。
                         if (charRead == '\r') {
-                            // 看看下一个字符是否是 \n
                             val nextInt = reader.read()
                             if (nextInt != -1) {
                                 val nextChar = nextInt.toChar()
                                 if (nextChar == '\n') {
-                                    // 如果是 \r\n，跳过这个 \r，\n 会在下一次循环中处理
+                                    // \r\n：丢掉 \r，让 \n 走正常换行逻辑
                                     charRead = nextChar
                                 } else {
-                                    // 如果下一个字符不是 \n，把 \r 当作换行处理
-                                    val line = builder.toString()
-                                    // 检测用户名变化
-                                    detectUserChange(line)
-                                    // 添加当前行
-                                    val currentList = _output.value.toMutableList()
-                                    if (currentList.size > 800) {
-                                        currentList.removeAt(0)
-                                    }
-                                    currentList.add(line)
-                                    _output.value = currentList
+                                    // 单独的 \r：视为“覆盖当前行”，清空 buffer。
+                                    // 后续非 \n 字符作为下一行内容开始累积。
                                     builder.clear()
-                                    // 把下一个非 \n 字符加入新的行
-                                    builder.append(nextChar)
                                     skipChar = true
+                                    // 过滤下一个字符的 ANSI/控制字符
+                                    if (nextChar.code == 0x1B) {
+                                        inEscape = true
+                                        escapeBuf.clear()
+                                    } else if (nextChar.code in 0x00..0x08 || nextChar.code in 0x0B..0x0C || nextChar.code in 0x0E..0x1A || nextChar.code in 0x7F..0x9F) {
+                                        // 下一个字符是控制字符，丢弃
+                                    } else if (nextChar == '\r') {
+                                        // 连续 \r 也当作“清空”
+                                    } else {
+                                        builder.append(nextChar)
+                                    }
                                 }
+                            } else {
+                                // 流结束，丢弃这个 \r
+                                skipChar = true
                             }
                         }
 
