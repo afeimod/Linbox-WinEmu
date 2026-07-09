@@ -156,10 +156,40 @@ class TerminalViewModel : ViewModel() {
                         }
                     }
 
+                    // 简易的 ANSI 转义序列解析器。shell（如 bash）输出的 PS1 通常带颜色控制序列，
+                    // 例如 \u@\h 在 \e[01;32m...\e[00m 包裹下输出。如果不过滤会显示成乱码。
+                    // 这里只处理最常见的 CSI 序列（ESC [ ... <final>），其他控制字符直接丢弃。
+                    var inEscape = false      // 是否在 ESC 序列中
+                    var escapeBuf = StringBuilder()
+
                     while (reader.read().also { readInt = it } != -1) {
                         var charRead = readInt.toChar()
                         var skipChar = false
-                        
+
+                        // 处理 ANSI 转义序列
+                        if (inEscape) {
+                            escapeBuf.append(charRead)
+                            // CSI 序列以参数范围的字节 (0x40-0x7E) 结束
+                            if (charRead.code in 0x40..0x7E) {
+                                inEscape = false
+                                escapeBuf.clear()
+                            }
+                            continue
+                        }
+                        // 0x1B 是 ESC，进入转义序列处理
+                        if (charRead.code == 0x1B) {
+                            inEscape = true
+                            escapeBuf.clear()
+                            continue
+                        }
+                        // 丢弃其他常见的控制字符（BEL / BS 等），保留 \t 和常规可打印字符
+                        if (charRead.code in 0x00..0x08 || charRead.code in 0x0B..0x0C || charRead.code in 0x0E..0x1A) {
+                            continue
+                        }
+                        if (charRead.code in 0x7F..0x9F) {
+                            continue
+                        }
+
                         // 处理回车符：将 \r\n 或 \r 视为换行
                         if (charRead == '\r') {
                             // 看看下一个字符是否是 \n
@@ -188,7 +218,7 @@ class TerminalViewModel : ViewModel() {
                                 }
                             }
                         }
-                        
+
                         if (!skipChar) {
                             outputMutex.withLock {
                                 lastReadCharTime = System.currentTimeMillis()
@@ -296,7 +326,10 @@ class TerminalViewModel : ViewModel() {
 
     /**
      * 执行某个命令
-     * @param display 为false时不显示在屏幕上
+     * @param display 为false时不显示在屏幕上。
+     * 仿照 termux 的紧凑行为：执行命令时不再 echo "prompt+命令" 这么一长串，
+     * 只显示纯命令作为回显。运行结束后 shell 自己会输出新的 PS1 提示符，
+     * 屏幕底部常驻的 prompt+input 区域则提供光标引导。
      */
     fun runCommand(command: String, display: Boolean = true) = viewModelScope.launch(Dispatchers.IO) {
 
@@ -307,8 +340,8 @@ class TerminalViewModel : ViewModel() {
         }
 
         if (display) {
-            // 使用美化的提示符
-            updateOutput(promptPrefix + command)
+            // 只显示纯命令，不加 prompt 前缀，保持紧凑
+            updateOutput(command)
         }
 
         try {
