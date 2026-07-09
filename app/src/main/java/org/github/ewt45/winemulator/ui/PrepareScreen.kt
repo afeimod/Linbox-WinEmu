@@ -225,11 +225,33 @@ fun PrepareScreenImpl(prepareVm: PrepareViewModel, settingVm: SettingViewModel, 
             reporter.progress = 0
             reporter.msg = "日志："
             try {
-                val result = ProotDistroInstaller.install(
-                    imageRef = imageRef,
-                    customName = customName,
-                    reporter = reporter,
-                )
+                // 从 Catalog 里找原条目,看是否需要自动改为 tarball / altImageRef
+                val entry = ProotDistroCatalog.entries.firstOrNull {
+                    it.imageRef.equals(imageRef, ignoreCase = false) ||
+                    it.imageRef.substringBefore(":") == imageRef.substringBefore(":")
+                }
+                val hostArch = org.github.ewt45.winemulator.prootdistro.ProotDistroArch.getDeviceCpuArch()
+                val resolved = if (entry != null && entry.source == "oci" &&
+                    entry.altImageRef != null && entry.altSource == "tarball" &&
+                    hostArch == "aarch64") {
+                    // Arch 在 arm64 上自动改为走 tarball
+                    reporter.msg("检测到本机 arch=$hostArch,自动改为从 ArchLinuxARM rootfs tarball 安装")
+                    Pair(entry.altImageRef, "tarball")
+                } else {
+                    Pair(imageRef, entry?.source ?: "oci")
+                }
+                val result = when (resolved.second) {
+                    "tarball" -> ProotDistroInstaller.installFromTarball(
+                        imageRef = resolved.first,
+                        customName = customName,
+                        reporter = reporter,
+                    )
+                    else -> ProotDistroInstaller.install(
+                        imageRef = resolved.first,
+                        customName = customName,
+                        reporter = reporter,
+                    )
+                }
                 reporter.msg(
                     "安装完成: ${result.rootfsDir.name} (${result.arch})",
                     "安装成功！\n（日志可点击展开查看）"
