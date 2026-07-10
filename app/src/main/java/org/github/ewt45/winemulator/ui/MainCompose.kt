@@ -176,7 +176,20 @@ fun MainScreen(
                         onOpenSettings = {
                             navController.navigate(Destination.Settings.route)
                         },
-                        onMinimize = {},
+                        onMinimize = {
+                            // Home 屏的最小化：启动当前 rootfs 并进入 X11。
+                            // 如果当前 rootfs 已启动，则只跳转 X11。
+                            scope.launch {
+                                val firstContainer = settingVm.listRootfsContainers().firstOrNull { it.isCurrent }
+                                    ?: settingVm.listRootfsContainers().firstOrNull()
+                                if (firstContainer != null) {
+                                    val dir = java.io.File(Consts.rootfsAllDir, firstContainer.name)
+                                    MainEmuActivity.instance.switchToRootfsAndStart(dir) {
+                                        navController.navigate(Destination.X11.route)
+                                    }
+                                }
+                            }
+                        },
                         onContainerAction = { c, action ->
                             when (action) {
                                 0 -> navController.navigate(Destination.ContainerAutoCmd(c.name).route)

@@ -106,21 +106,6 @@ fun HomeScreen(
     val activity = androidx.activity.compose.LocalActivity.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val miniIconPx = (org.github.ewt45.winemulator.Consts.Ui.minimizedIconSize * density.density).toInt()
-    val doMinimize: () -> Unit = minimize@{
-        val a = activity as? MainEmuActivity ?: return@minimize
-        val view = a.findViewById<View>(R.id.compose_view) ?: return@minimize
-        view.apply {
-            val lp = layoutParams as ViewGroup.MarginLayoutParams
-            lp.height = miniIconPx
-            lp.width = miniIconPx
-            lp.leftMargin = 0
-            lp.topMargin = 100
-            lp.rightMargin = 0
-            lp.bottomMargin = 0
-            requestLayout()
-            view.post { view.snapToNearestEdgeHalfway() }
-        }
-    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -129,7 +114,7 @@ fun HomeScreen(
                 onChangeThemeMode = onChangeThemeMode,
                 onShowTerminal = onShowTerminal,
                 onOpenSettings = onOpenSettings,
-                onMinimize = { doMinimize() },
+                onMinimize = onMinimize,
             )
         },
         floatingActionButton = {
@@ -558,4 +543,20 @@ fun HomeScreenPreview() {
         onMinimize = {},
         onContainerAction = { _, _ -> },
     )
+}
+/**
+ * 实际把 compose_view 缩成小图标的逻辑。供 [doMinimize] 调用。
+ */
+private fun applyMinimize(view: View, miniIconPx: Int) {
+    view.apply {
+        val lp = layoutParams as ViewGroup.MarginLayoutParams
+        lp.height = miniIconPx
+        lp.width = miniIconPx
+        lp.leftMargin = 0
+        lp.topMargin = 100
+        lp.rightMargin = 0
+        lp.bottomMargin = 0
+        requestLayout()
+        post { snapToNearestEdgeHalfway() }
+    }
 }

@@ -14,8 +14,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -291,8 +289,8 @@ fun AddContainerScreen(
 
 /**
  * proot-distro 方格列表。宽度 ≥ 600dp 时 4 列，否则 3 列。
+ * 用手动 Row + Column 实现，避免 LazyVerticalGrid 不能嵌套在 verticalScroll 里。
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProotDistroGrid(
     entries: List<ProotDistroEntry>,
@@ -301,15 +299,25 @@ private fun ProotDistroGrid(
 ) {
     BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
         val columns = if (maxWidth >= 600.dp) 4 else 3
-        LazyVerticalGrid(
-            columns = GridCells.Fixed(columns),
-            contentPadding = PaddingValues(0.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            items(entries, key = { it.imageRef }) { entry ->
-                ProotDistroTile(entry = entry, enabled = !isInstalling, onClick = { onPickEntry(entry) })
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            entries.chunked(columns).forEach { rowItems ->
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    rowItems.forEach { entry ->
+                        ProotDistroTile(
+                            entry = entry,
+                            enabled = !isInstalling,
+                            onClick = { onPickEntry(entry) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    // 不足一行的占位。避免最后一排不均。
+                    repeat(columns - rowItems.size) {
+                        Box(modifier = Modifier.weight(1f))
+                    }
+                }
             }
         }
     }
@@ -324,10 +332,10 @@ private fun ProotDistroTile(
     entry: ProotDistroEntry,
     enabled: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = Modifier
-            .fillMaxWidth()
+        modifier = modifier
             .aspectRatio(1f),
         shape = RoundedCornerShape(16.dp),
         tonalElevation = 2.dp,
