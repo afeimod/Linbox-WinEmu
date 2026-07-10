@@ -8,13 +8,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -31,6 +29,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -69,14 +68,19 @@ import java.time.format.DateTimeFormatter
 
 private const val TAG = "AddContainerScreen"
 
+/** 添加方式 */
+private enum class AddMethod {
+    ONLINE, BUILTIN, ARCHIVE, FOLDER;
+}
+
 /**
- * 添加容器页面。把"设置 → Rootfs 切换"里所有的 rootfs 相关操作整体迁移到这里。
+ * 添加容器页面 - 3 步流程。
  *
- * 顶部：proot-distro 在线下载列表（方格展示）。
- * 中部：3 个本地添加入口（下载默认 / 选压缩包 / 选外部文件夹）。
- * 底部：已存在的 rootfs 列表（设为当前 / 重命名 / 删除 / 导出）。
+ * 第 1 步：选择添加方式（在线 / 内置 / 压缩包 / 文件夹）
+ * 第 2 步：根据方式展示具体选择界面（proot-distro 方格 / 启动提取 / 选文件 / 选文件夹）
+ * 第 3 步：显示安装进度和日志，完成后让用户选用户/完成
  *
- * 右上角带返回箭头。
+ * 右上角带返回箭头，可随时回退。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -86,14 +90,90 @@ fun AddContainerScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+
+    // 当前选择的添加方式；null = 在第 1 步
+    var selectedMethod by remember { mutableStateOf<AddMethod?>(null) }
     val reporter = rememberTaskReporter(msgTitle = "")
     var justExtractedRootfs by remember { mutableStateOf<String?>(null) }
-    var selectedExistingRootfs by remember { mutableStateOf<String?>(null) }
     var isInstalling by remember { mutableStateOf(false) }
-    var showCustomImageForm by remember { mutableStateOf(false) }
+    // 自定义 image ref 输入
+    var customImageRef by remember { mutableStateOf("") }
+    var customImageName by remember { mutableStateOf("") }
+
+    // 用于外部 rootfs 文件夹的 SAF launcher
+    val folderLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            reporter.msgTitle = "正在注册外部 Rootfs..."
+            reporter.stage = ProgressStage.PROCESSING
+            reporter.progress = 0
+            reporter.msg = "日志："
+            try {
+                val newRootfs = linkExternalRootfs(context, uri, reporter)
+                reporter.msg("注册成功：${newRootfs.name}", "注册成功！")
+                reporter.stage = ProgressStage.DONE_SUCCESS
+                justExtractedRootfs = newRootfs.name
+            } catch (e: Throwable) {
+                Log.e(TAG, "link external rootfs failed", e)
+                reporter.msg("注册失败：${e.stackTraceToString()}", "注册失败")
+                reporter.stage = ProgressStage.DONE_FAILURE
+            }
+            reporter.progress = 100
+        }
+    }
+
+    // 用于外部 rootfs 压缩包的 SAF launcher
+    val archiveLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            reporter.msgTitle = "正在解压 Rootfs 压缩包..."
+            reporter.stage = ProgressStage.PROCESSING
+            reporter.progress = 0
+            reporter.msg = "日志："
+            try {
+                val out = Utils.Rootfs.installRootfsArchive(context, uri, reporter)
+                reporter.msg("解压成功：${out.name}", "解压成功！")
+                reporter.stage = ProgressStage.DONE_SUCCESS
+                justExtractedRootfs = out.name
+            } catch (e: Throwable) {
+                Log.e(TAG, "extract archive rootfs failed", e)
+                reporter.msg("解压失败：${e.stackTraceToString()}", "解压失败")
+                reporter.stage = ProgressStage.DONE_FAILURE
+            }
+            reporter.progress = 100
+        }
+    }
 
     Scaffold(
-        topBar = { ChildScreenTopBar(title = "添加容器", onBack = onBack) },
+        topBar = {
+            ChildScreenTopBar(
+                title = "添加容器 (第 ${if (selectedMethod == null) 1 else if (reporter.stage != ProgressStage.NOT_STARTED) 3 else 2} 步 / 共 3 步)",
+                onBack = {
+                    when {
+                        reporter.stage == ProgressStage.DONE_SUCCESS && justExtractedRootfs != null -> {
+                            justExtractedRootfs = null
+                            reporter.stage = ProgressStage.NOT_STARTED
+                            reporter.msg = ""
+                            reporter.msgTitle = ""
+                        }
+                        reporter.stage == ProgressStage.PROCESSING -> {
+                            // 不允许在安装中退出
+                        }
+                        selectedMethod != null -> {
+                            selectedMethod = null
+                            reporter.stage = ProgressStage.NOT_STARTED
+                            reporter.msg = ""
+                            reporter.msgTitle = ""
+                        }
+                        else -> onBack()
+                    }
+                },
+            )
+        },
     ) { padding ->
         Column(
             modifier = Modifier
@@ -103,160 +183,218 @@ fun AddContainerScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text(
-                text = "在线下载 (proot-distro) / 本地导入 / 管理已存在的容器。",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-
-            // ---- 在线下载：方格列表 ----
-            Text(
-                text = "在线下载 Rootfs",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            ProotDistroGrid(
-                entries = ProotDistroCatalog.entries,
-                isInstalling = isInstalling,
-                onPickEntry = { entry ->
-                    installProotDistroRootfs(
-                        entry = entry,
-                        customName = null,
-                        context = context,
-                        reporter = reporter,
-                        scope = scope,
-                        onStart = { isInstalling = true },
-                        onFinish = {
-                            isInstalling = false
-                            if (reporter.stage == ProgressStage.DONE_SUCCESS) {
-                                // 取安装成功的 rootfs 名
-                                val m = Regex("(?m)^安装完成:\\s*(\\S+)").find(reporter.msg)
-                                    ?: Regex("(?m)提取成功：(\\S+)").find(reporter.msg)
-                                    ?: Regex("(?m)解压成功：(\\S+)").find(reporter.msg)
-                                val name = m?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
-                                if (name != null) justExtractedRootfs = name
-                            }
-                        },
-                    )
-                },
-            )
-            TextButton(
-                onClick = { showCustomImageForm = !showCustomImageForm },
-                enabled = !isInstalling,
-            ) { Text(if (showCustomImageForm) "收起自定义 image ref" else "使用自定义 image ref") }
-
-            if (showCustomImageForm) {
-                CustomImageForm(
-                    isInstalling = isInstalling,
-                    onInstall = { imageRef, customName ->
-                        installCustomImageRef(
-                            imageRef = imageRef,
-                            customName = customName,
-                            context = context,
-                            reporter = reporter,
-                            scope = scope,
-                            onStart = { isInstalling = true },
-                            onFinish = {
-                                isInstalling = false
-                                if (reporter.stage == ProgressStage.DONE_SUCCESS) {
-                                    val m = Regex("(?m)^安装完成:\\s*(\\S+)").find(reporter.msg)
-                                    val name = m?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
-                                    if (name != null) justExtractedRootfs = name
-                                }
-                            },
-                        )
+            // ---------- 第 1 步：选择方式 ----------
+            if (selectedMethod == null) {
+                Text(
+                    text = "请选择一种添加容器的方式：",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                AddMethodTile(
+                    title = "在线下载 Rootfs",
+                    description = "通过 proot-distro 从 Docker Hub 拉镜像，支持 Ubuntu / Debian / Alpine / Arch 等 10 种发行版",
+                    onClick = { selectedMethod = AddMethod.ONLINE },
+                )
+                AddMethodTile(
+                    title = "下载默认 Rootfs (内置)",
+                    description = "从 App 自带的 assets 中提取预打包的 rootfs",
+                    onClick = { selectedMethod = AddMethod.BUILTIN },
+                )
+                AddMethodTile(
+                    title = "选择外部 Rootfs 压缩包",
+                    description = "从本地存储选 .tar.xz / .tar.gz / .tar.zst 压缩包",
+                    onClick = {
+                        selectedMethod = AddMethod.ARCHIVE
+                        archiveLauncher.launch(arrayOf("application/x-xz", "application/gzip", "*/*"))
+                    },
+                )
+                AddMethodTile(
+                    title = "选择外部 Rootfs 文件夹",
+                    description = "从本地存储选一个已存在的 rootfs 文件夹",
+                    onClick = {
+                        selectedMethod = AddMethod.FOLDER
+                        folderLauncher.launch(null)
                     },
                 )
             }
 
-            HorizontalDivider(Modifier.padding(vertical = 8.dp))
+            // ---------- 第 2 步：具体选择 ----------
+            else if (reporter.stage == ProgressStage.NOT_STARTED) {
+                when (selectedMethod) {
+                    AddMethod.ONLINE -> {
+                        Text(
+                            text = "在线下载 (proot-distro)",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        ProotDistroGrid(
+                            entries = ProotDistroCatalog.entries,
+                            isInstalling = isInstalling,
+                            onPickEntry = { entry ->
+                                installProotDistroRootfs(
+                                    entry = entry,
+                                    customName = null,
+                                    context = context,
+                                    reporter = reporter,
+                                    scope = scope,
+                                    onStart = { isInstalling = true },
+                                    onFinish = {
+                                        isInstalling = false
+                                        if (reporter.stage == ProgressStage.DONE_SUCCESS) {
+                                            val m = Regex("(?m)^安装完成:\\s*(\\S+)").find(reporter.msg)
+                                            val name = m?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
+                                            if (name != null) justExtractedRootfs = name
+                                        }
+                                    },
+                                )
+                            },
+                        )
+                        HorizontalDivider(Modifier.padding(vertical = 8.dp))
+                        Text(
+                            text = "自定义 image ref：",
+                            style = MaterialTheme.typography.titleSmall,
+                        )
+                        OutlinedTextField(
+                            value = customImageRef,
+                            onValueChange = { customImageRef = it },
+                            label = { Text("image ref") },
+                            placeholder = { Text("例如 ubuntu:24.04") },
+                            enabled = !isInstalling,
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        OutlinedTextField(
+                            value = customImageName,
+                            onValueChange = { customImageName = it.filter { ch -> ch.isLetterOrDigit() || ch in "._-" } },
+                            label = { Text("容器名 (可选)") },
+                            placeholder = { Text("留空则从 image ref 派生") },
+                            enabled = !isInstalling,
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Button(
+                            onClick = {
+                                val ref = customImageRef.trim()
+                                if (ref.isNotEmpty()) {
+                                    installCustomImageRef(
+                                        imageRef = ref,
+                                        customName = customImageName.takeIf { it.isNotBlank() },
+                                        context = context,
+                                        reporter = reporter,
+                                        scope = scope,
+                                        onStart = { isInstalling = true },
+                                        onFinish = {
+                                            isInstalling = false
+                                            if (reporter.stage == ProgressStage.DONE_SUCCESS) {
+                                                val m = Regex("(?m)^安装完成:\\s*(\\S+)").find(reporter.msg)
+                                                val name = m?.groupValues?.getOrNull(1)?.takeIf { it.isNotBlank() }
+                                                if (name != null) justExtractedRootfs = name
+                                            }
+                                        },
+                                    )
+                                }
+                            },
+                            enabled = !isInstalling && customImageRef.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("下载并安装") }
+                    }
+                    AddMethod.BUILTIN -> {
+                        Text(
+                            text = "下载默认 Rootfs (内置)",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = "点击下面按钮开始从 App 内置 assets 中提取 rootfs。",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    reporter.msgTitle = "正在提取内置 Rootfs..."
+                                    reporter.stage = ProgressStage.PROCESSING
+                                    reporter.progress = 0
+                                    reporter.msg = "日志："
+                                    try {
+                                        val extracted = Utils.Rootfs.installRootfsFromAssets(context, reporter)
+                                        if (extracted != null) {
+                                            reporter.msg("提取成功：${extracted.name}", "提取成功！")
+                                            reporter.stage = ProgressStage.DONE_SUCCESS
+                                            justExtractedRootfs = extracted.name
+                                        } else {
+                                            reporter.msg("未在assets中找到rootfs压缩包", "内置无 rootfs")
+                                            reporter.stage = ProgressStage.DONE_FAILURE
+                                        }
+                                    } catch (e: Throwable) {
+                                        Log.e(TAG, "extract assets rootfs failed", e)
+                                        reporter.msg("提取失败：${e.stackTraceToString()}", "提取失败")
+                                        reporter.stage = ProgressStage.DONE_FAILURE
+                                    }
+                                    reporter.progress = 100
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("开始提取") }
+                    }
+                    AddMethod.ARCHIVE -> {
+                        Text(
+                            text = "选择外部 Rootfs 压缩包",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = "点击下面按钮选择 .tar.xz / .tar.gz / .tar.zst 文件。",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = {
+                                archiveLauncher.launch(arrayOf("application/x-xz", "application/gzip", "*/*"))
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("选择压缩包") }
+                    }
+                    AddMethod.FOLDER -> {
+                        Text(
+                            text = "选择外部 Rootfs 文件夹",
+                            style = MaterialTheme.typography.titleMedium,
+                        )
+                        Text(
+                            text = "点击下面按钮选一个包含 etc + usr 的现有文件夹作为 rootfs。",
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Button(
+                            onClick = { folderLauncher.launch(null) },
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text("选择文件夹") }
+                    }
+                    else -> Unit
+                }
+            }
 
-            // ---- 本地导入：3 个添加入口 ----
-            Text(
-                text = "本地导入 Rootfs",
-                style = MaterialTheme.typography.titleSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            AddContainerActions(
-                reporter = reporter,
-                onExtractAssets = {
-                    scope.launch {
-                        reporter.msgTitle = "正在提取内置 Rootfs..."
-                        reporter.stage = ProgressStage.PROCESSING
-                        reporter.progress = 0
-                        reporter.msg = "日志："
-                        try {
-                            val extracted = Utils.Rootfs.installRootfsFromAssets(context, reporter)
-                            if (extracted != null) {
-                                reporter.msg("提取成功：${extracted.name}", "提取成功！")
-                                reporter.stage = ProgressStage.DONE_SUCCESS
-                                justExtractedRootfs = extracted.name
-                            } else {
-                                reporter.msg("未在assets中找到rootfs压缩包", "内置无 rootfs，请使用其他方式")
-                                reporter.stage = ProgressStage.DONE_FAILURE
-                            }
-                        } catch (e: Throwable) {
-                            Log.e(TAG, "extract assets rootfs failed", e)
-                            reporter.msg("提取失败：${e.stackTraceToString()}", "提取失败")
-                            reporter.stage = ProgressStage.DONE_FAILURE
-                        }
-                        reporter.progress = 100
-                    }
-                },
-                archiveLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.OpenDocument()
-                ) { uri ->
-                    if (uri == null) return@rememberLauncherForActivityResult
-                    scope.launch {
-                        reporter.msgTitle = "正在解压 Rootfs 压缩包..."
-                        reporter.stage = ProgressStage.PROCESSING
-                        reporter.progress = 0
-                        reporter.msg = "日志："
-                        try {
-                            val out = Utils.Rootfs.installRootfsArchive(context, uri, reporter)
-                            reporter.msg("解压成功：${out.name}", "解压成功！")
-                            reporter.stage = ProgressStage.DONE_SUCCESS
-                            justExtractedRootfs = out.name
-                        } catch (e: Throwable) {
-                            Log.e(TAG, "extract archive rootfs failed", e)
-                            reporter.msg("解压失败：${e.stackTraceToString()}", "解压失败")
-                            reporter.stage = ProgressStage.DONE_FAILURE
-                        }
-                        reporter.progress = 100
-                    }
-                },
-                folderLauncher = rememberLauncherForActivityResult(
-                    ActivityResultContracts.OpenDocumentTree()
-                ) { uri ->
-                    if (uri == null) return@rememberLauncherForActivityResult
-                    scope.launch {
-                        reporter.msgTitle = "正在注册外部 Rootfs..."
-                        reporter.stage = ProgressStage.PROCESSING
-                        reporter.progress = 0
-                        reporter.msg = "日志："
-                        try {
-                            val newRootfs = linkExternalRootfs(context, uri, reporter)
-                            reporter.msg("注册成功：${newRootfs.name}", "注册成功！")
-                            reporter.stage = ProgressStage.DONE_SUCCESS
-                            justExtractedRootfs = newRootfs.name
-                        } catch (e: Throwable) {
-                            Log.e(TAG, "link external rootfs failed", e)
-                            reporter.msg("注册失败：${e.stackTraceToString()}", "注册失败")
-                            reporter.stage = ProgressStage.DONE_FAILURE
-                        }
-                        reporter.progress = 100
-                    }
-                },
-            )
-
-            // ---- 安装进度 ----
+            // ---------- 第 3 步：进度 ----------
             if (reporter.stage == ProgressStage.PROCESSING ||
                 reporter.stage == ProgressStage.DONE_SUCCESS ||
                 reporter.stage == ProgressStage.DONE_FAILURE) {
                 ProgressDisplay(reporter)
             }
+            // 失败可以重试
+            if (reporter.stage == ProgressStage.DONE_FAILURE) {
+                Button(
+                    onClick = {
+                        // 重试：返回第 2 步（重新选 / 重启 launcher）
+                        when (selectedMethod) {
+                            AddMethod.ONLINE, AddMethod.BUILTIN -> {
+                                reporter.stage = ProgressStage.NOT_STARTED
+                                reporter.msg = ""
+                            }
+                            AddMethod.ARCHIVE -> archiveLauncher.launch(arrayOf("application/x-xz", "application/gzip", "*/*"))
+                            AddMethod.FOLDER -> folderLauncher.launch(null)
+                            else -> Unit
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("重试") }
+            }
 
-            // ---- 完成后让用户选用户/完成 ----
+            // ---------- 第 3 步：完成后让用户选用户/完成 ----------
             if (reporter.stage == ProgressStage.DONE_SUCCESS && justExtractedRootfs != null) {
                 JustExtractedSetup(
                     rootfsName = justExtractedRootfs!!,
@@ -266,30 +404,61 @@ fun AddContainerScreen(
                         reporter.stage = ProgressStage.NOT_STARTED
                         reporter.msg = ""
                         reporter.msgTitle = ""
+                        selectedMethod = null
                     },
                 )
             }
 
             HorizontalDivider(Modifier.padding(vertical = 8.dp))
+
+            // ---------- 已存在的容器列表 ----------
             Text(
                 text = "已存在的容器",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
             )
-
-            // ---- 已有 rootfs 列表 ----
-            ExistingRootfsList(
-                settingVm = settingVm,
-                selectedName = selectedExistingRootfs,
-                onSelect = { selectedExistingRootfs = it },
-            )
+            ExistingRootfsList(settingVm = settingVm)
         }
     }
 }
 
 /**
+ * 添加方式卡片（一行一项）。
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AddMethodTile(title: String, description: String, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        tonalElevation = 2.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant,
+        onClick = onClick,
+    ) {
+        Column(modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp)) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Spacer4()
+            Text(
+                text = description,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+@Composable
+private fun Spacer4() = androidx.compose.foundation.layout.Spacer(modifier = Modifier.padding(top = 4.dp))
+
+/**
  * proot-distro 方格列表。宽度 ≥ 600dp 时 4 列，否则 3 列。
- * 用手动 Row + Column 实现，避免 LazyVerticalGrid 不能嵌套在 verticalScroll 里。
+ * 用 Row + Column 手画，避免 LazyVerticalGrid 不能嵌套在 verticalScroll 里。
  */
 @Composable
 private fun ProotDistroGrid(
@@ -313,7 +482,6 @@ private fun ProotDistroGrid(
                             modifier = Modifier.weight(1f),
                         )
                     }
-                    // 不足一行的占位。避免最后一排不均。
                     repeat(columns - rowItems.size) {
                         Box(modifier = Modifier.weight(1f))
                     }
@@ -323,9 +491,6 @@ private fun ProotDistroGrid(
     }
 }
 
-/**
- * 单个 proot-distro 方格（卡片）。
- */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ProotDistroTile(
@@ -335,8 +500,7 @@ private fun ProotDistroTile(
     modifier: Modifier = Modifier,
 ) {
     Surface(
-        modifier = modifier
-            .aspectRatio(1f),
+        modifier = modifier.aspectRatio(1f),
         shape = RoundedCornerShape(16.dp),
         tonalElevation = 2.dp,
         color = MaterialTheme.colorScheme.secondaryContainer,
@@ -371,53 +535,7 @@ private fun ProotDistroTile(
 }
 
 /**
- * 自定义 image ref 输入表单。
- */
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun CustomImageForm(
-    isInstalling: Boolean,
-    onInstall: (imageRef: String, customName: String?) -> Unit,
-) {
-    var imageRef by remember { mutableStateOf("") }
-    var customName by remember { mutableStateOf("") }
-    Column(
-        modifier = Modifier.fillMaxWidth(),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        OutlinedTextField(
-            value = imageRef,
-            onValueChange = { imageRef = it },
-            label = { Text("image ref") },
-            placeholder = { Text("例如 ubuntu:24.04 或 kalilinux/kali-rolling") },
-            enabled = !isInstalling,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        OutlinedTextField(
-            value = customName,
-            onValueChange = { customName = it.filter { ch -> ch.isLetterOrDigit() || ch in "._-" } },
-            label = { Text("容器名 (可选)") },
-            placeholder = { Text("留空则从 image ref 派生") },
-            enabled = !isInstalling,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Button(
-            onClick = {
-                val ref = imageRef.trim()
-                if (ref.isNotEmpty()) {
-                    onInstall(ref, customName.takeIf { it.isNotBlank() })
-                }
-            },
-            enabled = !isInstalling && imageRef.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("下载并安装") }
-    }
-}
-
-/**
- * 通过 proot-distro 流程安装一个 rootfs。逻辑与 PrepareScreen.installProotDistroRootfs 一致。
+ * 通过 proot-distro 流程安装一个 rootfs。
  */
 private fun installProotDistroRootfs(
     entry: ProotDistroEntry,
@@ -466,26 +584,7 @@ private fun installProotDistroRootfs(
             e.printStackTrace()
             val rawMsg = e.message ?: e::class.simpleName ?: "unknown"
             val shortMsg = rawMsg.lineSequence().firstOrNull()?.take(200) ?: rawMsg
-            val (title, hint) = when {
-                rawMsg.contains("integrity check failed", ignoreCase = true) ->
-                    "下载的 layer SHA-256 校验失败" to "请重新点击重试。"
-                rawMsg.contains("manifest", ignoreCase = true) &&
-                    (rawMsg.contains("not found", ignoreCase = true) ||
-                     rawMsg.contains("does not exist", ignoreCase = true)) ->
-                    "在 Docker Hub 找不到该镜像" to "请检查 image ref 是否正确"
-                e is java.net.UnknownHostException ||
-                    e is java.net.SocketTimeoutException ||
-                    e is java.net.ConnectException ->
-                    "网络连接失败" to "请检查网络/DNS，重试不需要重新下载全部"
-                rawMsg.contains("zstd", ignoreCase = true) ->
-                    "该镜像的 layer 使用 zstd 压缩" to "Android 暂不支持 zstd 解压"
-                else -> "安装失败: $shortMsg" to "查看完整堆栈。"
-            }
-            android.util.Log.e("AddContainerScreen", "install failed: $rawMsg", e)
-            reporter.msg("✗ $title")
-            reporter.msg("  异常: ${e::class.simpleName}: $shortMsg")
-            e.stackTrace.take(8).forEach { st -> reporter.msg("    at $st") }
-            reporter.msg("✗ 提示: $hint", title)
+            reporter.msg("✗ 安装失败: $shortMsg", "安装失败")
             reporter.stage = ProgressStage.DONE_FAILURE
         } finally {
             reporter.progress = 100
@@ -537,37 +636,6 @@ private fun installCustomImageRef(
 }
 
 /**
- * 三个本地添加入口按钮。
- */
-@Composable
-private fun AddContainerActions(
-    reporter: SimpleTaskReporter,
-    onExtractAssets: () -> Unit,
-    archiveLauncher: androidx.activity.result.ActivityResultLauncher<Array<String>>,
-    folderLauncher: androidx.activity.result.ActivityResultLauncher<Uri?>,
-) {
-    val enabled = reporter.stage == ProgressStage.NOT_STARTED || reporter.stage == ProgressStage.DONE_FAILURE
-    Column(
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Button(onClick = onExtractAssets, enabled = enabled, modifier = Modifier.fillMaxWidth()) {
-            Text("下载默认 rootfs (内置)")
-        }
-        Button(
-            onClick = { archiveLauncher.launch(arrayOf("application/x-xz", "application/gzip", "*/*")) },
-            enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("选择外部 rootfs 压缩包 (.tar.xz / .gz / .zst)") }
-        Button(
-            onClick = { folderLauncher.launch(null) },
-            enabled = enabled,
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text("选择外部 rootfs 文件夹") }
-    }
-}
-
-/**
  * 把 SAF 选中的外部文件夹符号链接到 [Consts.rootfsAllDir] 下。
  */
 private suspend fun linkExternalRootfs(
@@ -598,7 +666,7 @@ private suspend fun linkExternalRootfs(
 }
 
 /**
- * 刚解压/下载成功的 rootfs：让用户编辑别名 + 选用户 + 设下次启动。
+ * 刚下载成功的 rootfs：让用户编辑别名 + 选用户 + 设下次启动。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -671,15 +739,11 @@ private fun JustExtractedSetup(
  * 已有 rootfs 列表：设为当前、重命名、删除、导出。
  */
 @Composable
-private fun ExistingRootfsList(
-    settingVm: SettingViewModel,
-    selectedName: String?,
-    onSelect: (String?) -> Unit,
-) {
+private fun ExistingRootfsList(settingVm: SettingViewModel) {
     val scope = rememberCoroutineScope()
     val dialogState = rememberConfirmDialogState()
     val currentCanonical = remember { runCatching { Consts.rootfsCurrDir.canonicalFile.name }.getOrDefault("") }
-    val rootfsList = remember(selectedName) {
+    val rootfsList = remember {
         settingVm.rootfsAliasMap.value.keys.sortedWith(
             compareBy<String> { it != currentCanonical }.thenBy { it }
         )
@@ -719,25 +783,21 @@ private fun ExistingRootfsList(
                                 },
                                 enabled = !isCurr,
                             ) { Text("设为当前") }
-                            TextButton(onClick = { onSelect(name) }) { Text("重命名") }
-                            TextButton(
-                                onClick = {
-                                    if (isCurr) {
-                                        dialogState.showConfirm("该 rootfs 当前正在运行，无法删除。")
-                                    } else {
-                                        dialogState.showConfirm("确定删除该 rootfs 吗？\n其内部所有文件都将被删除！\n\n$alias") {
-                                            scope.launch {
-                                                val result = runCatching {
-                                                    settingVm.onChangeRootfsName(name, name, org.github.ewt45.winemulator.FuncOnChangeAction.DEL)
-                                                }
-                                                result.onFailure { dialogState.showConfirm("删除失败：${it.message}") }
-                                                settingVm.updateValuesWhenEnterSettings()
+                            TextButton(onClick = {
+                                if (isCurr) {
+                                    dialogState.showConfirm("该 rootfs 当前正在运行，无法删除。")
+                                } else {
+                                    dialogState.showConfirm("确定删除该 rootfs 吗？\n\n$alias") {
+                                        scope.launch {
+                                            val result = runCatching {
+                                                settingVm.onChangeRootfsName(name, name, org.github.ewt45.winemulator.FuncOnChangeAction.DEL)
                                             }
+                                            result.onFailure { dialogState.showConfirm("删除失败：${it.message}") }
+                                            settingVm.updateValuesWhenEnterSettings()
                                         }
                                     }
-                                },
-                                enabled = !isCurr,
-                            ) { Text("删除") }
+                                }
+                            }, enabled = !isCurr) { Text("删除") }
                         }
                         GeneralRootfsSelect_ExportRootfs(modifier = Modifier, rootfsName = name)
                     }

@@ -25,6 +25,9 @@ data object RouteTheme
 /** 右上角"显示终端"独立页（带返回箭头） */
 @Serializable
 data object RouteShowTerminal
+/** 首次启动的权限设置页 */
+@Serializable
+data object RoutePermission
 /** 容器自动执行命令编辑页（带 rootfsName 参数） */
 @Serializable
 data class RouteContainerAutoCmd(val rootfsName: String)
@@ -69,6 +72,10 @@ enum class Destination(
     ShowTerminal(
         "显示终端",
         RouteShowTerminal,
+    ),
+    Permission(
+        "权限",
+        RoutePermission,
     );
 
     /** 容器自动执行命令编辑页（带参数） */

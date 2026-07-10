@@ -78,7 +78,7 @@ import org.github.ewt45.winemulator.viewmodel.SettingViewModel
  *   1. 主题切换 (Palette 图标)
  *   2. 显示终端 (Terminal 图标)
  *   3. 设置 (Settings 图标)
- *   4. 最小化按钮 (原项目已有的 compose-view 缩成小图标)
+ *   4. 最小化按钮已去掉
  *
  * 中间：方格显示所有 rootfs（容器）。点击卡片 = 进入该容器 X11 界面。
  * 卡片右下三个点 = 相关菜单（设置自动执行命令 / 重启容器 / 关闭容器）。
@@ -88,7 +88,6 @@ import org.github.ewt45.winemulator.viewmodel.SettingViewModel
  * @param onAddContainer 点击右下角加号。
  * @param onShowTerminal 点击右上角"显示终端"图标。
  * @param onOpenSettings 点击右上角"设置"图标。
- * @param onMinimize 点击右上角最小化按钮（缩成小图标，原项目行为）。
  * @param onBack 用于子屏幕返回主页的回调（仅子页面需要）。
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -102,14 +101,10 @@ fun HomeScreen(
     onAddContainer: () -> Unit,
     onShowTerminal: () -> Unit,
     onOpenSettings: () -> Unit,
-    onMinimize: () -> Unit,
     /** 三个点菜单项被点击：0=设置自动执行命令，1=重启容器，2=关闭容器 */
     onContainerAction: (RootfsContainer, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
-    val activity = androidx.activity.compose.LocalActivity.current
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val miniIconPx = (org.github.ewt45.winemulator.Consts.Ui.minimizedIconSize * density.density).toInt()
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -118,7 +113,6 @@ fun HomeScreen(
                 onChangeThemeMode = onChangeThemeMode,
                 onShowTerminal = onShowTerminal,
                 onOpenSettings = onOpenSettings,
-                onMinimize = onMinimize,
             )
         },
         floatingActionButton = {
@@ -146,7 +140,6 @@ fun HomeTopBar(
     onChangeThemeMode: (Int) -> Unit,
     onShowTerminal: () -> Unit,
     onOpenSettings: () -> Unit,
-    onMinimize: () -> Unit,
 ) {
     var themeMenuOpen by remember { mutableStateOf(false) }
     TopAppBar(
@@ -193,10 +186,6 @@ fun HomeTopBar(
             // 设置
             IconButton(onClick = onOpenSettings) {
                 Icon(Icons.Filled.Settings, contentDescription = "设置")
-            }
-            // 最小化按钮（原项目已有逻辑：把 compose 视图缩成小图标）
-            IconButton(onClick = onMinimize) {
-                Icon(painterResource(R.drawable.ic_hide), contentDescription = "最小化")
             }
         },
         colors = TopAppBarDefaults.topAppBarColors(
@@ -595,7 +584,6 @@ fun HomeScreenPreview() {
         onAddContainer = {},
         onShowTerminal = {},
         onOpenSettings = {},
-        onMinimize = {},
         onContainerAction = { _, _ -> },
     )
 }

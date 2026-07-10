@@ -98,22 +98,6 @@ fun MainScreen(
     val prepareUiState by prepareVm.uiState.collectAsStateWithLifecycle()
     val themeState by settingVm.themeState.collectAsState()
 
-    // 老项目行为：点击右上角最小化按钮 = 把 compose_view 缩成屏幕边缘的小图标。
-    // X11 service 仍在后台运行，X11 LorieView（被嵌在 compose_view 中）随之一并缩为图标。
-    val minimizeIconPx = (Consts.Ui.minimizedIconSize * androidx.compose.ui.platform.LocalDensity.current.density).toInt()
-    val doMinimize: () -> Unit = minimize@{
-        // 使用 MainEmuActivity.instance 单例，避免在普通 lambda 里调 Composable (LocalActivity.current)
-        val act = MainEmuActivity.instance
-        val v = act.findViewById<View>(R.id.compose_view) ?: run {
-            act.window?.decorView?.postDelayed({
-                val v2 = act.findViewById<View>(R.id.compose_view) ?: return@postDelayed
-                applyMinimize(v2, minimizeIconPx)
-            }, 50)
-            return@minimize
-        }
-        applyMinimize(v, minimizeIconPx)
-    }
-
     // 用于刷新 Home 上的容器列表（点 ➕ 添加完成后回到 Home 时也要刷新）
     var homeRefreshTick by remember { mutableStateOf(0) }
     val containers: List<RootfsContainer> = remember(homeRefreshTick) { settingVm.listRootfsContainers() }
@@ -129,14 +113,20 @@ fun MainScreen(
         mainVm.navigateToEvent.collect { dest -> navigateTo(dest) }
     }
 
-    // 只在用户主动点击 ➕（forceNoRootfs=true）或首次启动但需要权限/rootfs 时才跳 Prepare。
-    // 初次启动且没有 rootfs：直接停留在 Home。
-    LaunchedEffect(prepareUiState.isPrepareFinished, prepareVm.uiState.value.forceNoRootfs) {
-        if (prepareUiState.isPrepareFinished) return@LaunchedEffect
-        // 仅在 forceNoRootfs 为 true 时跳 Prepare（用户主动添加）
+    // 首次启动：权限未授予完时跳 PermissionScreen 申请权限；都通过/跳过后进 Home。
+    // 用户主动添加 rootfs（forceNoRootfs=true）时仍然走 PrepareScreen 走添加流程。
+    LaunchedEffect(prepareUiState, prepareVm.uiState.value.forceNoRootfs) {
         if (prepareVm.uiState.value.forceNoRootfs && currDestination != Destination.Prepare) {
             navigateTo(Destination.Prepare)
+            return@LaunchedEffect
         }
+        // 权限未授予完且没跳过：跳权限页
+        val s = prepareUiState
+        val needPermission = !s.skipPermissions && s.unGrantedPermissions.isNotEmpty()
+        if (needPermission && currDestination != Destination.Permission) {
+            navigateTo(Destination.Permission)
+        }
+        // 权限都已授予/跳过 + 没有 forceNoRootfs：留在 Home（启动后就是 Home）
     }
 
     // 监听 Home 返回事件（从添加容器页回到 Home 时刷新列表）
@@ -172,6 +162,17 @@ fun MainScreen(
                     }
                 }
 
+                composable<RoutePermission> {
+                    PermissionScreen(
+                        prepareVm = prepareVm,
+                        onFinish = {
+                            navController.navigate(Destination.Home.route) {
+                                popUpTo(Destination.Permission.route) { inclusive = true }
+                            }
+                        },
+                    )
+                }
+
                 // Home —— 新主界面
                 composable<RouteHome> {
                     HomeScreen(
@@ -196,7 +197,7 @@ fun MainScreen(
                         onOpenSettings = {
                             navController.navigate(Destination.Settings.route)
                         },
-                        onMinimize = { doMinimize() },
+                        onMinimize = {},
                         onContainerAction = { c, action ->
                             when (action) {
                                 0 -> navController.navigate(Destination.ContainerAutoCmd(c.name).route)
@@ -462,21 +463,5 @@ private fun MainScreenPreview() {
                 }
             }
         }
-    }
-}
-/**
- * 实际把 compose_view 缩成屏幕边缘小图标的逻辑。原项目 MinimizeButton 同款效果。
- */
-private fun applyMinimize(view: View, miniIconPx: Int) {
-    view.apply {
-        val lp = layoutParams as MarginLayoutParams
-        lp.height = miniIconPx
-        lp.width = miniIconPx
-        lp.leftMargin = 0
-        lp.topMargin = 100
-        lp.rightMargin = 0
-        lp.bottomMargin = 0
-        requestLayout()
-        post { snapToNearestEdgeHalfway() }
     }
 }
