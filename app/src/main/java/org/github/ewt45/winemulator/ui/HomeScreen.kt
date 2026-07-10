@@ -1,6 +1,8 @@
 package org.github.ewt45.winemulator.ui
 
 import a.io.github.ewt45.winemulator.R
+import android.view.View
+import android.view.ViewGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -105,10 +107,10 @@ fun HomeScreen(
     val density = androidx.compose.ui.platform.LocalDensity.current
     val miniIconPx = (org.github.ewt45.winemulator.Consts.Ui.minimizedIconSize * density.density).toInt()
     val doMinimize: () -> Unit = minimize@{
-        val a = activity as? org.github.ewt45.winemulator.MainEmuActivity ?: return@minimize
-        val view = a.findViewById<android.view.View>(org.github.ewt45.winemulator.R.id.compose_view) ?: return@minimize
+        val a = activity as? MainEmuActivity ?: return@minimize
+        val view = a.findViewById<View>(R.id.compose_view) ?: return@minimize
         view.apply {
-            val lp = layoutParams as android.view.ViewGroup.MarginLayoutParams
+            val lp = layoutParams as ViewGroup.MarginLayoutParams
             lp.height = miniIconPx
             lp.width = miniIconPx
             lp.leftMargin = 0
