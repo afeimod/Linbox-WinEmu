@@ -372,6 +372,10 @@ object Utils {
     object Rootfs {
         /** 别名文件名，存放在 rootfs 目录下 */
         private const val ALIAS_FILE_NAME = ".alias"
+        /** 容器启动时执行的命令文件名，存放在 rootfs 目录下（per-container 启动命令） */
+        private const val START_CMD_FILE_NAME = ".startcmd"
+        /** 容器内的 emuconf 目录名 */
+        private const val EMUCONF_DIR_NAME = ".emuconf"
 
         /**
          * 获取 rootfs 的显示别名
@@ -402,10 +406,46 @@ object Utils {
         }
 
         /**
+         * 获取某 rootfs 的 per-container 启动命令。空字符串表示未设置。
+         * 实际文件存放在 <rootfs>/.emuconf/start.sh
+         */
+        fun getStartupCmd(rootfsDir: File): String {
+            val cmdFile = File(rootfsDir, EMUCONF_DIR_NAME + "/" + "start.sh")
+            return if (cmdFile.exists()) cmdFile.readText() else ""
+        }
+
+        /**
+         * 设置某 rootfs 的 per-container 启动命令。
+         * 为空时删除启动脚本文件（与"使用全局设置"等价）。
+         */
+        fun setStartupCmd(rootfsDir: File, cmd: String) {
+            val cmdFile = File(rootfsDir, EMUCONF_DIR_NAME + "/" + "start.sh")
+            if (cmd.isBlank()) {
+                cmdFile.delete()
+                return
+            }
+            cmdFile.parentFile?.mkdirs()
+            cmdFile.writeText(cmd)
+            // 777 让 root 用户也能跑
+            runCatching { cmdFile.setExecutable(true, false) }
+        }
+
+        /**
+         * 获取某 rootfs 的启动脚本路径（per-container .startcmd 文件）。
+         * 不会自动创建文件。
+         */
+        fun getStartupCmdFile(rootfsDir: File): File =
+            File(rootfsDir, EMUCONF_DIR_NAME + "/" + "start.sh")
+
+        /**
          * 将某一个rootfs激活为当前rootfs（之后可通过rootfsCurrDir 获取)
          * 会将该rootfs文件名保存到datastore
          */
         suspend fun makeCurrent(rootfsDir: File) {
+            // 重建符号链接：先删除旧链接（如果存在），避免 FileAlreadyExistsException
+            if (rootfsCurrDir.exists() || Files.isSymbolicLink(rootfsCurrDir.toPath())) {
+                runCatching { rootfsCurrDir.delete() }
+            }
             Files.symlink(rootfsDir, rootfsCurrDir)
             dataStore.edit { it[curr_rootfs_name.key] = rootfsDir.name }
         }

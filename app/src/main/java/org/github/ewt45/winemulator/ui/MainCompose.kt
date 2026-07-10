@@ -31,25 +31,22 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonColors
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -58,6 +55,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navigation
+import kotlinx.coroutines.launch
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.MainEmuActivity
 import org.github.ewt45.winemulator.Utils.Ui.snapToNearestEdgeHalfway
@@ -66,10 +64,20 @@ import org.github.ewt45.winemulator.viewmodel.DialogType
 import org.github.ewt45.winemulator.viewmodel.MainUiState
 import org.github.ewt45.winemulator.viewmodel.MainViewModel
 import org.github.ewt45.winemulator.viewmodel.PrepareViewModel
+import org.github.ewt45.winemulator.viewmodel.RootfsContainer
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel
 import org.github.ewt45.winemulator.viewmodel.TerminalViewModel
+import java.io.File
 
 
+/**
+ * 新版主屏幕入口。新设计：
+ * - HomeScreen (LinBox 主界面) 为准备完成后的常驻页。
+ * - 点容器卡片 → RouteX11
+ * - 点右下角 ➕ → RouteAddContainer
+ * - 点右上角主题/终端/设置 → 各自独立页面（带返回箭头）
+ * - 点三个点 → 三个菜单项
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainScreen(
@@ -82,48 +90,52 @@ fun MainScreen(
 ) {
     val TAG = "MainScreen"
     val navController = rememberNavController()
+    val scope = rememberCoroutineScope()
 
     val uiState by mainVm.uiState.collectAsState()
     val prepareUiState by prepareVm.uiState.collectAsStateWithLifecycle()
+    val themeState by settingVm.themeState.collectAsState()
+
+    // 用于刷新 Home 上的容器列表（点 ➕ 添加完成后回到 Home 时也要刷新）
+    var homeRefreshTick by remember { mutableStateOf(0) }
+    val containers: List<RootfsContainer> = remember(homeRefreshTick) { settingVm.listRootfsContainers() }
+
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currDestination = appbarDestList.find { navBackStackEntry?.destination?.hasRoute(it.route::class) == true } ?: startDest
 
-    // 跳转到目的地。如果返回栈中有该目的地，则弹出到这个位置然后再跳转。
-    val navigateTo: (Destination) -> Unit = { navController.navigate(it.route) { popUpTo(it.route) { inclusive = true } } }
+    // 跳转到目的地。使用 launchSingleTop 避免同路由重叠。
+    val navigateTo: (Destination) -> Unit = { dest -> navController.navigate(dest.route) { launchSingleTop = true } }
 
     // acitivty通过viewmodel修改目的地时，触发跳转
     LaunchedEffect(Unit) {
         mainVm.navigateToEvent.collect { dest -> navigateTo(dest) }
     }
-    // 启动时自动跳转到X11界面（如果设置了自动启动）
-    LaunchedEffect(prepareUiState.isPrepareFinished) {
-        if (prepareUiState.isPrepareFinished && startDest == Destination.X11) {
-            // 如果准备已完成且目标是X11，自动导航到X11
-            navigateTo(Destination.X11)
-        }
-    }
+
     // 开头或中途 需要进入准备屏幕时
     LaunchedEffect(prepareUiState.isPrepareFinished) {
         if (!prepareUiState.isPrepareFinished && currDestination != Destination.Prepare)
             navigateTo(Destination.Prepare)
     }
 
+    // 监听 Home 返回事件（从添加容器页回到 Home 时刷新列表）
+    LaunchedEffect(navController) {
+        navController.currentBackStackEntryFlow.collect { entry ->
+            // 从 AddContainer / AutoCmd 返回 Home 时，触发一次刷新
+            if (entry.destination.hasRoute(RouteHome::class)) {
+                homeRefreshTick++
+            }
+        }
+    }
+
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        topBar = {
-            MyTopAppBar(currDestination, { navigateTo(it) })
-        },
     ) { innerPadding ->
-        // FIXME tx11已经处理键盘高度变更了，这里应该不用innerPadding 否则会有空白
-        //  但是使用了scaffold的topbar之后需要应用顶部padding
-//            val ignoreSystemInsets = Modifier.padding(innerPadding)
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(top = innerPadding.calculateTopPadding()),
             contentAlignment = Alignment.Center,
         ) {
-//            Column(Modifier.fillMaxHeight().widthIn(max = 600.dp)) { }
             NavHost(
                 navController, startDest.route,
                 enterTransition = { scaleIn() },
@@ -131,40 +143,117 @@ fun MainScreen(
             ) {
                 composable<RoutePrepare> {
                     PrepareScreen(prepareVm, settingVm) {
-                        MainEmuActivity.instance.startEmu()
-                        // 准备完成后直接跳转到X11界面
-                        navController.navigate(Destination.X11.route) { popUpTo(Destination.Prepare.route) { inclusive = true } }
+                        // 准备完成后直接跳转到 Home
+                        navController.navigate(Destination.Home.route) {
+                            popUpTo(Destination.Prepare.route) { inclusive = true }
+                        }
                     }
                 }
+
+                // Home —— 新主界面
+                composable<RouteHome> {
+                    HomeScreen(
+                        settingVm = settingVm,
+                        themeMode = themeState,
+                        containers = containers,
+                        onChangeThemeMode = settingVm::onChangeThemeMode,
+                        onLaunchContainer = { c ->
+                            scope.launch {
+                                val dir = File(Consts.rootfsAllDir, c.name)
+                                MainEmuActivity.instance.switchToRootfsAndStart(dir) {
+                                    navController.navigate(Destination.X11.route)
+                                }
+                            }
+                        },
+                        onAddContainer = {
+                            navController.navigate(Destination.AddContainer.route)
+                        },
+                        onShowTerminal = {
+                            navController.navigate(Destination.Terminal.route)
+                        },
+                        onOpenSettings = {
+                            navController.navigate(Destination.Settings.route)
+                        },
+                        onMinimize = { minimizeComposeView() },
+                        onContainerAction = { c, action ->
+                            when (action) {
+                                0 -> navController.navigate(Destination.ContainerAutoCmd(c.name).route)
+                                1 -> scope.launch { MainEmuActivity.instance.restartContainer() }
+                                2 -> scope.launch { MainEmuActivity.instance.shutdownContainer() }
+                            }
+                        },
+                    )
+                }
+
                 composable<RouteX11> { X11Screen(tx11Content, navigateTo, settingVm = settingVm) }
+
+                composable<RouteAddContainer> {
+                    AddContainerScreen(
+                        settingVm = settingVm,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable<RouteTheme> {
+                    ThemeScreen(
+                        themeMode = themeState,
+                        onChangeThemeMode = settingVm::onChangeThemeMode,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable<RouteShowTerminal> {
+                    ShowTerminalScreen(
+                        onBack = { navController.popBackStack() },
+                        terminalContent = { ProotTerminalScreen(terminalVm) },
+                    )
+                }
+
+                composable<RouteSettings> {
+                    SettingsScreenWrapper(
+                        onBack = { navController.popBackStack() },
+                        settingsContent = {
+                            SettingScreen(settingVm, terminalVm, prepareVm, navigateTo)
+                        },
+                    )
+                }
+
+                composable<RouteContainerAutoCmd> { entry ->
+                    val args = entry.arguments
+                    val rootfsName = args?.getString("rootfsName")
+                        ?: args?.getString("arg0")  // 兼容以不同 key 保存的情况
+                        ?: ""
+                    ContainerAutoCmdScreen(
+                        rootfsName = rootfsName,
+                        settingVm = settingVm,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
                 navigation<RouteExceptX11>(startDestination = RouteTerminal) {
                     composable<RouteTerminal> { ProotTerminalScreen(terminalVm) }
-//                        composable<NavDest.Terminal> { TerminalScreen() }
                     composable<RouteSettings> { SettingScreen(settingVm, terminalVm, prepareVm, navigateTo) }
                 }
             }
         }
 
         MainDialog(uiState) { mainVm.closeConfirmDialog(it) }
-
     }
 }
 
 @Composable
 private fun MainDialog(uiState: MainUiState, onClose: (Boolean) -> Unit) {
-    // 对话框
     val dialogType = uiState.dialogType
     val isConfirm = uiState.dialogType == DialogType.CONFIRM
     val isBlock = uiState.dialogType == DialogType.BLOCK
     if (dialogType != DialogType.NONE) {
         AlertDialog(
             onDismissRequest = {}, //阻止点击外部区域关闭
-//                title = { Text("加载中") },
             text = {
                 Column(
                     modifier = Modifier
-                        .fillMaxWidth() // 让 Column 填充对话框宽度
-                        .wrapContentHeight(), // 根据内容调整高度
+                        .fillMaxWidth()
+                        .wrapContentHeight(),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
                     SelectionContainer {
@@ -192,7 +281,28 @@ private fun MainDialog(uiState: MainUiState, onClose: (Boolean) -> Unit) {
 
 
 /**
- * 顶部的AppBar，显示一个tabRow，包含一些导航目的地。如果传入当前目的地不在列表内，则不显示appbar
+ * 把 compose_view 缩成屏幕上的一个小图标，并允许拖动。
+ * 来自原 [MinimizeButton]，提取为顶层函数供 HomeScreen 直接调用。
+ */
+private fun minimizeComposeView() {
+    val activity = LocalActivity.current as? MainEmuActivity ?: return
+    val view = activity.findViewById<View>(R.id.compose_view) ?: return
+    val miniIconPx = (Consts.Ui.minimizedIconSize * LocalDensity.current.density).toInt()
+    view.apply {
+        val lp = layoutParams as MarginLayoutParams
+        lp.height = miniIconPx
+        lp.width = miniIconPx
+        lp.leftMargin = 0
+        lp.topMargin = 100
+        lp.rightMargin = 0
+        lp.bottomMargin = 0
+        requestLayout()
+        view.post { view.snapToNearestEdgeHalfway() }
+    }
+}
+
+/**
+ * 顶部的AppBar (legacy，仅保留给极少数路径)。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -202,19 +312,18 @@ private fun MyTopAppBar(
 ) {
     val selectIdx = currDestination?.let { appbarDestList.indexOf(it) }
     if (selectIdx != null && selectIdx != -1) {
-        TopAppBar(
+        androidx.compose.material3.TopAppBar(
             title = {
-                //TODO 改为 navigation  参考 https://developer.android.com/develop/ui/compose/components/tabs?hl=zh-cn
-                PrimaryScrollableTabRow(selectIdx, divider = {}) {
+                androidx.compose.material3.PrimaryScrollableTabRow(selectIdx, divider = {}) {
                     appbarDestList.forEachIndexed { idx, dest ->
-                        Tab(
+                        androidx.compose.material3.Tab(
                             selected = selectIdx == idx,
                             onClick = { setDestination(dest) },
                             text = {
                                 Text(
                                     text = dest.title,
                                     maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 )
                             }
                         )
@@ -224,10 +333,8 @@ private fun MyTopAppBar(
             actions = {
                 IconButton({ setDestination(Destination.X11) }) { Icon(painterResource(R.drawable.ic_hide), null) }
             },
-//        scrollBehavior = TopAppBarDefaults.enterAlwaysScrollBehavior(),
         )
     }
-
 }
 
 /** 按钮。点击可将compose部分的视图展开或折叠。
@@ -319,16 +426,13 @@ fun SettingButton(show: Boolean, onClick: () -> Unit) {
 @Preview(showBackground = true)
 @Composable
 private fun MainScreenPreview() {
-    val startDest = Destination.X11
+    val startDest = Destination.Home
     val navController = rememberNavController()
     val navBackEntry by navController.currentBackStackEntryAsState()
     val currDestination = appbarDestList.find { navBackEntry?.destination?.hasRoute(it.route::class) == true }
     MainTheme {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
-            topBar = {
-                MyTopAppBar(currDestination, { navController.navigate(it.route) })
-            },
         ) { innerPadding ->
             Box(
                 modifier = Modifier
@@ -343,14 +447,9 @@ private fun MainScreenPreview() {
                 ) {
                     composable<RoutePrepare> { PrepareScreenPreview() }
                     composable<RouteX11> { X11ScreenPreview() }
-                    navigation<RouteExceptX11>(startDestination = RouteTerminal) {
-                        composable<RouteTerminal> { ProotTerminalScreenPreview() }
-//                        composable<NavDest.Terminal> { TerminalScreenPreview() }
-                        composable<RouteSettings> { SettingScreenPreview() }
-                    }
+                    composable<RouteHome> { HomeScreenPreview() }
                 }
             }
-//            MainDialog(uiState) { mainVM.closeConfirmDialog(it) }
         }
     }
 }

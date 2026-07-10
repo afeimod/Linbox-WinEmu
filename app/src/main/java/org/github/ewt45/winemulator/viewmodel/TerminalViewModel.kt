@@ -156,75 +156,39 @@ class TerminalViewModel : ViewModel() {
                         }
                     }
 
-                    // 简易的 ANSI 转义序列解析器。shell（如 bash）输出的 PS1 通常带颜色控制序列，
-                    // 例如 \u@\h 在 \e[01;32m...\e[00m 包裹下输出。如果不过滤会显示成乱码。
-                    // 这里只处理最常见的 CSI 序列（ESC [ ... <final>），其他控制字符直接丢弃。
-                    var inEscape = false      // 是否在 ESC 序列中
-                    var escapeBuf = StringBuilder()
-
                     while (reader.read().also { readInt = it } != -1) {
                         var charRead = readInt.toChar()
                         var skipChar = false
-
-                        // 处理 ANSI 转义序列
-                        if (inEscape) {
-                            escapeBuf.append(charRead)
-                            // CSI 序列以参数范围的字节 (0x40-0x7E) 结束
-                            if (charRead.code in 0x40..0x7E) {
-                                inEscape = false
-                                escapeBuf.clear()
-                            }
-                            continue
-                        }
-                        // 0x1B 是 ESC，进入转义序列处理
-                        if (charRead.code == 0x1B) {
-                            inEscape = true
-                            escapeBuf.clear()
-                            continue
-                        }
-                        // 丢弃其他常见的控制字符（BEL / BS 等），保留 \t 和常规可打印字符
-                        if (charRead.code in 0x00..0x08 || charRead.code in 0x0B..0x0C || charRead.code in 0x0E..0x1A) {
-                            continue
-                        }
-                        if (charRead.code in 0x7F..0x9F) {
-                            continue
-                        }
-
-                        // 处理回车符：仿照 termux 的“原地覆盖”语义。
-                        // - \r\n 当成正常换行（丢弃 \r，下次循环遇 \n 提交当前行）
-                        // - 单独的 \r 表示“回到行首重写进度”，直接清空当前 builder。
-                        //   进度后续字符会在新 buffer 里继续累积，最终会在 500ms 兑底提交时
-                        //   作为一条独立的“最终进度行”显示出来，不会堆中间过程。
+                        
+                        // 处理回车符：将 \r\n 或 \r 视为换行
                         if (charRead == '\r') {
+                            // 看看下一个字符是否是 \n
                             val nextInt = reader.read()
                             if (nextInt != -1) {
                                 val nextChar = nextInt.toChar()
                                 if (nextChar == '\n') {
-                                    // \r\n：丢掉 \r，让 \n 走正常换行逻辑
+                                    // 如果是 \r\n，跳过这个 \r，\n 会在下一次循环中处理
                                     charRead = nextChar
                                 } else {
-                                    // 单独的 \r：视为“覆盖当前行”，清空 buffer。
-                                    // 后续非 \n 字符作为下一行内容开始累积。
-                                    builder.clear()
-                                    skipChar = true
-                                    // 过滤下一个字符的 ANSI/控制字符
-                                    if (nextChar.code == 0x1B) {
-                                        inEscape = true
-                                        escapeBuf.clear()
-                                    } else if (nextChar.code in 0x00..0x08 || nextChar.code in 0x0B..0x0C || nextChar.code in 0x0E..0x1A || nextChar.code in 0x7F..0x9F) {
-                                        // 下一个字符是控制字符，丢弃
-                                    } else if (nextChar == '\r') {
-                                        // 连续 \r 也当作“清空”
-                                    } else {
-                                        builder.append(nextChar)
+                                    // 如果下一个字符不是 \n，把 \r 当作换行处理
+                                    val line = builder.toString()
+                                    // 检测用户名变化
+                                    detectUserChange(line)
+                                    // 添加当前行
+                                    val currentList = _output.value.toMutableList()
+                                    if (currentList.size > 800) {
+                                        currentList.removeAt(0)
                                     }
+                                    currentList.add(line)
+                                    _output.value = currentList
+                                    builder.clear()
+                                    // 把下一个非 \n 字符加入新的行
+                                    builder.append(nextChar)
+                                    skipChar = true
                                 }
-                            } else {
-                                // 流结束，丢弃这个 \r
-                                skipChar = true
                             }
                         }
-
+                        
                         if (!skipChar) {
                             outputMutex.withLock {
                                 lastReadCharTime = System.currentTimeMillis()
@@ -332,10 +296,7 @@ class TerminalViewModel : ViewModel() {
 
     /**
      * 执行某个命令
-     * @param display 为false时不显示在屏幕上。
-     * 仿照 termux 的紧凑行为：执行命令时不再 echo "prompt+命令" 这么一长串，
-     * 只显示纯命令作为回显。运行结束后 shell 自己会输出新的 PS1 提示符，
-     * 屏幕底部常驻的 prompt+input 区域则提供光标引导。
+     * @param display 为false时不显示在屏幕上
      */
     fun runCommand(command: String, display: Boolean = true) = viewModelScope.launch(Dispatchers.IO) {
 
@@ -346,8 +307,8 @@ class TerminalViewModel : ViewModel() {
         }
 
         if (display) {
-            // 只显示纯命令，不加 prompt 前缀，保持紧凑
-            updateOutput(command)
+            // 使用美化的提示符
+            updateOutput(promptPrefix + command)
         }
 
         try {

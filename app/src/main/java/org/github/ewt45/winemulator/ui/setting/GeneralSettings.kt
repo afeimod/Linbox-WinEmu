@@ -103,20 +103,7 @@ fun GeneralSettings(
         // GeneralResolution(settingVM.resolutionText, settingVM::onChangeResolutionText)
         GeneralRootfsLang(state.rootfsLang, listOf("en_US.utf8", "zh_CN.utf8"), settingVM::onChangeRootfsLang)
         GeneralShareDir(state.sharedExtPath, settingVM::onChangeShareExtPath)
-//        MoreContent {
-
-        GeneralRootfsSelect(
-            Consts.rootfsCurrDir.canonicalFile.name,
-            state.localRootfsLoginUsersMap,
-            settingVM.rootfsUsersOptions.value.mapValues { it.value.map { info -> info.name } },
-            settingVM.rootfsAliasMap.value,
-            settingVM::onChangeRootfsName,
-            settingVM::onChangeRootfsSelect,
-            { rootfs, user -> scope.launch { settingVM.onChangeRootfsLoginUser(rootfs, user) } },
-            settingVM::onChangeRootfsAlias,
-            { prepareVm.setForceNoRootfs() },
-        )
-//        }
+        // 原 rootfs 切换/重命名/删除/导出 已整体迁移到主界面右下角 ➕ 的"添加容器"页。
     }
 }
 

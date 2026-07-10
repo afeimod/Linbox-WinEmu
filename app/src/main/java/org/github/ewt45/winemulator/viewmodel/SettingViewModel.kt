@@ -289,6 +289,23 @@ class SettingViewModel : ViewModel() {
     fun getRootfsList(): List<String> = rootfsAllDir.list()?.toMutableList()?.minus(rootfsCurrDir.name) ?: listOf()
 
     /**
+     * 列出全部可作为"容器"使用的 rootfs 信息。
+     * 不包含 [rootfsCurrDir] 链接本身。
+     */
+    fun listRootfsContainers(): List<RootfsContainer> {
+        val currentCanonical = runCatching { rootfsCurrDir.canonicalFile.name }.getOrDefault("")
+        return getRootfsList().mapNotNull { name ->
+            val dir = File(rootfsAllDir, name).takeIf { it.exists() && it.isDirectory } ?: return@mapNotNull null
+            RootfsContainer(
+                name = name,
+                alias = Utils.Rootfs.getAlias(dir),
+                startupCmd = Utils.Rootfs.getStartupCmd(dir),
+                isCurrent = name == currentCanonical,
+            )
+        }.sortedBy { !it.isCurrent } // 当前容器排在最前
+    }
+
+    /**
      * 修改某rootfs文件夹名，或删除
      * 确保：重命名时，新名称不为 [Consts.rootfsCurrDir] 或其他已有名称。 删除时：[rootfsCurrDir] 链接不指向该rootfs
      * @throws Exception 失败时抛出异常
@@ -417,7 +434,36 @@ class SettingViewModel : ViewModel() {
         }
     }
 
+    /**
+     * 设置某 rootfs 容器（per-container）启动时执行的命令。
+     * 存储位置：<rootfs>/.emuconf/start.sh。
+     * 为空表示删除该文件（回退到使用全局设置）。
+     */
+    fun setContainerStartupCmd(rootfsName: String, cmd: String) {
+        Utils.Rootfs.setStartupCmd(File(rootfsAllDir, rootfsName), cmd)
+    }
+
+    /**
+     * 读取某 rootfs 容器（per-container）启动时执行的命令。
+     */
+    fun getContainerStartupCmd(rootfsName: String): String =
+        Utils.Rootfs.getStartupCmd(File(rootfsAllDir, rootfsName))
+
 }
+
+/**
+ * HomeScreen 中展示的"容器"信息。
+ */
+data class RootfsContainer(
+    /** rootfs 文件夹名 */
+    val name: String,
+    /** 别名（用于在 UI 上展示） */
+    val alias: String,
+    /** per-container 启动命令，可为空 */
+    val startupCmd: String,
+    /** 是否为当前正在运行的容器 */
+    val isCurrent: Boolean,
+)
 
 data class PrefProot(
     /** 只会出现一次且没有附加参数的选项。有全名就尽量使用全名 */
