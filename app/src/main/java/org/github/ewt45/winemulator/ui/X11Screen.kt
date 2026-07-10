@@ -1,5 +1,6 @@
 package org.github.ewt45.winemulator.ui
 
+import a.io.github.ewt45.winemulator.R
 import android.content.Context
 import android.util.Log
 import android.view.MotionEvent
@@ -217,6 +218,11 @@ fun X11Screen(
 
         val floatingPopupState = remember { FloatingPopupState() }
 
+        // 在 Composable 上下文里取值，传给普通 lambda
+        val minimizeAct = LocalContext.current as? MainEmuActivity
+        val minimizeDensity = LocalDensity.current.density
+        val minimizeIconPx = (Consts.Ui.minimizedIconSize * minimizeDensity).toInt()
+
         BoxWithConstraints(Modifier.fillMaxSize()) {
             ExpandableFloatingMenu(
                 parentWidth = constraints.maxWidth.toFloat(),
@@ -226,20 +232,18 @@ fun X11Screen(
                 onVirtualKeysClick = { floatingPopupState.showPopup(FloatingPopupType.VIRTUAL_KEYS_SETTINGS) },
                 onX11SettingsClick = { floatingPopupState.showPopup(FloatingPopupType.X11_SETTINGS) },
                 onMinimizeClick = {
-                    // 把 compose_view 缩成屏幕边缘的小图标，等同于 Home 顶栏右上角最小化按钮
-                    val activity = LocalContext.current as? MainEmuActivity
-                    val view = activity?.findViewById<View>(R.id.compose_view) ?: return@ExpandableFloatingMenu
-                    val miniIconPx = (Consts.Ui.minimizedIconSize * LocalDensity.current.density).toInt()
-                    view.apply {
+                    val act = minimizeAct ?: return@ExpandableFloatingMenu
+                    val v = act.findViewById<View>(R.id.compose_view) ?: return@ExpandableFloatingMenu
+                    v.apply {
                         val lp = layoutParams as android.view.ViewGroup.MarginLayoutParams
-                        lp.height = miniIconPx
-                        lp.width = miniIconPx
+                        lp.height = minimizeIconPx
+                        lp.width = minimizeIconPx
                         lp.leftMargin = 0
                         lp.topMargin = 100
                         lp.rightMargin = 0
                         lp.bottomMargin = 0
                         requestLayout()
-                        view.post { view.snapToNearestEdgeHalfway() }
+                        post { snapToNearestEdgeHalfway() }
                     }
                 },
             )
