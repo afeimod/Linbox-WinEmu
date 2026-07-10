@@ -176,7 +176,7 @@ fun MainScreen(
                         onOpenSettings = {
                             navController.navigate(Destination.Settings.route)
                         },
-                        onMinimize = { MinimizeCompose() },
+                        onMinimize = { activity, miniIconPx -> minimizeComposeView(activity, miniIconPx) },
                         onContainerAction = { c, action ->
                             when (action) {
                                 0 -> navController.navigate(Destination.ContainerAutoCmd(c.name).route)
@@ -303,16 +303,6 @@ private fun minimizeComposeView(activity: android.app.Activity?, miniIconPx: Int
     }
 }
 
-/**
- * 供 Compose 调用的包装。先在 Composable 上下文取 LocalActivity / LocalDensity，再调 [minimizeComposeView]。
- */
-@Composable
-private fun MinimizeCompose() {
-    val activity = LocalActivity.current
-    val density = LocalDensity.current
-    val miniIconPx = (Consts.Ui.minimizedIconSize * density.density).toInt()
-    minimizeComposeView(activity, miniIconPx)
-}
 
 /**
  * 顶部的AppBar (legacy，仅保留给极少数路径)。

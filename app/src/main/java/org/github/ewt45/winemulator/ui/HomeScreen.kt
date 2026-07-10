@@ -95,11 +95,14 @@ fun HomeScreen(
     onAddContainer: () -> Unit,
     onShowTerminal: () -> Unit,
     onOpenSettings: () -> Unit,
-    onMinimize: () -> Unit,
+    onMinimize: (android.app.Activity?, Int) -> Unit,
     /** 三个点菜单项被点击：0=设置自动执行命令，1=重启容器，2=关闭容器 */
     onContainerAction: (RootfsContainer, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
+    val activity = androidx.activity.compose.LocalActivity.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val miniIconPx = (org.github.ewt45.winemulator.Consts.Ui.minimizedIconSize * density.density).toInt()
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -108,7 +111,7 @@ fun HomeScreen(
                 onChangeThemeMode = onChangeThemeMode,
                 onShowTerminal = onShowTerminal,
                 onOpenSettings = onOpenSettings,
-                onMinimize = onMinimize,
+                onMinimize = { onMinimize(activity, miniIconPx) },
             )
         },
         floatingActionButton = {
@@ -136,8 +139,11 @@ fun HomeTopBar(
     onChangeThemeMode: (Int) -> Unit,
     onShowTerminal: () -> Unit,
     onOpenSettings: () -> Unit,
-    onMinimize: () -> Unit,
+    onMinimize: (android.app.Activity?, Int) -> Unit,
 ) {
+    val activity = androidx.activity.compose.LocalActivity.current
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val miniIconPx = (org.github.ewt45.winemulator.Consts.Ui.minimizedIconSize * density.density).toInt()
     var themeMenuOpen by remember { mutableStateOf(false) }
     TopAppBar(
         title = {
@@ -185,7 +191,7 @@ fun HomeTopBar(
                 Icon(Icons.Filled.Settings, contentDescription = "设置")
             }
             // 最小化按钮（原项目已有逻辑：把 compose 视图缩成小图标）
-            IconButton(onClick = onMinimize) {
+            IconButton(onClick = { onMinimize(activity, miniIconPx) }) {
                 Icon(painterResource(R.drawable.ic_hide), contentDescription = "最小化")
             }
         },
@@ -534,7 +540,7 @@ fun HomeScreenPreview() {
         onAddContainer = {},
         onShowTerminal = {},
         onOpenSettings = {},
-        onMinimize = {},
+        onMinimize = { _, _ -> },
         onContainerAction = { _, _ -> },
     )
 }
