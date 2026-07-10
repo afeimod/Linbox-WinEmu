@@ -176,7 +176,7 @@ fun MainScreen(
                         onOpenSettings = {
                             navController.navigate(Destination.Settings.route)
                         },
-                        onMinimize = { activity, miniIconPx -> minimizeComposeView(activity, miniIconPx) },
+                        onMinimize = {},
                         onContainerAction = { c, action ->
                             when (action) {
                                 0 -> navController.navigate(Destination.ContainerAutoCmd(c.name).route)
@@ -284,24 +284,8 @@ private fun MainDialog(uiState: MainUiState, onClose: (Boolean) -> Unit) {
 
 /**
  * 把 compose_view 缩成屏幕上的一个小图标。
- * 来自原 [MinimizeButton]，提取为顶层函数供 HomeScreen 调用。
- * 参数 [activity] / [miniIconPx] 由 Composable 上下文传入，避免在普通函数里调 LocalActivity.current。
+ * 来自原 [MinimizeButton]，现在由 HomeScreen.kt 内部直接实现（用 doMinimize lambda），本文件不再保留包装函数。
  */
-private fun minimizeComposeView(activity: android.app.Activity?, miniIconPx: Int) {
-    val act = activity as? MainEmuActivity ?: return
-    val view = act.findViewById<View>(R.id.compose_view) ?: return
-    view.apply {
-        val lp = layoutParams as MarginLayoutParams
-        lp.height = miniIconPx
-        lp.width = miniIconPx
-        lp.leftMargin = 0
-        lp.topMargin = 100
-        lp.rightMargin = 0
-        lp.bottomMargin = 0
-        requestLayout()
-        view.post { view.snapToNearestEdgeHalfway() }
-    }
-}
 
 
 /**

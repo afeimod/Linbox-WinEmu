@@ -57,6 +57,7 @@ import kotlinx.coroutines.launch
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.MainEmuActivity
 import org.github.ewt45.winemulator.Utils
+import org.github.ewt45.winemulator.Utils.Ui.snapToNearestEdgeHalfway
 import java.io.File
 import org.github.ewt45.winemulator.ui.components.ComposeSpinner
 import org.github.ewt45.winemulator.ui.components.ConfirmDialog
@@ -95,7 +96,7 @@ fun HomeScreen(
     onAddContainer: () -> Unit,
     onShowTerminal: () -> Unit,
     onOpenSettings: () -> Unit,
-    onMinimize: (android.app.Activity?, Int) -> Unit,
+    onMinimize: () -> Unit,
     /** 三个点菜单项被点击：0=设置自动执行命令，1=重启容器，2=关闭容器 */
     onContainerAction: (RootfsContainer, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
@@ -103,6 +104,21 @@ fun HomeScreen(
     val activity = androidx.activity.compose.LocalActivity.current
     val density = androidx.compose.ui.platform.LocalDensity.current
     val miniIconPx = (org.github.ewt45.winemulator.Consts.Ui.minimizedIconSize * density.density).toInt()
+    val doMinimize: () -> Unit = minimize@{
+        val a = activity as? org.github.ewt45.winemulator.MainEmuActivity ?: return@minimize
+        val view = a.findViewById<android.view.View>(org.github.ewt45.winemulator.R.id.compose_view) ?: return@minimize
+        view.apply {
+            val lp = layoutParams as android.view.ViewGroup.MarginLayoutParams
+            lp.height = miniIconPx
+            lp.width = miniIconPx
+            lp.leftMargin = 0
+            lp.topMargin = 100
+            lp.rightMargin = 0
+            lp.bottomMargin = 0
+            requestLayout()
+            view.post { view.snapToNearestEdgeHalfway() }
+        }
+    }
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -111,7 +127,7 @@ fun HomeScreen(
                 onChangeThemeMode = onChangeThemeMode,
                 onShowTerminal = onShowTerminal,
                 onOpenSettings = onOpenSettings,
-                onMinimize = { onMinimize(activity, miniIconPx) },
+                onMinimize = { doMinimize() },
             )
         },
         floatingActionButton = {
@@ -139,11 +155,8 @@ fun HomeTopBar(
     onChangeThemeMode: (Int) -> Unit,
     onShowTerminal: () -> Unit,
     onOpenSettings: () -> Unit,
-    onMinimize: (android.app.Activity?, Int) -> Unit,
+    onMinimize: () -> Unit,
 ) {
-    val activity = androidx.activity.compose.LocalActivity.current
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val miniIconPx = (org.github.ewt45.winemulator.Consts.Ui.minimizedIconSize * density.density).toInt()
     var themeMenuOpen by remember { mutableStateOf(false) }
     TopAppBar(
         title = {
@@ -191,7 +204,7 @@ fun HomeTopBar(
                 Icon(Icons.Filled.Settings, contentDescription = "设置")
             }
             // 最小化按钮（原项目已有逻辑：把 compose 视图缩成小图标）
-            IconButton(onClick = { onMinimize(activity, miniIconPx) }) {
+            IconButton(onClick = onMinimize) {
                 Icon(painterResource(R.drawable.ic_hide), contentDescription = "最小化")
             }
         },
@@ -540,7 +553,7 @@ fun HomeScreenPreview() {
         onAddContainer = {},
         onShowTerminal = {},
         onOpenSettings = {},
-        onMinimize = { _, _ -> },
+        onMinimize = {},
         onContainerAction = { _, _ -> },
     )
 }
