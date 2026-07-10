@@ -176,6 +176,7 @@ Linbox-WinEmu 基于以下开源项目和技术的集成：
 - **Termux**：Android 终端模拟器。https://github.com/termux/termux-app
 
 - **PRoot-Distro**：PRoot 发行版管理工具。https://github.com/proot-me/PRoot-Distro
+- **PRoot-Distro**：termuxpd, https://github.com/termux/proot-distro
 
 - **Mobox**：Box64/86 在 Android 上的集成方案。https://github.com/olegos2/mobox
 
