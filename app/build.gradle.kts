@@ -61,6 +61,8 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    // material-icons-extended 提供 Palette/Terminal/MoreVert 等扩展图标
+    implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.navigation.compose)
 

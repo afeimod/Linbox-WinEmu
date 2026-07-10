@@ -41,12 +41,14 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -174,7 +176,7 @@ fun MainScreen(
                         onOpenSettings = {
                             navController.navigate(Destination.Settings.route)
                         },
-                        onMinimize = { minimizeComposeView() },
+                        onMinimize = { MinimizeCompose() },
                         onContainerAction = { c, action ->
                             when (action) {
                                 0 -> navController.navigate(Destination.ContainerAutoCmd(c.name).route)
@@ -281,13 +283,13 @@ private fun MainDialog(uiState: MainUiState, onClose: (Boolean) -> Unit) {
 
 
 /**
- * 把 compose_view 缩成屏幕上的一个小图标，并允许拖动。
- * 来自原 [MinimizeButton]，提取为顶层函数供 HomeScreen 直接调用。
+ * 把 compose_view 缩成屏幕上的一个小图标。
+ * 来自原 [MinimizeButton]，提取为顶层函数供 HomeScreen 调用。
+ * 参数 [activity] / [miniIconPx] 由 Composable 上下文传入，避免在普通函数里调 LocalActivity.current。
  */
-private fun minimizeComposeView() {
-    val activity = LocalActivity.current as? MainEmuActivity ?: return
-    val view = activity.findViewById<View>(R.id.compose_view) ?: return
-    val miniIconPx = (Consts.Ui.minimizedIconSize * LocalDensity.current.density).toInt()
+private fun minimizeComposeView(activity: android.app.Activity?, miniIconPx: Int) {
+    val act = activity as? MainEmuActivity ?: return
+    val view = act.findViewById<View>(R.id.compose_view) ?: return
     view.apply {
         val lp = layoutParams as MarginLayoutParams
         lp.height = miniIconPx
@@ -299,6 +301,17 @@ private fun minimizeComposeView() {
         requestLayout()
         view.post { view.snapToNearestEdgeHalfway() }
     }
+}
+
+/**
+ * 供 Compose 调用的包装。先在 Composable 上下文取 LocalActivity / LocalDensity，再调 [minimizeComposeView]。
+ */
+@Composable
+private fun MinimizeCompose() {
+    val activity = LocalActivity.current
+    val density = LocalDensity.current
+    val miniIconPx = (Consts.Ui.minimizedIconSize * density.density).toInt()
+    minimizeComposeView(activity, miniIconPx)
 }
 
 /**

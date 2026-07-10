@@ -443,7 +443,7 @@ object Utils {
          */
         suspend fun makeCurrent(rootfsDir: File) {
             // 重建符号链接：先删除旧链接（如果存在），避免 FileAlreadyExistsException
-            if (rootfsCurrDir.exists() || Files.isSymbolicLink(rootfsCurrDir.toPath())) {
+            if (rootfsCurrDir.exists() || java.nio.file.Files.isSymbolicLink(rootfsCurrDir.toPath())) {
                 runCatching { rootfsCurrDir.delete() }
             }
             Files.symlink(rootfsDir, rootfsCurrDir)

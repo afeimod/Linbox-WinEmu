@@ -54,8 +54,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.launch
+import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.MainEmuActivity
 import org.github.ewt45.winemulator.Utils
+import java.io.File
 import org.github.ewt45.winemulator.ui.components.ComposeSpinner
 import org.github.ewt45.winemulator.ui.components.ConfirmDialog
 import org.github.ewt45.winemulator.ui.components.rememberConfirmDialogState
@@ -459,7 +461,7 @@ fun ContainerAutoCmdScreen(
     settingVm: SettingViewModel,
     onBack: () -> Unit,
 ) {
-    val dir = remember(rootfsName) { File(org.github.ewt45.winemulator.Consts.rootfsAllDir, rootfsName) }
+    val dir = remember(rootfsName) { File(Consts.rootfsAllDir, rootfsName) }
     val alias = remember(rootfsName) { Utils.Rootfs.getAlias(dir) }
     var cmd by remember(rootfsName) { mutableStateOf(settingVm.getContainerStartupCmd(rootfsName)) }
     var tempCmd by remember(rootfsName) { mutableStateOf(cmd) }
