@@ -57,6 +57,7 @@ fun ExpandableFloatingMenu(
     onGeneralSettingsClick: () -> Unit,
     onVirtualKeysClick: () -> Unit,
     onX11SettingsClick: () -> Unit,
+    onMinimizeClick: () -> Unit = {},
 ) {
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -95,6 +96,9 @@ fun ExpandableFloatingMenu(
     val displaySettingsIconBitmap = remember {
         ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.icon_display_settings)?.toBitmap()
     }
+    val hideIconBitmap = remember {
+        ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.ic_hide)?.toBitmap()
+    }
 
     LaunchedEffect(parentWidth, parentHeight, buttonSizePx) {
         if (parentWidth > 0 && parentHeight > 0) {
@@ -124,7 +128,8 @@ fun ExpandableFloatingMenu(
                 Triple(homeIconBitmap, "主菜单", onMainMenuClick),
                 Triple(settingsIconBitmap, "一般设置", onGeneralSettingsClick),
                 Triple(gamepadIconBitmap, "虚拟按键设置", onVirtualKeysClick),
-                Triple(displaySettingsIconBitmap, "X11显示设置", onX11SettingsClick)
+                Triple(displaySettingsIconBitmap, "X11显示设置", onX11SettingsClick),
+                Triple(hideIconBitmap, "最小化", onMinimizeClick),
             )
 
             val arcRadius = with(density) { 60.dp.toPx() }

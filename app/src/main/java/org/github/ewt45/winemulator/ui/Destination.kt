@@ -52,7 +52,7 @@ enum class Destination(
     ),
     Terminal(
         "终端",
-        RouteTerminal,
+        RouteShowTerminal,
     ),
     Settings(
         "设置",

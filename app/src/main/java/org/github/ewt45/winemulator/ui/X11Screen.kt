@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -19,6 +20,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.preference.PreferenceManager
 import com.termux.x11.input.InputStub
 import com.termux.x11.input.RenderData
+import org.github.ewt45.winemulator.MainEmuActivity
+import org.github.ewt45.winemulator.Utils.Ui.snapToNearestEdgeHalfway
 import org.github.ewt45.winemulator.inputcontrols.InputControlsManager
 import org.github.ewt45.winemulator.inputcontrols.InputControlsView
 import org.github.ewt45.winemulator.inputcontrols.X11InputSender
@@ -218,10 +221,27 @@ fun X11Screen(
             ExpandableFloatingMenu(
                 parentWidth = constraints.maxWidth.toFloat(),
                 parentHeight = constraints.maxHeight.toFloat(),
-                onMainMenuClick = { onNavigateToOthers(Destination.Terminal) },
+                onMainMenuClick = { onNavigateToOthers(Destination.Home) },
                 onGeneralSettingsClick = { floatingPopupState.showPopup(FloatingPopupType.GENERAL_SETTINGS) },
                 onVirtualKeysClick = { floatingPopupState.showPopup(FloatingPopupType.VIRTUAL_KEYS_SETTINGS) },
-                onX11SettingsClick = { floatingPopupState.showPopup(FloatingPopupType.X11_SETTINGS) }
+                onX11SettingsClick = { floatingPopupState.showPopup(FloatingPopupType.X11_SETTINGS) },
+                onMinimizeClick = {
+                    // 把 compose_view 缩成屏幕边缘的小图标，等同于 Home 顶栏右上角最小化按钮
+                    val activity = LocalContext.current as? MainEmuActivity
+                    val view = activity?.findViewById<View>(R.id.compose_view) ?: return@ExpandableFloatingMenu
+                    val miniIconPx = (Consts.Ui.minimizedIconSize * LocalDensity.current.density).toInt()
+                    view.apply {
+                        val lp = layoutParams as android.view.ViewGroup.MarginLayoutParams
+                        lp.height = miniIconPx
+                        lp.width = miniIconPx
+                        lp.leftMargin = 0
+                        lp.topMargin = 100
+                        lp.rightMargin = 0
+                        lp.bottomMargin = 0
+                        requestLayout()
+                        view.post { view.snapToNearestEdgeHalfway() }
+                    }
+                },
             )
         }
 

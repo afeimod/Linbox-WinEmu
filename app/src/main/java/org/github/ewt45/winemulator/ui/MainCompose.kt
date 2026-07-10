@@ -231,11 +231,6 @@ fun MainScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }
-
-                navigation<RouteExceptX11>(startDestination = RouteTerminal) {
-                    composable<RouteTerminal> { ProotTerminalScreen(terminalVm) }
-                    composable<RouteSettings> { SettingScreen(settingVm, terminalVm, prepareVm, navigateTo) }
-                }
             }
         }
 
