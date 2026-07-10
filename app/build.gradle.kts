@@ -15,8 +15,8 @@ android {
         //TODO 考虑升到最新？
         //noinspection ExpiredTargetSdkVersion
         targetSdk = 28
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "2.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -61,6 +61,8 @@ dependencies {
     implementation(libs.androidx.ui.graphics)
     implementation(libs.androidx.ui.tooling.preview)
     implementation(libs.androidx.material3)
+    // material-icons-extended 提供 Palette/Terminal/MoreVert 等扩展图标
+    implementation("androidx.compose.material:material-icons-extended")
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.navigation.compose)
 

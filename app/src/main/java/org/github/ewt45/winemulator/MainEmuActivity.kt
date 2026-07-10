@@ -122,23 +122,13 @@ class MainEmuActivity : MainActivity() {
             MainTheme(darkTheme = isDarkTheme) {
                 MainScreen(
                     tx11Content = { frm.also { (frm.parent as? ViewGroup)?.removeView(frm) } },
-                    Destination.X11, mainViewModel, terminalViewModel, settingViewModel, prepareViewModel
+                    Destination.Home, mainViewModel, terminalViewModel, settingViewModel, prepareViewModel
                 )
             }
         }
 
-        // 在准备完成时自动启动模拟器
-        lifecycleScope.launch {
-            // 监听准备状态变化
-            prepareViewModel.uiState.collect { state ->
-                if (state.isPrepareFinished && !emuStarted) {
-                    // 准备完成且模拟器未启动，自动启动
-                    lifecycleScope.launch {
-                        startEmu()
-                    }
-                }
-            }
-        }
+        // 新设计下，不再在准备完成后自动启动模拟器。
+        // 模拟器启动由用户从 Home 点容器卡片触发（见 MainCompose 中 HomeScreen 的 onLaunchContainer）。
 
         enableEdgeToEdge()
 
@@ -191,8 +181,12 @@ class MainEmuActivity : MainActivity() {
         // 检查目标 locale 是否已生成，未生成则执行 locale-gen
         val langBase = LANG.substringBefore('.')  // "zh_CN.utf8" -> "zh_CN"
         terminalViewModel.runCommand("""if ! locale -a | grep -qi "$langBase"; then locale-gen $LANG; fi; export LANG=$LANG""")
-        //这里还不能用state因为state第一次获取的是默认值而非datastore来的值
-        proot_startup_cmd.get().takeIf { it.isNotBlank() }?.let {
+        // 这里还不能用state因为state第一次获取的是默认值而非datastore来的值
+        // 优先使用 per-container 启动命令（<rootfs>/.emuconf/start.sh），没有再读全局设置
+        val perContainerCmd = Utils.Rootfs.getStartupCmd(selectedRootfs)
+        val effectiveCmd = perContainerCmd.takeIf { it.isNotBlank() }
+            ?: proot_startup_cmd.get().takeIf { it.isNotBlank() }
+        effectiveCmd?.let {
             terminalViewModel.runCommand("$it &")
         }
 
@@ -213,6 +207,67 @@ class MainEmuActivity : MainActivity() {
         for (notification in notificationManager.activeNotifications)
             if (notification.id == mNotificationId)
                 notificationManager.cancel(mNotificationId)
+    }
+
+    /**
+     * 关闭当前容器：停 terminal + X11 service + 杀 X11 进程。
+     * 不改变 [emuStarted] 状态，便于之后 [restartContainer] 直接复用 [startEmu]。
+     */
+    suspend fun stopContainer() = withContext(Dispatchers.Default) {
+        Log.d(TAG, "stopContainer: 关闭当前容器")
+        terminalViewModel.stopTerminal()
+        runCatching { stopService(startX11Intent) }
+        runCatching { android.os.Process.killProcess(getX11ServicePid()) }
+        // 稍等一下避免端口/资源未释放
+        delay(500)
+    }
+
+    /**
+     * 重启当前容器：先关闭，再重新走 [startEmu]。
+     */
+    suspend fun restartContainer() {
+        mainViewModel.showBlockDialog("重启容器中…") {
+            stopContainer()
+            emuStarted = false
+            startEmu()
+        }
+    }
+
+    /**
+     * 切换到指定 rootfs 并打开 X11 界面。
+     * - 如果已是该 rootfs 且 X11/terminal 已在运行：仅跳转到 X11 界面，不重启。
+     * - 如果需要切换 rootfs：先切换符号链接 + 关闭旧容器 + 启动新容器。
+     * - 如果容器未启动：启动它。
+     */
+    suspend fun switchToRootfsAndStart(rootfsDir: java.io.File, navigateToX11: () -> Unit) {
+        val targetCanonical = runCatching { rootfsDir.canonicalFile.absolutePath }.getOrDefault(rootfsDir.absolutePath)
+        val currentCanonical = runCatching { Consts.rootfsCurrDir.canonicalFile.absolutePath }.getOrDefault("")
+        val needSwitch = targetCanonical != currentCanonical
+        if (needSwitch) {
+            // 需要切换 rootfs：先关旧容器，再启动新的
+            mainViewModel.showBlockDialog("切换容器中…") {
+                stopContainer()
+                Utils.Rootfs.makeCurrent(rootfsDir)
+                emuStarted = false
+                startEmu()
+            }
+        } else if (!emuStarted) {
+            // 同一 rootfs 且未启动：启动它
+            mainViewModel.showBlockDialog("启动容器中…") {
+                startEmu()
+            }
+        }
+        // 同一 rootfs 且已启动：不重启，直接跳转 X11
+        navigateToX11()
+    }
+
+    /**
+     * 关闭当前容器（仅关闭，不重启）。
+     */
+    suspend fun shutdownContainer() {
+        mainViewModel.showBlockDialog("关闭容器中…") {
+            stopContainer()
+        }
     }
 
     /**

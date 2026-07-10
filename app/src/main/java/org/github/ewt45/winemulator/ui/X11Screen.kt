@@ -1,5 +1,6 @@
 package org.github.ewt45.winemulator.ui
 
+import a.io.github.ewt45.winemulator.R
 import android.content.Context
 import android.util.Log
 import android.view.MotionEvent
@@ -12,6 +13,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
@@ -19,6 +21,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.preference.PreferenceManager
 import com.termux.x11.input.InputStub
 import com.termux.x11.input.RenderData
+import org.github.ewt45.winemulator.MainEmuActivity
+import org.github.ewt45.winemulator.Utils.Ui.snapToNearestEdgeHalfway
 import org.github.ewt45.winemulator.inputcontrols.InputControlsManager
 import org.github.ewt45.winemulator.inputcontrols.InputControlsView
 import org.github.ewt45.winemulator.inputcontrols.X11InputSender
@@ -214,14 +218,34 @@ fun X11Screen(
 
         val floatingPopupState = remember { FloatingPopupState() }
 
+        // 在 Composable 上下文里取值，传给普通 lambda
+        val minimizeAct = LocalContext.current as? MainEmuActivity
+        val minimizeDensity = LocalDensity.current.density
+        val minimizeIconPx = (Consts.Ui.minimizedIconSize * minimizeDensity).toInt()
+
         BoxWithConstraints(Modifier.fillMaxSize()) {
             ExpandableFloatingMenu(
                 parentWidth = constraints.maxWidth.toFloat(),
                 parentHeight = constraints.maxHeight.toFloat(),
-                onMainMenuClick = { onNavigateToOthers(Destination.Terminal) },
+                onMainMenuClick = { onNavigateToOthers(Destination.Home) },
                 onGeneralSettingsClick = { floatingPopupState.showPopup(FloatingPopupType.GENERAL_SETTINGS) },
                 onVirtualKeysClick = { floatingPopupState.showPopup(FloatingPopupType.VIRTUAL_KEYS_SETTINGS) },
-                onX11SettingsClick = { floatingPopupState.showPopup(FloatingPopupType.X11_SETTINGS) }
+                onX11SettingsClick = { floatingPopupState.showPopup(FloatingPopupType.X11_SETTINGS) },
+                onMinimizeClick = {
+                    val act = minimizeAct ?: return@ExpandableFloatingMenu
+                    val v = act.findViewById<View>(R.id.compose_view) ?: return@ExpandableFloatingMenu
+                    v.apply {
+                        val lp = layoutParams as android.view.ViewGroup.MarginLayoutParams
+                        lp.height = minimizeIconPx
+                        lp.width = minimizeIconPx
+                        lp.leftMargin = 0
+                        lp.topMargin = 100
+                        lp.rightMargin = 0
+                        lp.bottomMargin = 0
+                        requestLayout()
+                        post { snapToNearestEdgeHalfway() }
+                    }
+                },
             )
         }
 
