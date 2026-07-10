@@ -115,6 +115,8 @@ fun MainScreen(
 
     // 首次启动：权限未授予完时跳 PermissionScreen 申请权限；都通过/跳过后进 Home。
     // 用户主动添加 rootfs（forceNoRootfs=true）时仍然走 PrepareScreen 走添加流程。
+    // 关键：初次进入时立即调用 updateState() 刷新 unGrantedPermissions，否则初始状态为空。
+    LaunchedEffect(Unit) { prepareVm.updateState() }
     LaunchedEffect(prepareUiState, prepareVm.uiState.value.forceNoRootfs) {
         if (prepareVm.uiState.value.forceNoRootfs && currDestination != Destination.Prepare) {
             navigateTo(Destination.Prepare)
