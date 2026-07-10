@@ -20,6 +20,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -33,6 +34,7 @@ import kotlinx.coroutines.launch
 import org.github.ewt45.winemulator.Utils
 import org.github.ewt45.winemulator.permissions.RequiredPermissions
 import org.github.ewt45.winemulator.viewmodel.PrepareViewModel
+import org.github.ewt45.winemulator.viewmodel.PrepareUiState
 
 /**
  * 首次启动权限申请页。申请通过或跳过后跳到 Home。
@@ -52,7 +54,7 @@ fun PermissionScreen(
     // 初次进入刷新权限状态
     LaunchedEffect(Unit) { prepareVm.updateState() }
 
-    val state by androidx.lifecycle.compose.collectAsStateWithLifecycle(prepareVm.uiState)
+    val state by prepareVm.uiState.collectAsState()
 
     Scaffold(
         topBar = {
