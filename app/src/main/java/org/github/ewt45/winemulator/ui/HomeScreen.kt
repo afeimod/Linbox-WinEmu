@@ -48,6 +48,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -268,6 +270,32 @@ fun ContainerCard(
     onAction: (Int) -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    // 用户自定义图标加载为 Bitmap（若有）
+    val customBitmap = remember(container.iconFile?.absolutePath) {
+        container.iconFile?.takeIf { it.exists() }?.let { f ->
+            runCatching { android.graphics.BitmapFactory.decodeFile(f.absolutePath) }.getOrNull()
+        }
+    }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val scope = rememberCoroutineScope()
+    val pickImageLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            scope.launch {
+                runCatching {
+                    val rootfsDir = java.io.File(org.github.ewt45.winemulator.Consts.rootfsAllDir, container.name)
+                    val tmp = java.io.File(ctx.cacheDir, "icon-${System.currentTimeMillis()}.bin")
+                    ctx.contentResolver.openInputStream(uri)?.use { input ->
+                        java.io.FileOutputStream(tmp).use { output -> input.copyTo(output) }
+                    }
+                    org.github.ewt45.winemulator.Utils.Rootfs.setContainerIcon(rootfsDir, tmp)
+                    tmp.delete()
+                }
+                onAction(5) // 通知 Home 刷新
+            }
+        }
+    }
     Surface(
         modifier = Modifier
             .fillMaxWidth()
@@ -281,6 +309,21 @@ fun ContainerCard(
         onClick = onClick,
     ) {
         Box(modifier = Modifier.fillMaxSize()) {
+            // 自定义图标背景（若有），蒙层 + 别名
+            if (customBitmap != null) {
+                androidx.compose.foundation.Image(
+                    bitmap = customBitmap.asImageBitmap(),
+                    contentDescription = null,
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize(),
+                )
+                // 在图标上面叠一层半透明黑色蒙层，保证别名文字可读
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(androidx.compose.ui.graphics.Color.Black.copy(alpha = 0.35f)),
+                )
+            }
             // 主显示：容器别名（按图上 "debian 12" 风格大字体）
             Box(
                 modifier = Modifier
@@ -291,10 +334,7 @@ fun ContainerCard(
                 Text(
                     text = container.alias,
                     style = MaterialTheme.typography.titleLarge,
-                    color = if (container.isCurrent)
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    else
-                        MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = androidx.compose.ui.graphics.Color.White,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -309,10 +349,7 @@ fun ContainerCard(
                     Icon(
                         Icons.Filled.MoreVert,
                         contentDescription = "更多",
-                        tint = if (container.isCurrent)
-                            MaterialTheme.colorScheme.onPrimaryContainer
-                        else
-                            MaterialTheme.colorScheme.onSurfaceVariant,
+                        tint = androidx.compose.ui.graphics.Color.White,
                     )
                 }
                 DropdownMenu(
@@ -326,6 +363,22 @@ fun ContainerCard(
                             onAction(0)
                         },
                     )
+                    DropdownMenuItem(
+                        text = { Text("设置自定义图标") },
+                        onClick = {
+                            menuOpen = false
+                            pickImageLauncher.launch("image/*")
+                        },
+                    )
+                    if (container.iconFile != null) {
+                        DropdownMenuItem(
+                            text = { Text("移除自定义图标") },
+                            onClick = {
+                                menuOpen = false
+                                onAction(4)
+                            },
+                        )
+                    }
                     DropdownMenuItem(
                         text = { Text("重启容器") },
                         onClick = {

@@ -98,6 +98,22 @@ fun MainScreen(
     val prepareUiState by prepareVm.uiState.collectAsStateWithLifecycle()
     val themeState by settingVm.themeState.collectAsState()
 
+    // 老项目行为：点击右上角最小化按钮 = 把 compose_view 缩成屏幕边缘的小图标。
+    // X11 service 仍在后台运行，X11 LorieView（被嵌在 compose_view 中）随之一并缩为图标。
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+    val minimizeIconPx = (Consts.Ui.minimizedIconSize * density).toInt()
+    val doMinimize: () -> Unit = minimize@{
+        val act = LocalActivity.current as? MainEmuActivity ?: return@minimize
+        val v = act.findViewById<View>(R.id.compose_view) ?: run {
+            act.window?.decorView?.postDelayed({
+                val v2 = act.findViewById<View>(R.id.compose_view) ?: return@postDelayed
+                applyMinimize(v2, minimizeIconPx)
+            }, 50)
+            return@minimize
+        }
+        applyMinimize(v, minimizeIconPx)
+    }
+
     // 用于刷新 Home 上的容器列表（点 ➕ 添加完成后回到 Home 时也要刷新）
     var homeRefreshTick by remember { mutableStateOf(0) }
     val containers: List<RootfsContainer> = remember(homeRefreshTick) { settingVm.listRootfsContainers() }
@@ -113,10 +129,14 @@ fun MainScreen(
         mainVm.navigateToEvent.collect { dest -> navigateTo(dest) }
     }
 
-    // 开头或中途 需要进入准备屏幕时
-    LaunchedEffect(prepareUiState.isPrepareFinished) {
-        if (!prepareUiState.isPrepareFinished && currDestination != Destination.Prepare)
+    // 只在用户主动点击 ➕（forceNoRootfs=true）或首次启动但需要权限/rootfs 时才跳 Prepare。
+    // 初次启动且没有 rootfs：直接停留在 Home。
+    LaunchedEffect(prepareUiState.isPrepareFinished, prepareVm.uiState.value.forceNoRootfs) {
+        if (prepareUiState.isPrepareFinished) return@LaunchedEffect
+        // 仅在 forceNoRootfs 为 true 时跳 Prepare（用户主动添加）
+        if (prepareVm.uiState.value.forceNoRootfs && currDestination != Destination.Prepare) {
             navigateTo(Destination.Prepare)
+        }
     }
 
     // 监听 Home 返回事件（从添加容器页回到 Home 时刷新列表）
@@ -176,25 +196,21 @@ fun MainScreen(
                         onOpenSettings = {
                             navController.navigate(Destination.Settings.route)
                         },
-                        onMinimize = {
-                            // Home 屏的最小化：启动当前 rootfs 并进入 X11。
-                            // 如果当前 rootfs 已启动，则只跳转 X11。
-                            scope.launch {
-                                val firstContainer = settingVm.listRootfsContainers().firstOrNull { it.isCurrent }
-                                    ?: settingVm.listRootfsContainers().firstOrNull()
-                                if (firstContainer != null) {
-                                    val dir = java.io.File(Consts.rootfsAllDir, firstContainer.name)
-                                    MainEmuActivity.instance.switchToRootfsAndStart(dir) {
-                                        navController.navigate(Destination.X11.route)
-                                    }
-                                }
-                            }
-                        },
+                        onMinimize = { doMinimize() },
                         onContainerAction = { c, action ->
                             when (action) {
                                 0 -> navController.navigate(Destination.ContainerAutoCmd(c.name).route)
                                 1 -> scope.launch { MainEmuActivity.instance.restartContainer() }
                                 2 -> scope.launch { MainEmuActivity.instance.shutdownContainer() }
+                                4 -> {
+                                    // 移除自定义图标
+                                    settingVm.clearContainerIcon(c.name)
+                                    homeRefreshTick++
+                                }
+                                5 -> {
+                                    // 装完图后，Home 列表需要重新读取 iconFile。
+                                    homeRefreshTick++
+                                }
                             }
                         },
                     )
@@ -446,5 +462,21 @@ private fun MainScreenPreview() {
                 }
             }
         }
+    }
+}
+/**
+ * 实际把 compose_view 缩成屏幕边缘小图标的逻辑。原项目 MinimizeButton 同款效果。
+ */
+private fun applyMinimize(view: View, miniIconPx: Int) {
+    view.apply {
+        val lp = layoutParams as MarginLayoutParams
+        lp.height = miniIconPx
+        lp.width = miniIconPx
+        lp.leftMargin = 0
+        lp.topMargin = 100
+        lp.rightMargin = 0
+        lp.bottomMargin = 0
+        requestLayout()
+        post { snapToNearestEdgeHalfway() }
     }
 }

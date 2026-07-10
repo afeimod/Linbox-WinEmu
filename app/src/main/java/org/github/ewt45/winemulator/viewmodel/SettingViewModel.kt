@@ -301,6 +301,7 @@ class SettingViewModel : ViewModel() {
                 alias = Utils.Rootfs.getAlias(dir),
                 startupCmd = Utils.Rootfs.getStartupCmd(dir),
                 isCurrent = name == currentCanonical,
+                iconFile = Utils.Rootfs.getContainerIcon(dir),
             )
         }.sortedBy { !it.isCurrent } // 当前容器排在最前
     }
@@ -449,6 +450,20 @@ class SettingViewModel : ViewModel() {
     fun getContainerStartupCmd(rootfsName: String): String =
         Utils.Rootfs.getStartupCmd(File(rootfsAllDir, rootfsName))
 
+    /**
+     * 设置某 rootfs 容器的自定义图标（复制为 <rootfs>/.icon.png）。
+     */
+    fun setContainerIcon(rootfsName: String, srcFile: File) {
+        Utils.Rootfs.setContainerIcon(File(rootfsAllDir, rootfsName), srcFile)
+    }
+
+    /**
+     * 清除某 rootfs 容器的自定义图标。
+     */
+    fun clearContainerIcon(rootfsName: String) {
+        Utils.Rootfs.clearContainerIcon(File(rootfsAllDir, rootfsName))
+    }
+
 }
 
 /**
@@ -463,6 +478,8 @@ data class RootfsContainer(
     val startupCmd: String,
     /** 是否为当前正在运行的容器 */
     val isCurrent: Boolean,
+    /** 用户自定义图标文件（若为 null 则用默认） */
+    val iconFile: java.io.File? = null,
 )
 
 data class PrefProot(

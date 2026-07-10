@@ -234,25 +234,30 @@ class MainEmuActivity : MainActivity() {
     }
 
     /**
-     * 切换到指定 rootfs 并启动容器 + 跳转到 X11 界面。
-     * 如果当前已是该 rootfs，只重启；否则先切换符号链接 + 关闭旧容器，再启动新容器。
+     * 切换到指定 rootfs 并打开 X11 界面。
+     * - 如果已是该 rootfs 且 X11/terminal 已在运行：仅跳转到 X11 界面，不重启。
+     * - 如果需要切换 rootfs：先切换符号链接 + 关闭旧容器 + 启动新容器。
+     * - 如果容器未启动：启动它。
      */
     suspend fun switchToRootfsAndStart(rootfsDir: java.io.File, navigateToX11: () -> Unit) {
         val targetCanonical = runCatching { rootfsDir.canonicalFile.absolutePath }.getOrDefault(rootfsDir.absolutePath)
         val currentCanonical = runCatching { Consts.rootfsCurrDir.canonicalFile.absolutePath }.getOrDefault("")
         val needSwitch = targetCanonical != currentCanonical
         if (needSwitch) {
+            // 需要切换 rootfs：先关旧容器，再启动新的
             mainViewModel.showBlockDialog("切换容器中…") {
                 stopContainer()
                 Utils.Rootfs.makeCurrent(rootfsDir)
                 emuStarted = false
                 startEmu()
             }
-        } else {
-            // 已经在该容器，仅重启
-            restartContainer()
+        } else if (!emuStarted) {
+            // 同一 rootfs 且未启动：启动它
+            mainViewModel.showBlockDialog("启动容器中…") {
+                startEmu()
+            }
         }
-        // 跳到 X11 界面（跳动作不依赖阻塞对话框状态，外面直接调用）
+        // 同一 rootfs 且已启动：不重启，直接跳转 X11
         navigateToX11()
     }
 

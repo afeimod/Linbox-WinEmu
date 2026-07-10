@@ -437,6 +437,32 @@ object Utils {
         fun getStartupCmdFile(rootfsDir: File): File =
             File(rootfsDir, EMUCONF_DIR_NAME + "/" + "start.sh")
 
+        /** 容器自定义图标的文件名 */
+        private const val ICON_FILE_NAME = ".icon.png"
+
+        /**
+         * 获取某 rootfs 的自定义容器图标文件（若不存在返回 null）。
+         */
+        fun getContainerIcon(rootfsDir: File): File? {
+            val f = File(rootfsDir, ICON_FILE_NAME)
+            return f.takeIf { it.exists() && it.length() > 0 }
+        }
+
+        /**
+         * 设置某 rootfs 的自定义容器图标。把 [srcFile] 复制为 <rootfs>/.icon.png。
+         */
+        fun setContainerIcon(rootfsDir: File, srcFile: File) {
+            val dst = File(rootfsDir, ICON_FILE_NAME)
+            srcFile.copyTo(dst, overwrite = true)
+        }
+
+        /**
+         * 清除某 rootfs 的自定义容器图标。
+         */
+        fun clearContainerIcon(rootfsDir: File) {
+            File(rootfsDir, ICON_FILE_NAME).delete()
+        }
+
         /**
          * 将某一个rootfs激活为当前rootfs（之后可通过rootfsCurrDir 获取)
          * 会将该rootfs文件名保存到datastore
