@@ -100,10 +100,10 @@ fun MainScreen(
 
     // 老项目行为：点击右上角最小化按钮 = 把 compose_view 缩成屏幕边缘的小图标。
     // X11 service 仍在后台运行，X11 LorieView（被嵌在 compose_view 中）随之一并缩为图标。
-    val density = androidx.compose.ui.platform.LocalDensity.current.density
-    val minimizeIconPx = (Consts.Ui.minimizedIconSize * density).toInt()
+    val minimizeIconPx = (Consts.Ui.minimizedIconSize * androidx.compose.ui.platform.LocalDensity.current.density).toInt()
     val doMinimize: () -> Unit = minimize@{
-        val act = LocalActivity.current as? MainEmuActivity ?: return@minimize
+        // 使用 MainEmuActivity.instance 单例，避免在普通 lambda 里调 Composable (LocalActivity.current)
+        val act = MainEmuActivity.instance
         val v = act.findViewById<View>(R.id.compose_view) ?: run {
             act.window?.decorView?.postDelayed({
                 val v2 = act.findViewById<View>(R.id.compose_view) ?: return@postDelayed
