@@ -424,9 +424,7 @@ class SettingViewModel : ViewModel() {
      */
     suspend fun getCurrentLoginUser(): String {
         try {
-            // Consts.rootfsCurrDir 是符号链接 current，canonicalFile.name = "current"，
-            // 存储 map 的 key 是真实 rootfs 目录名
-            val currentRootfsName = Consts.rootfsCurrDir.canonicalFile.parentFile?.name ?: Consts.rootfsCurrDir.name
+            val currentRootfsName = Consts.rootfsCurrDir.canonicalFile.name
             // 直接从DataStore读取最新数据，而不是使用可能未更新的缓存状态
             val jsonString = dataStore.data.first()[rootfs_login_user_json.key] ?: "{}"
             val loginUsersMap: Map<String, String> = Json.decodeFromString(jsonString)
