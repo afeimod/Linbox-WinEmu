@@ -228,6 +228,7 @@ fun X11Screen(
                 parentWidth = constraints.maxWidth.toFloat(),
                 parentHeight = constraints.maxHeight.toFloat(),
                 onMainMenuClick = { onNavigateToOthers(Destination.Home) },
+                onTerminalClick = { onNavigateToOthers(Destination.Terminal) },
                 onGeneralSettingsClick = { floatingPopupState.showPopup(FloatingPopupType.GENERAL_SETTINGS) },
                 onVirtualKeysClick = { floatingPopupState.showPopup(FloatingPopupType.VIRTUAL_KEYS_SETTINGS) },
                 onX11SettingsClick = { floatingPopupState.showPopup(FloatingPopupType.X11_SETTINGS) },
