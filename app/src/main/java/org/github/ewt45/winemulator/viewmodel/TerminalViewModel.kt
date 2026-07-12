@@ -273,18 +273,19 @@ class TerminalViewModel : ViewModel() {
      * 检测用户名是否变化
      */
     private fun detectUserChange(line: String) {
-        // 检测 su - username 或 sudo -i 等命令后的用户变化
-        if (line.contains("su -") || line.contains("sudo -i")) {
-            val userMatch = Regex("""su\s+-\s*(\w+)""").find(line)
-                ?: Regex("""sudo\s+-i""").find(line)
-            // 简化处理：假设切换到root
-            if (userMatch != null) {
-                currentUser = "root"
-            }
+        // 检测 su - username
+        val suMatch = Regex("""su\s+-\s*(\w+)""").find(line)
+        if (suMatch != null) {
+            currentUser = suMatch.groupValues[1]
+            return
+        }
+        // sudo -i 切到 root
+        if (line.contains("sudo -i")) {
+            currentUser = "root"
+            return
         }
         // 检测 whoami 输出
         if (line.contains("root") && _output.value.size > 5) {
-            // 检查前几行是否有 whoami 命令
             val recentLines = _output.value.takeLast(5)
             if (recentLines.any { it.contains("whoami") }) {
                 currentUser = "root"
