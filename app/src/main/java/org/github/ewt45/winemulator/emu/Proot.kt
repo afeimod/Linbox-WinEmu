@@ -45,7 +45,10 @@ class Proot {
         //proot命令的参数使用 大量参考Proot-Distro
 
         //登陆时使用指定用户名。优先使用非root用户。从/etc/passwd获取uid, gid, home, shell
-        val userInfo = ProotRootfs.getPreferredUser(rootfs.canonicalFile.name)
+        // 注意：rootfs 是符号链接 current，rootfs.canonicalFile.name = "current"，而存储 map 的 key 是真实 rootfs 目录名
+        // 真实 rootfs 名 = 符号链接 target 的 parent directory 名称
+        val actualRootfsName = rootfs.canonicalFile.parentFile?.name ?: rootfs.name
+        val userInfo = ProotRootfs.getPreferredUser(actualRootfsName)
 
         val prootCmd = mutableListOf(
             Consts.prootBin.absolutePath,
