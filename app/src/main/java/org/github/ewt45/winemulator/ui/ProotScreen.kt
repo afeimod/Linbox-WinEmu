@@ -29,6 +29,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.input.TextRange
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -263,17 +264,30 @@ private fun TerminalExtraKeysBar(
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
             // 第 1 行：ESC | TAB | CTRL | ALT | - | ↑ | ↓
+            // ESC / TAB 也操作 inputValue（不发 ANSI 到 stdin 避免污染命令）
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Box(Modifier.weight(1f)) {
+                    // ESC：清空 inputValue
                     ExtraKeyButton("ESC", isActive = false,
-                        onClick = { onSend("\u001b"); activeModifier = null })
+                        onClick = {
+                            inputValue = TextFieldValue("")
+                            activeModifier = null
+                        })
                 }
                 Box(Modifier.weight(1f)) {
+                    // TAB：在 inputValue 末尾加一个 tab 字符（终端自动补全会忽略它）
                     ExtraKeyButton("TAB", isActive = false,
-                        onClick = { onSend("\t"); activeModifier = null })
+                        onClick = {
+                            val t = inputValue.text
+                            inputValue = TextFieldValue(
+                                text = t + "\t",
+                                selection = TextRange(t.length + 1),
+                            )
+                            activeModifier = null
+                        })
                 }
                 Box(Modifier.weight(1f)) {
                     ExtraKeyButton("CTRL", isActive = activeModifier == ModifierKey.CTRL,
@@ -284,8 +298,16 @@ private fun TerminalExtraKeysBar(
                         onClick = { activeModifier = if (activeModifier == ModifierKey.ALT) null else ModifierKey.ALT })
                 }
                 Box(Modifier.weight(1f)) {
+                    // - 字符插入到 inputValue 末尾
                     ExtraKeyButton("-", isActive = false,
-                        onClick = { onSend("-"); activeModifier = null })
+                        onClick = {
+                            val t = inputValue.text
+                            inputValue = TextFieldValue(
+                                text = t + "-",
+                                selection = TextRange(t.length + 1),
+                            )
+                            activeModifier = null
+                        })
                 }
                 Box(Modifier.weight(1f)) {
                     ExtraKeyButton("↑", isActive = false,
@@ -297,17 +319,26 @@ private fun TerminalExtraKeysBar(
                 }
             }
             // 第 2 行：INS | END | SHIFT | : | ← | →
+            // 这些控制键直接操作 inputValue，不发 ANSI 到 stdin（避免把 escape 序列当作命令文本）
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(2.dp),
             ) {
                 Box(Modifier.weight(1f)) {
+                    // INS 切换插入/覆写模式（占位：发 ANSI CSI 2~ 表示切换）
                     ExtraKeyButton("INS", isActive = false,
-                        onClick = { onSend("\u001b[2~"); activeModifier = null })
+                        onClick = { /* 仅占位 */ })
                 }
                 Box(Modifier.weight(1f)) {
+                    // END 把光标移到 inputValue 末尾
                     ExtraKeyButton("END", isActive = false,
-                        onClick = { onSend("\u001b[F"); activeModifier = null })
+                        onClick = {
+                            inputValue = TextFieldValue(
+                                text = inputValue.text,
+                                selection = TextRange(inputValue.text.length),
+                            )
+                            activeModifier = null
+                        })
                 }
                 Box(Modifier.weight(1f)) {
                     ExtraKeyButton("SHIFT", isActive = activeModifier == ModifierKey.SHIFT,
@@ -315,15 +346,44 @@ private fun TerminalExtraKeysBar(
                 }
                 Box(Modifier.weight(1f)) {
                     ExtraKeyButton(":", isActive = false,
-                        onClick = { onSend(":"); activeModifier = null })
+                        onClick = {
+                            val t = inputValue.text
+                            inputValue = TextFieldValue(
+                                text = t + ":",
+                                selection = TextRange(t.length + 1),
+                            )
+                            activeModifier = null
+                        })
                 }
                 Box(Modifier.weight(1f)) {
+                    // ←：删除光标前一个字符
                     ExtraKeyButton("←", isActive = false,
-                        onClick = { onSend("\u001b[D"); activeModifier = null })
+                        onClick = {
+                            val t = inputValue.text
+                            val sel = inputValue.selection
+                            if (sel.collapsed && sel.start > 0) {
+                                inputValue = TextFieldValue(
+                                    text = t.substring(0, sel.start - 1) + t.substring(sel.start),
+                                    selection = TextRange(sel.start - 1),
+                                )
+                            }
+                            activeModifier = null
+                        })
                 }
                 Box(Modifier.weight(1f)) {
+                    // →：光标向后一格（不超文本末尾）
                     ExtraKeyButton("→", isActive = false,
-                        onClick = { onSend("\u001b[C"); activeModifier = null })
+                        onClick = {
+                            val t = inputValue.text
+                            val sel = inputValue.selection
+                            if (sel.collapsed && sel.start < t.length) {
+                                inputValue = TextFieldValue(
+                                    text = t,
+                                    selection = TextRange(sel.start + 1),
+                                )
+                            }
+                            activeModifier = null
+                        })
                 }
             }
         }
