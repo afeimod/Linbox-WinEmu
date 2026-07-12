@@ -48,6 +48,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -124,8 +125,10 @@ fun HomeScreen(
             AddContainerFab(onClick = onAddContainer)
         },
     ) { innerPadding ->
+        // 进入 Home 时主动刷新可用用户列表（SettingViewModel.init 为空，需要手动调）
+        LaunchedEffect(Unit) { settingVm.updateValuesWhenEnterSettings() }
         // 从 settingVm 获取各 rootfs 的可用用户列表和当前登录用户
-        val availableUsersMap = remember(settingVm) {
+        val availableUsersMap = remember(settingVm.rootfsUsersOptions.value) {
             settingVm.rootfsUsersOptions.value.mapValues { it.value.map { info -> info.name } }
         }
         val generalState by settingVm.generalState.collectAsState()

@@ -57,6 +57,7 @@ fun ExpandableFloatingMenu(
     onGeneralSettingsClick: () -> Unit,
     onVirtualKeysClick: () -> Unit,
     onX11SettingsClick: () -> Unit,
+    onTerminalClick: () -> Unit = {},
     onMinimizeClick: () -> Unit = {},
 ) {
     val density = LocalDensity.current
@@ -99,6 +100,29 @@ fun ExpandableFloatingMenu(
     val hideIconBitmap = remember {
         ContextCompat.getDrawable(context, a.io.github.ewt45.winemulator.R.drawable.ic_hide)?.toBitmap()
     }
+    // 终端图标：Canvas 画一个黑底 + “$_” 文字
+    val terminalIconBitmap = remember {
+        val size = miniButtonSizePx.toInt().coerceAtLeast(48)
+        val bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+        val canvas = android.graphics.Canvas(bmp)
+        val paint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            color = android.graphics.Color.parseColor("#1E1E1E")
+        }
+        canvas.drawRoundRect(0f, 0f, size.toFloat(), size.toFloat(), 12f, 12f, paint)
+        val textPaint = android.graphics.Paint().apply {
+            isAntiAlias = true
+            color = android.graphics.Color.parseColor("#4CAF50")
+            textSize = size * 0.45f
+            isFakeBoldText = true
+            textAlign = android.graphics.Paint.Align.CENTER
+        }
+        // 画 “$_” 标志
+        val cx = size / 2f
+        val cy = size / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
+        canvas.drawText("\$_", cx, cy, textPaint)
+        bmp
+    }
 
     LaunchedEffect(parentWidth, parentHeight, buttonSizePx) {
         if (parentWidth > 0 && parentHeight > 0) {
@@ -126,10 +150,10 @@ fun ExpandableFloatingMenu(
             // 使用自定义图标
             val menuItems = listOf(
                 Triple(homeIconBitmap, "主菜单", onMainMenuClick),
+                Triple(terminalIconBitmap, "终端", onTerminalClick),
                 Triple(settingsIconBitmap, "一般设置", onGeneralSettingsClick),
                 Triple(gamepadIconBitmap, "虚拟按键设置", onVirtualKeysClick),
                 Triple(displaySettingsIconBitmap, "X11显示设置", onX11SettingsClick),
-                Triple(hideIconBitmap, "最小化", onMinimizeClick),
             )
 
             val arcRadius = with(density) { 60.dp.toPx() }

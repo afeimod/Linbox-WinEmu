@@ -81,3 +81,14 @@ val DividerLight = Color(0xFFE0E0E0)                 // 浅色分割线
 
 // 选中状态
 val SelectionHighlight = Color(0x409C27B0)          // 选中高亮紫色 (25%)
+
+// ==================== Termux 风格终端配色（供 ProotScreen 使用） ====================
+val TermuxRootGreen = Color(0xFF8BC34A)            // root 提示符亮绿
+val TermuxUserGreen = Color(0xFF8BC34A)            // 普通用户绿
+val TermuxHostGreen = Color(0xFF8BC34A)            // 主机名绿
+val TermuxPathBlue = Color(0xFF64B5F6)             // 路径蓝
+val TermuxSymbolWhite = Color(0xFFFFFFFF)          // @ : $ # 白色
+val TermuxOutputText = Color(0xFFE0E0E0)            // 普通输出文字
+val TermuxWarningYellow = Color(0xFFFFC107)        // 警告黄
+val TermuxErrorRed = Color(0xFFEF5350)             // 错误红
+val TermuxCursorColor = Color(0xFFFFFFFF)           // 光标白色方块

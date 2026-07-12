@@ -45,6 +45,7 @@ class Proot {
         //proot命令的参数使用 大量参考Proot-Distro
 
         //登陆时使用指定用户名。优先使用非root用户。从/etc/passwd获取uid, gid, home, shell
+        // canonicalFile 解析符号链接到 target，target.name 是真实 rootfs 目录名
         val userInfo = ProotRootfs.getPreferredUser(rootfs.canonicalFile.name)
 
         val prootCmd = mutableListOf(

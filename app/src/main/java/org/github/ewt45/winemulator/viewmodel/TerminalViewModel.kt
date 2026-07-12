@@ -155,35 +155,56 @@ class TerminalViewModel : ViewModel() {
                             }
                         }
                     }
+                    // progress 推进器：builder 含 \r （apt 进度条等），每 120ms commit 一次以供 UI 实时渲染
+                    val progressFlushJob = launch {
+                        while (process?.isAlive == true) {
+                            delay(120)
+                            outputMutex.withLock {
+                                if (builder.isNotEmpty() && builder.contains('\r')) {
+                                    // progress 行：总是以 “新一行” 方式 commit，
+                                    // 但同一行型会动谈重写 result 末行。UI 端 preprocess 会重
+                                    // 复调出 result 末行的最终状态，所以不重写末行也不会出错。
+                                    // 为了避免多行堆叠，progress commit 后重置 builder，下次 commit 同样作为独立行。
+                                    val pending = builder.toString()
+                                    builder.setLength(0)
+                                    val currentList = _output.value.toMutableList()
+                                    if (currentList.size > 800) currentList.removeAt(0)
+                                    // 如果 result 末行也是 progress  （含 \r），则覆盖
+                                    val lastLine = if (currentList.isNotEmpty()) currentList.last() else null
+                                    if (lastLine != null && lastLine.contains('\r')) {
+                                        currentList[currentList.lastIndex] = pending
+                                    } else {
+                                        currentList.add(pending)
+                                    }
+                                    _output.value = currentList
+                                }
+                            }
+                        }
+                    }
 
                     while (reader.read().also { readInt = it } != -1) {
                         var charRead = readInt.toChar()
                         var skipChar = false
                         
-                        // 处理回车符：将 \r\n 或 \r 视为换行
+                        // 处理回车符：
+                        //  - \r\n ：跳过 \r，\n 会在下一次循环中处理（作为换行）
+                        //  - \r 单独：不切行，直接 append 到 builder。
+                        //  这样整段 apt 进度条（多次 \r 覆盖同一行）会作为一行 commit 到 output。
+                        //  UI 端 preprocess 会解析 \r / \b 完成重写。
                         if (charRead == '\r') {
-                            // 看看下一个字符是否是 \n
                             val nextInt = reader.read()
                             if (nextInt != -1) {
                                 val nextChar = nextInt.toChar()
                                 if (nextChar == '\n') {
-                                    // 如果是 \r\n，跳过这个 \r，\n 会在下一次循环中处理
+                                    // \r\n：把 \n 作为换行
                                     charRead = nextChar
                                 } else {
-                                    // 如果下一个字符不是 \n，把 \r 当作换行处理
-                                    val line = builder.toString()
-                                    // 检测用户名变化
-                                    detectUserChange(line)
-                                    // 添加当前行
-                                    val currentList = _output.value.toMutableList()
-                                    if (currentList.size > 800) {
-                                        currentList.removeAt(0)
+                                    // \r 单独：直接 append 到 builder（不切行）
+                                    outputMutex.withLock {
+                                        lastReadCharTime = System.currentTimeMillis()
+                                        builder.append('\r')
+                                        builder.append(nextChar)
                                     }
-                                    currentList.add(line)
-                                    _output.value = currentList
-                                    builder.clear()
-                                    // 把下一个非 \n 字符加入新的行
-                                    builder.append(nextChar)
                                     skipChar = true
                                 }
                             }
@@ -220,6 +241,7 @@ class TerminalViewModel : ViewModel() {
                         }
                     }
                     updateInlineOutputJob.cancel()
+                    progressFlushJob.cancel()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -251,18 +273,19 @@ class TerminalViewModel : ViewModel() {
      * 检测用户名是否变化
      */
     private fun detectUserChange(line: String) {
-        // 检测 su - username 或 sudo -i 等命令后的用户变化
-        if (line.contains("su -") || line.contains("sudo -i")) {
-            val userMatch = Regex("""su\s+-\s*(\w+)""").find(line)
-                ?: Regex("""sudo\s+-i""").find(line)
-            // 简化处理：假设切换到root
-            if (userMatch != null) {
-                currentUser = "root"
-            }
+        // 检测 su - username
+        val suMatch = Regex("""su\s+-\s*(\w+)""").find(line)
+        if (suMatch != null) {
+            currentUser = suMatch.groupValues[1]
+            return
+        }
+        // sudo -i 切到 root
+        if (line.contains("sudo -i")) {
+            currentUser = "root"
+            return
         }
         // 检测 whoami 输出
         if (line.contains("root") && _output.value.size > 5) {
-            // 检查前几行是否有 whoami 命令
             val recentLines = _output.value.takeLast(5)
             if (recentLines.any { it.contains("whoami") }) {
                 currentUser = "root"
@@ -316,9 +339,96 @@ class TerminalViewModel : ViewModel() {
             processWriter?.write(command + "\n")
             // 确保命令立刻发送
             processWriter?.flush()
+            // 记录历史
+            recordCommand(command)
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    /**
+     * 直接向终端写入原始字符串（不含换行）。供 extra keys 发送控制字符或退格等使用。
+     * @param text 要写入的字符串，例如 "\u0003" (Ctrl+C)、"\u007f" (退格)、"ls "。
+     */
+    fun writeRaw(text: String) = viewModelScope.launch(Dispatchers.IO) {
+        val w = processWriter ?: return@launch
+        if (process?.isAlive != true) return@launch
+        try {
+            w.write(text)
+            w.flush()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    // -------- 历史命令 --------
+    /** 命令历史记录（FIFO，最多 [MAX_HISTORY] 条） */
+    private val commandHistory = ArrayDeque<String>()
+
+    /** 当前在历史中浏览到的位置。-1 表示不在浏览（输入框是当前手输入） */
+    private var historyIndex = -1
+
+    /** 暂存用户当前正在输入的命令（按 ↑ 后能复原到当前未提交的命令） */
+    private var pendingDraft: String? = null
+
+    /**
+     * 记录一条历史命令。在 runCommand 成功后调用。空字符串不记。连续相同不重复记。
+     */
+    fun recordCommand(cmd: String) {
+        val c = cmd.trim()
+        if (c.isEmpty()) return
+        if (commandHistory.isNotEmpty() && commandHistory.last() == c) return
+        commandHistory.addLast(c)
+        while (commandHistory.size > MAX_HISTORY) commandHistory.removeFirst()
+    }
+
+    /**
+     * 在历史中向上回退一条。返回该命令；如果已是最旧的则返回最旧的。
+     */
+    fun historyPrev(): String? {
+        if (commandHistory.isEmpty()) return null
+        if (historyIndex == -1) {
+            // 首次按 ↑：暂存当前 draft
+            // （不暂存，由调用方处理）
+            historyIndex = commandHistory.size - 1
+        } else if (historyIndex > 0) {
+            historyIndex--
+        }
+        return commandHistory.elementAt(historyIndex)
+    }
+
+    /**
+     * 在历史中向下前进一条。返回该命令；如果已在最新则返回 null（调用方应恢复 draft）。
+     */
+    fun historyNext(): String? {
+        if (historyIndex == -1) return null
+        if (historyIndex < commandHistory.size - 1) {
+            historyIndex++
+            return commandHistory.elementAt(historyIndex)
+        }
+        // 已到最新：退出历史浏览
+        historyIndex = -1
+        return null
+    }
+
+    /** 退出历史浏览模式（输入新命令时调用） */
+    fun resetHistoryIndex() {
+        historyIndex = -1
+        pendingDraft = null
+    }
+
+    /**
+     * 在首次按 ↑ 时暂存用户当前正在输入的内容。
+     * 在按下 ↓ 回到最新位置时，调用方可读取该值恢复。
+     */
+    fun setPendingDraft(text: String) {
+        pendingDraft = text
+    }
+
+    fun getPendingDraft(): String? = pendingDraft
+
+    companion object {
+        const val MAX_HISTORY = 200
     }
 
     /**
@@ -337,9 +447,10 @@ class TerminalViewModel : ViewModel() {
     }
 
     /**
-     * 清理资源
+     * 清理资源。强制 destroy + kill 进程，确保 proot 不会以僵尸状态残留。
      */
     private fun closeResources() {
+        // 先关闭流
         try {
             processWriter?.close()
             process?.outputStream?.close()
@@ -348,8 +459,19 @@ class TerminalViewModel : ViewModel() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        // 尝试 destroy
+        val p = process
         try {
-            process?.destroy()
+            p?.destroy()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        // 强杀：proot 进程可能不响应 destroy（它有子进程），用 SIGKILL 杀
+        try {
+            val pid = p?.getPid() ?: -1
+            if (pid > 0) {
+                android.os.Process.killProcess(pid)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
