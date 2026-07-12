@@ -68,9 +68,11 @@ class ProotRootfs {
          * @param allUsers 该rootfs全部可选的用户列表
          */
         fun getPreferredUser(lastSelectedUserName: String?, allUsers: List<UserInfo>): UserInfo = allUsers.run {
+            // 首先查找本地存储的用户名
             var foundInfo = find { info -> info.name == lastSelectedUserName }
-            if (foundInfo == null) foundInfo = find { info -> info.name != "root" }
+            // 本地未存过：默认使用 root（避免被选成第一个非 root 用户）
             if (foundInfo == null) foundInfo = find { info -> info.name == "root" }
+            if (foundInfo == null) foundInfo = find { info -> info.name != "root" }
             if (foundInfo == null) foundInfo = UserInfo.ROOT
             return foundInfo
         }
