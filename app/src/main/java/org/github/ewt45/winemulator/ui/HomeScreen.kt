@@ -4,12 +4,14 @@ import a.io.github.ewt45.winemulator.R
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -36,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -43,6 +46,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -105,6 +109,7 @@ fun HomeScreen(
     onContainerAction: (RootfsContainer, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
 ) {
+    val scope = rememberCoroutineScope()
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -119,6 +124,11 @@ fun HomeScreen(
             AddContainerFab(onClick = onAddContainer)
         },
     ) { innerPadding ->
+        // 从 settingVm 获取各 rootfs 的可用用户列表和当前登录用户
+        val availableUsersMap = remember(settingVm) {
+            settingVm.rootfsUsersOptions.value.mapValues { it.value.map { info -> info.name } }
+        }
+        val generalState by androidx.compose.runtime.collectAsState(settingVm.generalState)
         ContainerGrid(
             containers = containers,
             modifier = Modifier
@@ -126,6 +136,18 @@ fun HomeScreen(
                 .padding(innerPadding),
             onContainerClick = onLaunchContainer,
             onContainerAction = onContainerAction,
+            availableUsersMap = availableUsersMap,
+            loginUsersMap = generalState.localRootfsLoginUsersMap,
+            onPickLoginUser = { c, user ->
+                scope.launch {
+                    settingVm.onChangeRootfsLoginUser(c.name, user)
+                    if (c.isCurrent) {
+                        // 如果是当前 rootfs，重启 terminal 以应用新用户
+                        MainEmuActivity.instance.terminalViewModel.stopTerminal()
+                        MainEmuActivity.instance.terminalViewModel.updatePromptFromSettings(user)
+                    }
+                }
+            },
         )
     }
 }
@@ -218,6 +240,12 @@ fun ContainerGrid(
     modifier: Modifier = Modifier,
     onContainerClick: (RootfsContainer) -> Unit,
     onContainerAction: (RootfsContainer, Int) -> Unit,
+    /** 各 rootfs 的可用用户列表。 */
+    availableUsersMap: Map<String, List<String>> = emptyMap(),
+    /** 各 rootfs 的当前登录用户。 */
+    loginUsersMap: Map<String, String> = emptyMap(),
+    /** 用户选择某个用户后的回调。 */
+    onPickLoginUser: (RootfsContainer, String) -> Unit = { _, _ -> },
 ) {
     if (containers.isEmpty()) {
         Box(modifier = modifier, contentAlignment = Alignment.Center) {
@@ -244,6 +272,9 @@ fun ContainerGrid(
                     container = c,
                     onClick = { onContainerClick(c) },
                     onAction = { action -> onContainerAction(c, action) },
+                    availableUsers = availableUsersMap[c.name] ?: emptyList(),
+                    currentLoginUser = loginUsersMap[c.name],
+                    onPickLoginUser = { user -> onPickLoginUser(c, user) },
                 )
             }
         }
@@ -259,8 +290,15 @@ fun ContainerCard(
     container: RootfsContainer,
     onClick: () -> Unit,
     onAction: (Int) -> Unit,
+    /** 该容器的可选登陆用户列表。点击菜单"切换登录用户"时弹窗列出。 */
+    availableUsers: List<String> = emptyList(),
+    /** 当前选中的登陆用户。 */
+    currentLoginUser: String? = null,
+    /** 用户点击某个用户名后的回调，参数是用户名。 */
+    onPickLoginUser: (String) -> Unit = {},
 ) {
     var menuOpen by remember { mutableStateOf(false) }
+    var showUserPicker by remember { mutableStateOf(false) }
     // 用户自定义图标加载为 Bitmap（若有）
     val customBitmap = remember(container.iconFile?.absolutePath) {
         container.iconFile?.takeIf { it.exists() }?.let { f ->
@@ -355,6 +393,19 @@ fun ContainerCard(
                         },
                     )
                     DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (currentLoginUser != null) "切换登录用户 (当前: $currentLoginUser)"
+                                else "切换登录用户"
+                            )
+                        },
+                        enabled = availableUsers.isNotEmpty(),
+                        onClick = {
+                            menuOpen = false
+                            showUserPicker = true
+                        },
+                    )
+                    DropdownMenuItem(
                         text = { Text("设置自定义图标") },
                         onClick = {
                             menuOpen = false
@@ -387,6 +438,51 @@ fun ContainerCard(
                 }
             }
         }
+    }
+
+    // 切换登录用户弹窗
+    if (showUserPicker) {
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { showUserPicker = false },
+            title = { Text("切换登录用户") },
+            text = {
+                Column {
+                    Text("容器「${container.alias}」当前用户：${currentLoginUser ?: "未设置"}")
+                    Spacer(modifier = Modifier.padding(top = 8.dp))
+                    availableUsers.forEach { user ->
+                        val selected = user == currentLoginUser
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    onPickLoginUser(user)
+                                    showUserPicker = false
+                                }
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            RadioButton(
+                                selected = selected,
+                                onClick = {
+                                    onPickLoginUser(user)
+                                    showUserPicker = false
+                                },
+                            )
+                            Text(
+                                text = user,
+                                modifier = Modifier.padding(start = 8.dp),
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                            )
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showUserPicker = false }) {
+                    Text("取消")
+                }
+            },
+        )
     }
 }
 

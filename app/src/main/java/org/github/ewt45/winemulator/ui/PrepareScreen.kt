@@ -711,7 +711,7 @@ private fun RootfsSelect(
                 )
 
                 val userList = getAvailableUsers(rootfsName)
-                var selectedUserName by remember { mutableStateOf(userList.find { it != "root" } ?: "root") }
+                var selectedUserName by remember { mutableStateOf("root") }
                 GeneralRootfsSelect_LoginUserSelect(rootfsName, selectedUserName, userList) { rootfsName, newUserName ->
                     selectedUserName = newUserName
                     // 使用 runBlocking 确保保存完成后再继续

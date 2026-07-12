@@ -681,8 +681,9 @@ private fun JustExtractedSetup(
 
     var alias by remember(rootfsName) { mutableStateOf(Utils.Rootfs.getAlias(rootfsFile)) }
     val userList = remember(rootfsName) { ProotRootfs.getUserInfos(rootfsFile).map { it.name } }
+    // 新装的 rootfs 默认使用 root 登录（避免被 ProotRootfs.getPreferredUser 选成第一个非 root 用户）
     var selectedUser by remember(rootfsName) {
-        mutableStateOf(userList.find { it != "root" } ?: "root")
+        mutableStateOf("root")
     }
     var isSetCurrent by remember(rootfsName) { mutableStateOf(true) }
 
@@ -721,6 +722,8 @@ private fun JustExtractedSetup(
                 TextButton(onClick = onDone) { Text("完成") }
                 Button(onClick = {
                     scope.launch {
+                        // 持久化新 rootfs 的默认登陆用户（强制 root）
+                        settingVm.onChangeRootfsLoginUser(rootfsName, selectedUser)
                         if (isSetCurrent) {
                             Utils.Rootfs.makeCurrent(rootfsFile)
                             MainEmuActivity.instance.terminalViewModel.stopTerminal()
