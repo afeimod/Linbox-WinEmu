@@ -154,7 +154,6 @@ fun ExpandableFloatingMenu(
                 Triple(settingsIconBitmap, "一般设置", onGeneralSettingsClick),
                 Triple(gamepadIconBitmap, "虚拟按键设置", onVirtualKeysClick),
                 Triple(displaySettingsIconBitmap, "X11显示设置", onX11SettingsClick),
-                Triple(hideIconBitmap, "最小化", onMinimizeClick),
             )
 
             val arcRadius = with(density) { 60.dp.toPx() }
