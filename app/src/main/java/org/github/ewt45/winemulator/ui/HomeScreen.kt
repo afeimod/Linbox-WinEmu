@@ -128,7 +128,7 @@ fun HomeScreen(
         val availableUsersMap = remember(settingVm) {
             settingVm.rootfsUsersOptions.value.mapValues { it.value.map { info -> info.name } }
         }
-        val generalState by androidx.compose.runtime.collectAsState(settingVm.generalState)
+        val generalState by settingVm.generalState.collectAsState()
         ContainerGrid(
             containers = containers,
             modifier = Modifier
