@@ -39,18 +39,48 @@ import org.github.ewt45.winemulator.viewmodel.TerminalViewModel
 /**
  * 终端屏。Termux 风格输出：
  *   - 顶部 [ChildScreenTopBar] 带返回箭头（外部包）
- *   - 中间输出区（按 ANSI 转义近似解析：\r 回车覆盖当前行；\b 退格；颜色代码保留为可读文本）
+ *   - 中间输出区（按 ANSI 转义近似解析：\r 回车覆盖当前行；颜色码已过滤）
  *   - 底部输入行（提示符配色：绿 user@host，蓝 path，白 $/#）
  *   - 底部 extra keys 栏（ESC / TAB / CTRL / ALT / - / ↑↓ / INS / END / SHIFT / : / ←→）
+ *
+ * 命令执行时输入框保持显示但为空（光标还在），用户可继续输入。
+ * ↑/↓ 键额外用作"调出历史命令"。
  */
 @Composable
 fun ProotTerminalScreen(viewModel: TerminalViewModel) {
     var inputValue by remember { mutableStateOf(TextFieldValue("")) }
+    // 用户提交命令前最后输入的内容（用于 ↓ 回到最新位置时恢复）
+    var draftBeforeHistory by remember { mutableStateOf<String?>(null) }
 
     val scroll = rememberScrollState()
     val focusRequester = remember { FocusRequester() }
     val keyboardController = LocalSoftwareKeyboardController.current
     var isFocused by remember { mutableStateOf(false) }
+
+    // ↑ 调历史上一条
+    fun onHistoryPrev() {
+        if (draftBeforeHistory == null) {
+            draftBeforeHistory = inputValue.text
+        }
+        val cmd = viewModel.historyPrev()
+        if (cmd != null) {
+            inputValue = TextFieldValue(cmd)
+        }
+    }
+
+    // ↓ 调历史下一条
+    fun onHistoryNext() {
+        val cmd = viewModel.historyNext()
+        if (cmd != null) {
+            inputValue = TextFieldValue(cmd)
+        } else {
+            // 回到最新：恢复 draft
+            val draft = draftBeforeHistory
+            inputValue = TextFieldValue(draft ?: "")
+            draftBeforeHistory = null
+            viewModel.resetHistoryIndex()
+        }
+    }
 
     LaunchedEffect(Unit) {
         if (viewModel.output.value.isEmpty()) {
@@ -89,7 +119,6 @@ fun ProotTerminalScreen(viewModel: TerminalViewModel) {
         ) {
             SelectionContainer {
                 Column {
-                    // 把原始行做基本 ANSI 处理：\r 视为覆盖当前行
                     val processedLines = remember(viewModel.output.value) {
                         preprocessTerminalOutput(viewModel.output.value)
                     }
@@ -104,6 +133,7 @@ fun ProotTerminalScreen(viewModel: TerminalViewModel) {
                         )
                     }
                     // 输入行（提示符 + BasicTextField）
+                    // 注意：命令执行时 inputValue 为 ""，但 prompt 仍显示，用户继续输入会追加到 stdin
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth(),
@@ -120,7 +150,7 @@ fun ProotTerminalScreen(viewModel: TerminalViewModel) {
                                 withStyle(SpanStyle(color = TermuxPathBlue)) { append(viewModel.currentPath) }
                                 withStyle(
                                     SpanStyle(
-                                        color = if (viewModel.currentUser == "root") TermuxSymbolWhite else TermuxSymbolWhite,
+                                        color = TermuxSymbolWhite,
                                         fontWeight = FontWeight.Bold,
                                     )
                                 ) { append(if (viewModel.currentUser == "root") "# " else "$ ") }
@@ -131,7 +161,14 @@ fun ProotTerminalScreen(viewModel: TerminalViewModel) {
                         )
                         BasicTextField(
                             value = inputValue,
-                            onValueChange = { inputValue = it },
+                            onValueChange = { newValue ->
+                                // 任何新输入都重置历史浏览状态
+                                if (draftBeforeHistory != null) {
+                                    draftBeforeHistory = null
+                                    viewModel.resetHistoryIndex()
+                                }
+                                inputValue = newValue
+                            },
                             textStyle = TextStyle(
                                 color = TermuxOutputText,
                                 fontFamily = FontFamily.Monospace,
@@ -142,10 +179,17 @@ fun ProotTerminalScreen(viewModel: TerminalViewModel) {
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
                             keyboardActions = KeyboardActions(
                                 onDone = {
-                                    if (inputValue.text.isNotBlank()) {
-                                        viewModel.runCommand(inputValue.text)
-                                        inputValue = TextFieldValue("")
+                                    val cmd = inputValue.text
+                                    if (cmd.isNotBlank()) {
+                                        viewModel.runCommand(cmd)
+                                    } else {
+                                        // 即使空也发个回车（让子进程知道）
+                                        viewModel.writeRaw("\n")
                                     }
+                                    // 提交后清空输入框并重置历史浏览
+                                    inputValue = TextFieldValue("")
+                                    draftBeforeHistory = null
+                                    viewModel.resetHistoryIndex()
                                     keyboardController?.show()
                                 }
                             ),
@@ -163,25 +207,20 @@ fun ProotTerminalScreen(viewModel: TerminalViewModel) {
             }
         }
 
-        // 底部：Extra keys 栏
+        // 底部：Extra keys 栏（↑↓ 调历史，不发 ANSI）
         TerminalExtraKeysBar(
             onSend = { text -> viewModel.writeRaw(text) },
+            onHistoryPrev = { onHistoryPrev() },
+            onHistoryNext = { onHistoryNext() },
         )
     }
 }
 
 /**
- * 极简的终端输出预处理：把 \r 视为覆盖当前行末尾。
- * - 以 \n 切分原始缓冲为多行
- * - 如果某行包含 \r，仅保留最后一个 \r 之后的内容（前面的视为被覆盖）
- * - 把行内的 ANSI 颜色 escape code 去掉，保留可读文本
+ * 极简的终端输出预处理：去掉 ANSI 转义 + \r 开头时覆盖上一行。
  */
 private fun preprocessTerminalOutput(rawLines: List<String>): List<String> {
     if (rawLines.isEmpty()) return emptyList()
-    // 极简终端输出预处理：
-    // - 去掉每行 ANSI 转义序列
-    // - 如果某行以 \r 开头，视为"覆盖上一行"：上一行 + 当前 \r 后内容拼接
-    // - 否则作为新行追加
     val result = mutableListOf<String>()
     for (raw in rawLines) {
         val clean = stripAnsi(raw).trimEnd('\n')
@@ -191,7 +230,6 @@ private fun preprocessTerminalOutput(rawLines: List<String>): List<String> {
             if (tail.isNotEmpty()) {
                 result.add(prev + tail)
             }
-            // tail 为空表示"清空上一行"，不加占位
         } else {
             result.add(clean)
         }
@@ -199,18 +237,19 @@ private fun preprocessTerminalOutput(rawLines: List<String>): List<String> {
     return result
 }
 
-/**
- * 去掉 ANSI 转义序列：\u001b[...m、\u001b[?25l/h、\u001b[K 等。
- */
 private val ansiRegex = Regex("\u001b\\[[0-9;?]*[A-Za-z]")
-
 private fun stripAnsi(s: String): String = ansiRegex.replace(s, "")
 
 /**
  * 终端底部 extra keys 栏。两行按键，点击发送 ANSI/控制字符到 stdin。
+ * ↑↓ 键额外作为"历史命令"快捷键。
  */
 @Composable
-private fun TerminalExtraKeysBar(onSend: (String) -> Unit) {
+private fun TerminalExtraKeysBar(
+    onSend: (String) -> Unit,
+    onHistoryPrev: () -> Unit = {},
+    onHistoryNext: () -> Unit = {},
+) {
     var activeModifier by remember { mutableStateOf<ModifierKey?>(null) }
 
     Surface(
@@ -250,11 +289,11 @@ private fun TerminalExtraKeysBar(onSend: (String) -> Unit) {
                 }
                 Box(Modifier.weight(1f)) {
                     ExtraKeyButton("↑", isActive = false,
-                        onClick = { onSend("\u001b[A"); activeModifier = null })
+                        onClick = { onHistoryPrev() })
                 }
                 Box(Modifier.weight(1f)) {
                     ExtraKeyButton("↓", isActive = false,
-                        onClick = { onSend("\u001b[B"); activeModifier = null })
+                        onClick = { onHistoryNext() })
                 }
             }
             // 第 2 行：INS | END | SHIFT | : | ← | →
