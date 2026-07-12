@@ -120,7 +120,7 @@ fun ExpandableFloatingMenu(
         // 画 “$_” 标志
         val cx = size / 2f
         val cy = size / 2f - (textPaint.descent() + textPaint.ascent()) / 2f
-        canvas.drawText("$_", cx, cy, textPaint)
+        canvas.drawText("\$_", cx, cy, textPaint)
         bmp
     }
 
