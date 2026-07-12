@@ -127,27 +127,26 @@ fun ProotTerminalScreen(viewModel: TerminalViewModel) {
                         verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.fillMaxWidth(),
                     ) {
-                        // shell 正在跑 / 未就绪时，不渲染 prompt 文本（避免在 output 末行重复提示符）。
-                        // 但仍保留 input 框，让用户可以连续输入（apt [Y/n] 等）。
-                        if (!viewModel.isRunning) {
-                            Text(
-                                text = buildAnnotatedString {
-                                    withStyle(SpanStyle(color = TermuxUserGreen, fontWeight = FontWeight.Bold)) {
-                                        append(viewModel.currentUser)
-                                    }
-                                    withStyle(SpanStyle(color = TermuxSymbolWhite)) { append("@") }
-                                    withStyle(SpanStyle(color = TermuxHostGreen)) { append(viewModel.currentHost) }
-                                    withStyle(SpanStyle(color = TermuxSymbolWhite)) { append(":") }
-                                    withStyle(SpanStyle(color = TermuxPathBlue)) { append(viewModel.currentPath) }
-                                    withStyle(
-                                        SpanStyle(color = TermuxSymbolWhite, fontWeight = FontWeight.Bold)
-                                    ) { append(if (viewModel.currentUser == "root") "# " else "$ ") }
-                                },
-                                fontFamily = FontFamily.Monospace,
-                                fontSize = 12.sp,
-                                lineHeight = 14.sp,
-                            )
-                        }
+                        // prompt 文本（user@host:path$/#）一直显示。
+                        // - 命令提交后 inputValue 清空、只剩光标，但仍能看 prompt 背景
+                        // - 跑完新 prompt 出现时，UI 重新渲染（currentUser/Host/Path 可能从 output 解析更新）
+                        Text(
+                            text = buildAnnotatedString {
+                                withStyle(SpanStyle(color = TermuxUserGreen, fontWeight = FontWeight.Bold)) {
+                                    append(viewModel.currentUser)
+                                }
+                                withStyle(SpanStyle(color = TermuxSymbolWhite)) { append("@") }
+                                withStyle(SpanStyle(color = TermuxHostGreen)) { append(viewModel.currentHost) }
+                                withStyle(SpanStyle(color = TermuxSymbolWhite)) { append(":") }
+                                withStyle(SpanStyle(color = TermuxPathBlue)) { append(viewModel.currentPath) }
+                                withStyle(
+                                    SpanStyle(color = TermuxSymbolWhite, fontWeight = FontWeight.Bold)
+                                ) { append(if (viewModel.currentUser == "root") "# " else "$ ") }
+                            },
+                            fontFamily = FontFamily.Monospace,
+                            fontSize = 12.sp,
+                            lineHeight = 14.sp,
+                        )
                         BasicTextField(
                             value = inputValue,
                             onValueChange = { newValue ->
