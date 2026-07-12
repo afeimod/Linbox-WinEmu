@@ -40,16 +40,6 @@ class TerminalViewModel : ViewModel() {
 
     private val outputMutex = Mutex() //锁，修改output相关内容时应该使用
 
-    /**
-     * shell 是不是在跑命令：
-     * - true：刚提交了一个命令，shell 还没返回 prompt（output 末行不是 prompt）
-     * - false：shell 处于空闲，output 末行就是 prompt
-     *
-     * UI 端据此决定是否渲染 prompt 文本。
-     */
-    var isRunning by mutableStateOf(false)
-        private set
-
     /** 当前用户名 */
     var currentUser by mutableStateOf("root")
         private set
@@ -187,7 +177,6 @@ class TerminalViewModel : ViewModel() {
                                         currentList.add(pending)
                                     }
                                     _output.value = currentList
-                                    detectPromptReady(pending)
                                 }
                             }
                         }
@@ -310,7 +299,6 @@ class TerminalViewModel : ViewModel() {
         val currentList = _output.value.toMutableList()
         currentList.add(line)
         _output.value = currentList
-        detectPromptReady(line)
     }
 
     /**
@@ -322,11 +310,9 @@ class TerminalViewModel : ViewModel() {
             val lastIndex = currentList.lastIndex
             currentList[lastIndex] = currentList[lastIndex] + additional
             _output.value = currentList
-            detectPromptReady(currentList[lastIndex])
         } else {
             currentList.add(additional)
             _output.value = currentList
-            detectPromptReady(additional)
         }
     }
 
@@ -334,22 +320,6 @@ class TerminalViewModel : ViewModel() {
      * 执行某个命令
      * @param display 为false时不显示在屏幕上
      */
-    /**
-     * 推断这一行结尾是不是 shell prompt。
-     *  bash 默认 prompt 形如：`user@host:/path$ ` 或 `root@host:/path# `
-     *  匹配以 “\S+@\S+:.+[\$#] $” 收尾的行。
-     */
-    private fun detectPromptReady(line: String) {
-        val clean = stripAnsi(line).trimEnd()
-        // 接受行末 “user@host:dir$ ” 或 “root@host:dir# ”
-        if (Regex("\\S+@\\S+:.+[\\$#]\\s*$").matches(clean)) {
-            isRunning = false
-        }
-    }
-
-    private val ansiRegex = Regex("\u001b\\[[0-9;?]*[A-Za-z]")
-    private fun stripAnsi(s: String): String = ansiRegex.replace(s, "")
-
     fun runCommand(command: String, display: Boolean = true) = viewModelScope.launch(Dispatchers.IO) {
 
         if (processWriter == null || process?.isAlive != true) {
@@ -363,9 +333,6 @@ class TerminalViewModel : ViewModel() {
             updateOutput(promptPrefix + command)
         }
 
-        // 提交后默认认为 shell 正在跑；output 末行出现 prompt 格式时会被设回 false
-        isRunning = true
-
         try {
             // 添加回车，否则不会执行
             processWriter?.write(command + "\n")
@@ -375,7 +342,6 @@ class TerminalViewModel : ViewModel() {
             recordCommand(command)
         } catch (e: Exception) {
             e.printStackTrace()
-            isRunning = false
         }
     }
 
