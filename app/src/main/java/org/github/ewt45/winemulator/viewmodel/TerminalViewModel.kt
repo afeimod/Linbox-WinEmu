@@ -322,6 +322,21 @@ class TerminalViewModel : ViewModel() {
     }
 
     /**
+     * 直接向终端写入原始字符串（不含换行）。供 extra keys 发送控制字符或退格等使用。
+     * @param text 要写入的字符串，例如 "\u0003" (Ctrl+C)、"\u007f" (退格)、"ls "。
+     */
+    fun writeRaw(text: String) = viewModelScope.launch(Dispatchers.IO) {
+        val w = processWriter ?: return@launch
+        if (process?.isAlive != true) return@launch
+        try {
+            w.write(text)
+            w.flush()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    /**
      * 更新提示符信息（从设置读取）
      */
     fun updatePromptFromSettings(userName: String) {
