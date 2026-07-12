@@ -40,6 +40,16 @@ class TerminalViewModel : ViewModel() {
 
     private val outputMutex = Mutex() //锁，修改output相关内容时应该使用
 
+    /**
+     * shell 是不是在跑命令：
+     * - true：刚提交了一个命令，shell 还没返回 prompt（output 末行不是 prompt）
+     * - false：shell 处于空闲，output 末行就是 prompt
+     *
+     * UI 端据此决定是否渲染 prompt 文本。
+     */
+    var isRunning by mutableStateOf(false)
+        private set
+
     /** 当前用户名 */
     var currentUser by mutableStateOf("root")
         private set
@@ -155,35 +165,57 @@ class TerminalViewModel : ViewModel() {
                             }
                         }
                     }
+                    // progress 推进器：builder 含 \r （apt 进度条等），每 120ms commit 一次以供 UI 实时渲染
+                    val progressFlushJob = launch {
+                        while (process?.isAlive == true) {
+                            delay(120)
+                            outputMutex.withLock {
+                                if (builder.isNotEmpty() && builder.contains('\r')) {
+                                    // progress 行：总是以 “新一行” 方式 commit，
+                                    // 但同一行型会动谈重写 result 末行。UI 端 preprocess 会重
+                                    // 复调出 result 末行的最终状态，所以不重写末行也不会出错。
+                                    // 为了避免多行堆叠，progress commit 后重置 builder，下次 commit 同样作为独立行。
+                                    val pending = builder.toString()
+                                    builder.setLength(0)
+                                    val currentList = _output.value.toMutableList()
+                                    if (currentList.size > 800) currentList.removeAt(0)
+                                    // 如果 result 末行也是 progress  （含 \r），则覆盖
+                                    val lastLine = if (currentList.isNotEmpty()) currentList.last() else null
+                                    if (lastLine != null && lastLine.contains('\r')) {
+                                        currentList[currentList.lastIndex] = pending
+                                    } else {
+                                        currentList.add(pending)
+                                    }
+                                    _output.value = currentList
+                                    detectPromptReady(pending)
+                                }
+                            }
+                        }
+                    }
 
                     while (reader.read().also { readInt = it } != -1) {
                         var charRead = readInt.toChar()
                         var skipChar = false
                         
-                        // 处理回车符：将 \r\n 或 \r 视为换行
+                        // 处理回车符：
+                        //  - \r\n ：跳过 \r，\n 会在下一次循环中处理（作为换行）
+                        //  - \r 单独：不切行，直接 append 到 builder。
+                        //  这样整段 apt 进度条（多次 \r 覆盖同一行）会作为一行 commit 到 output。
+                        //  UI 端 preprocess 会解析 \r / \b 完成重写。
                         if (charRead == '\r') {
-                            // 看看下一个字符是否是 \n
                             val nextInt = reader.read()
                             if (nextInt != -1) {
                                 val nextChar = nextInt.toChar()
                                 if (nextChar == '\n') {
-                                    // 如果是 \r\n，跳过这个 \r，\n 会在下一次循环中处理
+                                    // \r\n：把 \n 作为换行
                                     charRead = nextChar
                                 } else {
-                                    // 如果下一个字符不是 \n，把 \r 当作换行处理
-                                    val line = builder.toString()
-                                    // 检测用户名变化
-                                    detectUserChange(line)
-                                    // 添加当前行
-                                    val currentList = _output.value.toMutableList()
-                                    if (currentList.size > 800) {
-                                        currentList.removeAt(0)
+                                    // \r 单独：直接 append 到 builder（不切行）
+                                    outputMutex.withLock {
+                                        lastReadCharTime = System.currentTimeMillis()
+                                        builder.append('\r')
+                                        builder.append(nextChar)
                                     }
-                                    currentList.add(line)
-                                    _output.value = currentList
-                                    builder.clear()
-                                    // 把下一个非 \n 字符加入新的行
-                                    builder.append(nextChar)
                                     skipChar = true
                                 }
                             }
@@ -220,6 +252,7 @@ class TerminalViewModel : ViewModel() {
                         }
                     }
                     updateInlineOutputJob.cancel()
+                    progressFlushJob.cancel()
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -277,6 +310,7 @@ class TerminalViewModel : ViewModel() {
         val currentList = _output.value.toMutableList()
         currentList.add(line)
         _output.value = currentList
+        detectPromptReady(line)
     }
 
     /**
@@ -288,9 +322,11 @@ class TerminalViewModel : ViewModel() {
             val lastIndex = currentList.lastIndex
             currentList[lastIndex] = currentList[lastIndex] + additional
             _output.value = currentList
+            detectPromptReady(currentList[lastIndex])
         } else {
             currentList.add(additional)
             _output.value = currentList
+            detectPromptReady(additional)
         }
     }
 
@@ -298,6 +334,22 @@ class TerminalViewModel : ViewModel() {
      * 执行某个命令
      * @param display 为false时不显示在屏幕上
      */
+    /**
+     * 推断这一行结尾是不是 shell prompt。
+     *  bash 默认 prompt 形如：`user@host:/path$ ` 或 `root@host:/path# `
+     *  匹配以 “\S+@\S+:.+[\$#] $” 收尾的行。
+     */
+    private fun detectPromptReady(line: String) {
+        val clean = stripAnsi(line).trimEnd()
+        // 接受行末 “user@host:dir$ ” 或 “root@host:dir# ”
+        if (Regex("\\S+@\\S+:.+[\\$#]\\s*$").matches(clean)) {
+            isRunning = false
+        }
+    }
+
+    private val ansiRegex = Regex("\u001b\\[[0-9;?]*[A-Za-z]")
+    private fun stripAnsi(s: String): String = ansiRegex.replace(s, "")
+
     fun runCommand(command: String, display: Boolean = true) = viewModelScope.launch(Dispatchers.IO) {
 
         if (processWriter == null || process?.isAlive != true) {
@@ -311,6 +363,9 @@ class TerminalViewModel : ViewModel() {
             updateOutput(promptPrefix + command)
         }
 
+        // 提交后默认认为 shell 正在跑；output 末行出现 prompt 格式时会被设回 false
+        isRunning = true
+
         try {
             // 添加回车，否则不会执行
             processWriter?.write(command + "\n")
@@ -320,6 +375,7 @@ class TerminalViewModel : ViewModel() {
             recordCommand(command)
         } catch (e: Exception) {
             e.printStackTrace()
+            isRunning = false
         }
     }
 
@@ -424,9 +480,10 @@ class TerminalViewModel : ViewModel() {
     }
 
     /**
-     * 清理资源
+     * 清理资源。强制 destroy + kill 进程，确保 proot 不会以僵尸状态残留。
      */
     private fun closeResources() {
+        // 先关闭流
         try {
             processWriter?.close()
             process?.outputStream?.close()
@@ -435,8 +492,19 @@ class TerminalViewModel : ViewModel() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+        // 尝试 destroy
+        val p = process
         try {
-            process?.destroy()
+            p?.destroy()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        // 强杀：proot 进程可能不响应 destroy（它有子进程），用 SIGKILL 杀
+        try {
+            val pid = p?.getPid() ?: -1
+            if (pid > 0) {
+                android.os.Process.killProcess(pid)
+            }
         } catch (e: Exception) {
             e.printStackTrace()
         }
