@@ -316,6 +316,8 @@ class TerminalViewModel : ViewModel() {
             processWriter?.write(command + "\n")
             // 确保命令立刻发送
             processWriter?.flush()
+            // 记录历史
+            recordCommand(command)
         } catch (e: Exception) {
             e.printStackTrace()
         }
@@ -334,6 +336,76 @@ class TerminalViewModel : ViewModel() {
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    // -------- 历史命令 --------
+    /** 命令历史记录（FIFO，最多 [MAX_HISTORY] 条） */
+    private val commandHistory = ArrayDeque<String>()
+
+    /** 当前在历史中浏览到的位置。-1 表示不在浏览（输入框是当前手输入） */
+    private var historyIndex = -1
+
+    /** 暂存用户当前正在输入的命令（按 ↑ 后能复原到当前未提交的命令） */
+    private var pendingDraft: String? = null
+
+    /**
+     * 记录一条历史命令。在 runCommand 成功后调用。空字符串不记。连续相同不重复记。
+     */
+    fun recordCommand(cmd: String) {
+        val c = cmd.trim()
+        if (c.isEmpty()) return
+        if (commandHistory.isNotEmpty() && commandHistory.last() == c) return
+        commandHistory.addLast(c)
+        while (commandHistory.size > MAX_HISTORY) commandHistory.removeFirst()
+    }
+
+    /**
+     * 在历史中向上回退一条。返回该命令；如果已是最旧的则返回最旧的。
+     */
+    fun historyPrev(): String? {
+        if (commandHistory.isEmpty()) return null
+        if (historyIndex == -1) {
+            // 首次按 ↑：暂存当前 draft
+            // （不暂存，由调用方处理）
+            historyIndex = commandHistory.size - 1
+        } else if (historyIndex > 0) {
+            historyIndex--
+        }
+        return commandHistory.elementAt(historyIndex)
+    }
+
+    /**
+     * 在历史中向下前进一条。返回该命令；如果已在最新则返回 null（调用方应恢复 draft）。
+     */
+    fun historyNext(): String? {
+        if (historyIndex == -1) return null
+        if (historyIndex < commandHistory.size - 1) {
+            historyIndex++
+            return commandHistory.elementAt(historyIndex)
+        }
+        // 已到最新：退出历史浏览
+        historyIndex = -1
+        return null
+    }
+
+    /** 退出历史浏览模式（输入新命令时调用） */
+    fun resetHistoryIndex() {
+        historyIndex = -1
+        pendingDraft = null
+    }
+
+    /**
+     * 在首次按 ↑ 时暂存用户当前正在输入的内容。
+     * 在按下 ↓ 回到最新位置时，调用方可读取该值恢复。
+     */
+    fun setPendingDraft(text: String) {
+        pendingDraft = text
+    }
+
+    fun getPendingDraft(): String? = pendingDraft
+
+    companion object {
+        const val MAX_HISTORY = 200
     }
 
     /**
