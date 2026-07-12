@@ -27,9 +27,9 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
-import androidx.compose.ui.text.input.TextRange
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
@@ -213,6 +213,8 @@ fun ProotTerminalScreen(viewModel: TerminalViewModel) {
             onSend = { text -> viewModel.writeRaw(text) },
             onHistoryPrev = { onHistoryPrev() },
             onHistoryNext = { onHistoryNext() },
+            getInputValue = { inputValue },
+            onInputValueChange = { newValue -> inputValue = newValue },
         )
     }
 }
@@ -250,6 +252,8 @@ private fun TerminalExtraKeysBar(
     onSend: (String) -> Unit,
     onHistoryPrev: () -> Unit = {},
     onHistoryNext: () -> Unit = {},
+    getInputValue: () -> TextFieldValue = { TextFieldValue("") },
+    onInputValueChange: (TextFieldValue) -> Unit = {},
 ) {
     var activeModifier by remember { mutableStateOf<ModifierKey?>(null) }
 
@@ -273,7 +277,7 @@ private fun TerminalExtraKeysBar(
                     // ESC：清空 inputValue
                     ExtraKeyButton("ESC", isActive = false,
                         onClick = {
-                            inputValue = TextFieldValue("")
+                            onInputValueChange(TextFieldValue(""))
                             activeModifier = null
                         })
                 }
@@ -281,10 +285,10 @@ private fun TerminalExtraKeysBar(
                     // TAB：在 inputValue 末尾加一个 tab 字符（终端自动补全会忽略它）
                     ExtraKeyButton("TAB", isActive = false,
                         onClick = {
-                            val t = inputValue.text
-                            inputValue = TextFieldValue(
+                            val t = getInputValue().text
+                            onInputValueChange(TextFieldValue(
                                 text = t + "\t",
-                                selection = TextRange(t.length + 1),
+                                selection = TextRange(t.length + 1)),
                             )
                             activeModifier = null
                         })
@@ -301,10 +305,10 @@ private fun TerminalExtraKeysBar(
                     // - 字符插入到 inputValue 末尾
                     ExtraKeyButton("-", isActive = false,
                         onClick = {
-                            val t = inputValue.text
-                            inputValue = TextFieldValue(
+                            val t = getInputValue().text
+                            onInputValueChange(TextFieldValue(
                                 text = t + "-",
-                                selection = TextRange(t.length + 1),
+                                selection = TextRange(t.length + 1)),
                             )
                             activeModifier = null
                         })
@@ -333,9 +337,9 @@ private fun TerminalExtraKeysBar(
                     // END 把光标移到 inputValue 末尾
                     ExtraKeyButton("END", isActive = false,
                         onClick = {
-                            inputValue = TextFieldValue(
-                                text = inputValue.text,
-                                selection = TextRange(inputValue.text.length),
+                            onInputValueChange(TextFieldValue(
+                                text = getInputValue()).text,
+                                selection = TextRange(getInputValue().text.length),
                             )
                             activeModifier = null
                         })
@@ -347,10 +351,10 @@ private fun TerminalExtraKeysBar(
                 Box(Modifier.weight(1f)) {
                     ExtraKeyButton(":", isActive = false,
                         onClick = {
-                            val t = inputValue.text
-                            inputValue = TextFieldValue(
+                            val t = getInputValue().text
+                            onInputValueChange(TextFieldValue(
                                 text = t + ":",
-                                selection = TextRange(t.length + 1),
+                                selection = TextRange(t.length + 1)),
                             )
                             activeModifier = null
                         })
@@ -359,11 +363,11 @@ private fun TerminalExtraKeysBar(
                     // ←：删除光标前一个字符
                     ExtraKeyButton("←", isActive = false,
                         onClick = {
-                            val t = inputValue.text
-                            val sel = inputValue.selection
+                            val t = getInputValue().text
+                            val sel = TextRange(getInputValue().text.length)
                             if (sel.collapsed && sel.start > 0) {
-                                inputValue = TextFieldValue(
-                                    text = t.substring(0, sel.start - 1) + t.substring(sel.start),
+                                onInputValueChange(TextFieldValue(
+                                    text = t.substring(0, sel.start - 1)) + t.substring(sel.start),
                                     selection = TextRange(sel.start - 1),
                                 )
                             }
@@ -374,12 +378,12 @@ private fun TerminalExtraKeysBar(
                     // →：光标向后一格（不超文本末尾）
                     ExtraKeyButton("→", isActive = false,
                         onClick = {
-                            val t = inputValue.text
-                            val sel = inputValue.selection
+                            val t = getInputValue().text
+                            val sel = TextRange(getInputValue().text.length)
                             if (sel.collapsed && sel.start < t.length) {
-                                inputValue = TextFieldValue(
+                                onInputValueChange(TextFieldValue(
                                     text = t,
-                                    selection = TextRange(sel.start + 1),
+                                    selection = TextRange(sel.start + 1)),
                                 )
                             }
                             activeModifier = null
