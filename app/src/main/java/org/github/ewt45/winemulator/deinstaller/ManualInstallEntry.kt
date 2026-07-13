@@ -17,12 +17,20 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import java.io.File
 
+/**
+ * 容器设置页手动触发入口.
+ *
+ * 用法:
+ *   ManualInstallEntry(rootfs = File(Consts.rootfsAllDir, currentContainer.name))
+ */
 @Composable
 fun ManualInstallEntry(rootfs: File) {
     var show by remember { mutableStateOf(false) }
+    val controller = rememberInstallDesktopController()
     if (show) {
         InstallDesktopDialog(
             rootfs = rootfs,
+            vm = controller,
             onDismiss = { show = false },
         )
     }

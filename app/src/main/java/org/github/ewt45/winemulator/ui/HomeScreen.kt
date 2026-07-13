@@ -31,10 +31,8 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.deinstaller.InstallDesktopDialog
 import org.github.ewt45.winemulator.deinstaller.rememberInstallDesktopController
-import java.io.File
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
