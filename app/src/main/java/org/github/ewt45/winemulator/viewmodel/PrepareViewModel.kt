@@ -25,18 +25,12 @@ data class PrepareUiState(
     val forceNoRootfs: Boolean = false,
     // 新增：记录自动提取成功的rootfs名称，用于显示用户选择界面
     val autoExtractedRootfsName: String? = null,
-    // [NEW deinstaller] rootfs 解压/下载成功后, 让 UI 弹"安装桌面"对话框
-    // 值为 rootfs 绝对路径, 非空即应当显示 InstallDesktopDialog
-    val pendingDesktopInstallRootfs: String? = null,
 ) {
     /** 准备完成。若返回true则应离开prepareScreen 进入主界面 */
     val isPrepareFinished:Boolean
-        // [deinstaller] pendingDesktopInstallRootfs 非空时强制未完成, 拦截 navigateToMainScreen,
-        // 给"安装桌面"弹窗留出渲染时间
         get() = !loading
                 && (skipPermissions || unGrantedPermissions.isEmpty())
                 && !noRootfs && !forceNoRootfs
-                && pendingDesktopInstallRootfs == null
     /** 是否应该显示用户选择界面（解压/提取完成后） */
     val shouldShowUserSelectScreen: Boolean
         get() = autoExtractedRootfsName != null || forceNoRootfs
@@ -84,11 +78,7 @@ class PrepareViewModel : ViewModel() {
     /** rootfs自动提取成功后调用，记录提取的rootfs名称用于显示用户选择界面 */
     fun onRootfsExtracted(rootfsName: String) {
         _uiState.update {
-            it.copy(
-                autoExtractedRootfsName = rootfsName,
-                // [NEW deinstaller] 顺手让 UI 弹"安装桌面"对话框
-                pendingDesktopInstallRootfs = "${Consts.rootfsAllDir.absolutePath}/$rootfsName",
-            )
+            it.copy(autoExtractedRootfsName = rootfsName)
         }
     }
 
@@ -99,13 +89,7 @@ class PrepareViewModel : ViewModel() {
                 forceNoRootfs = false,
                 noRootfs = false,
                 autoExtractedRootfsName = null,
-                pendingDesktopInstallRootfs = null,
             )
         }
-    }
-
-    /** [NEW deinstaller] "安装桌面"弹窗关闭后调用 */
-    fun onDesktopInstallDialogClosed() {
-        _uiState.update { it.copy(pendingDesktopInstallRootfs = null) }
     }
 }

@@ -69,8 +69,6 @@ import org.github.ewt45.winemulator.ui.setting.GeneralRootfsSelect_LoginUserSele
 import org.github.ewt45.winemulator.ui.setting.GeneralRootfsSelect_RootfsName
 import org.github.ewt45.winemulator.viewmodel.PrepareViewModel
 import org.github.ewt45.winemulator.viewmodel.SettingViewModel
-import org.github.ewt45.winemulator.deinstaller.InstallDesktopDialog
-import org.github.ewt45.winemulator.deinstaller.rememberInstallDesktopController
 import java.io.File
 
 private val TAG = "PrepareScreen"
@@ -88,18 +86,6 @@ fun PrepareScreen(prepareVm: PrepareViewModel, settingVm: SettingViewModel, navi
 @Composable
 fun PrepareScreenImpl(prepareVm: PrepareViewModel, settingVm: SettingViewModel, navigateToMainScreen: suspend () -> Unit) {
     val state by prepareVm.uiState.collectAsStateWithLifecycle()
-    // [deinstaller] 弹"安装桌面"对话框
-    // 用 controller 持有 VM (不在 dialog 内 viewModel()), 状态稳定不丢
-    val desktopController = rememberInstallDesktopController()
-    val pendingRootfsPath = state.pendingDesktopInstallRootfs
-    if (pendingRootfsPath != null) {
-        val rootfsFile = remember(pendingRootfsPath) { File(pendingRootfsPath) }
-        InstallDesktopDialog(
-            rootfs = rootfsFile,
-            vm = desktopController,
-            onDismiss = { prepareVm.onDesktopInstallDialogClosed() },
-        )
-    }
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     // 标题会在后续根据场景动态设置
