@@ -1,6 +1,5 @@
 package org.github.ewt45.winemulator.deinstaller
 
-/** 桌面环境选项 */
 enum class DesktopChoice(val displayName: String, val value: String) {
     XFCE4("XFCE4 (轻量,推荐)", "xfce4"),
     KDE("KDE Plasma (完整,较重)", "kde"),

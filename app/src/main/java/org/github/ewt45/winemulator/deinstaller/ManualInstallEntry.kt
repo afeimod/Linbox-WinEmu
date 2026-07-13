@@ -3,7 +3,6 @@ package org.github.ewt45.winemulator.deinstaller
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
@@ -18,19 +17,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import java.io.File
 
-/**
- * 容器设置页手动触发入口.
- *
- * 接入示例 (放在你的 ui/setting/ContainerSettings.kt 里):
- *
- *   import org.github.ewt45.winemulator.deinstaller.ManualInstallEntry
- *
- *   @Composable
- *   fun ContainerSettings(containerName: String) {
- *       val rootfs = File(Consts.rootfsAllDir, containerName)
- *       ManualInstallEntry(rootfs = rootfs)
- *   }
- */
 @Composable
 fun ManualInstallEntry(rootfs: File) {
     var show by remember { mutableStateOf(false) }

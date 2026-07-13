@@ -4,14 +4,6 @@ import android.content.Context
 import android.util.Log
 import java.io.File
 
-/**
- * 在指定 rootfs 内安装桌面环境 (XFCE4 / KDE).
- *
- * 流程:
- *  1. 通过 [DeInstallerAssets] 部署 assets/de-installer/ 到 app filesDir
- *  2. 通过 [ContainerExec] 在容器内 bind 这个目录到 /de-installer
- *  3. 跑 `bash /de-installer/install_de.sh <choice>`
- */
 object DesktopInstaller {
 
     private const val TAG = "DesktopInstaller"
@@ -28,15 +20,12 @@ object DesktopInstaller {
             onDone(true, null)
             return
         }
-
         try {
-            // 1. 部署 assets
             val bindPair = DeInstallerAssets.bindForContainer(context)
             onLine("[installer] 脚本目录: ${bindPair.first}")
             onLine("[installer] 目标容器: ${rootfs.absolutePath}")
             onLine("[installer] 目标桌面: ${choice.displayName}")
 
-            // 2. 在容器内跑安装脚本
             val cmd = "bash /de-installer/install_de.sh ${choice.value}"
             val result = ContainerExec.run(
                 rootfs = rootfs,

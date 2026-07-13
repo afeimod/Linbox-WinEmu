@@ -10,14 +10,6 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
-/**
- * 弹窗用 ViewModel.
- *
- * 调用顺序:
- *   val vm: InstallDesktopViewModel = viewModel()
- *   InstallDesktopDialog(rootfs = rootfsFile, vm = vm, onDismiss = { ... })
- *   // 弹窗自动起 vm.start()
- */
 class InstallDesktopViewModel(app: Application) : AndroidViewModel(app) {
 
     enum class Phase { IDLE, RUNNING, SUCCESS, FAILED }
@@ -25,7 +17,7 @@ class InstallDesktopViewModel(app: Application) : AndroidViewModel(app) {
     data class State(
         val rootfsPath: String = "",
         val choice: DesktopChoice = DesktopChoice.XFCE4,
-        val phase: Phase = IDLE,
+        val phase: Phase = Phase.IDLE,
         val log: String = "",
         val errorMsg: String? = null,
     )
@@ -38,10 +30,10 @@ class InstallDesktopViewModel(app: Application) : AndroidViewModel(app) {
             State(
                 rootfsPath = rootfs.absolutePath,
                 choice = savedChoice ?: DesktopChoice.XFCE4,
-                phase = IDLE,
+                phase = Phase.IDLE,
             )
         }
-        start()  // init 后立刻启动安装 (skip 除外)
+        start()
     }
 
     fun setChoice(c: DesktopChoice) {
@@ -56,9 +48,7 @@ class InstallDesktopViewModel(app: Application) : AndroidViewModel(app) {
             _state.update { it.copy(phase = Phase.SUCCESS, log = "(已跳过)\n") }
             return
         }
-
         _state.update { it.copy(phase = Phase.RUNNING, log = "", errorMsg = null) }
-
         val rootfs = File(s.rootfsPath)
         viewModelScope.launch {
             DesktopInstaller.install(
