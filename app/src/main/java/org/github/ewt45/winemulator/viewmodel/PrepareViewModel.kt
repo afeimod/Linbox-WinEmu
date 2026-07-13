@@ -31,9 +31,12 @@ data class PrepareUiState(
 ) {
     /** 准备完成。若返回true则应离开prepareScreen 进入主界面 */
     val isPrepareFinished:Boolean
+        // [deinstaller] pendingDesktopInstallRootfs 非空时强制未完成, 拦截 navigateToMainScreen,
+        // 给"安装桌面"弹窗留出渲染时间
         get() = !loading
                 && (skipPermissions || unGrantedPermissions.isEmpty())
                 && !noRootfs && !forceNoRootfs
+                && pendingDesktopInstallRootfs == null
     /** 是否应该显示用户选择界面（解压/提取完成后） */
     val shouldShowUserSelectScreen: Boolean
         get() = autoExtractedRootfsName != null || forceNoRootfs
