@@ -759,7 +759,6 @@ private fun JustExtractedSetup(
             onDismiss = { showDesktopInstall = false },
         )
     }
-    }
     ConfirmDialog(dialogState)
 }
 
