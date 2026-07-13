@@ -23,21 +23,41 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import androidx.lifecycle.viewmodel.compose.viewModel
 import java.io.File
 
+/**
+ * 弹窗: 安装图形桌面.
+ *
+ * 由调用方持有 [vm] (推荐用 [rememberInstallDesktopController] 让 VM 跟着父 Composable),
+ * 不在 dialog 里用 [androidx.lifecycle.viewmodel.compose.viewModel] (会随 AlertDialog 重组
+ * 销毁/重建, 状态丢失).
+ *
+ * 用法:
+ *   val controller = rememberInstallDesktopController()
+ *   if (showDialog) {
+ *       InstallDesktopDialog(
+ *           rootfs = rootfs,
+ *           vm = controller,
+ *           onDismiss = { showDialog = false },
+ *       )
+ *   }
+ */
 @Composable
 fun InstallDesktopDialog(
     rootfs: File,
+    vm: InstallDesktopViewModel,
     onDismiss: () -> Unit,
-    vm: InstallDesktopViewModel = viewModel(),
 ) {
     val state by vm.state.collectAsStateWithLifecycle()
 
+    // 进入弹窗: 第一次启动安装. 已经在 RUNNING/SUCCESS/FAILED 则不动.
     LaunchedEffect(rootfs.absolutePath) {
         if (state.rootfsPath != rootfs.absolutePath) {
             val saved = loadSavedChoice(rootfs)
             vm.init(rootfs, saved)
+            vm.start()
+        } else if (state.phase == InstallDesktopViewModel.Phase.IDLE) {
+            vm.start()
         }
     }
 
@@ -51,7 +71,7 @@ fun InstallDesktopDialog(
                 Text(
                     "rootfs 已就绪 ✨\n" +
                             "自动识别发行版 (debian/ubuntu→apt, arch→pacman, fedora→dnf, " +
-                            "alpine→apk, opensuse→zypper, void→xbps),并安装中文字体/输入法, " +
+                            "alpine→apk, opensuse→zypper, void→xbps), 并安装中文字体/输入法, " +
                             "以及 libxkbcommon-x11 / dbus-x11 / PulseAudio / Vulkan 等 Linbox 运行 Wine 必备依赖.",
                     style = MaterialTheme.typography.bodyMedium,
                 )
@@ -109,11 +129,8 @@ fun InstallDesktopDialog(
         },
         confirmButton = {
             when (state.phase) {
-                InstallDesktopViewModel.Phase.IDLE -> {
-                    TextButton(onClick = { vm.start() }) { Text("开始安装") }
-                }
                 InstallDesktopViewModel.Phase.RUNNING -> {
-                    TextButton(onClick = { }) { Text("安装中…") }
+                    TextButton(onClick = { /* 不可取消 */ }) { Text("安装中…") }
                 }
                 InstallDesktopViewModel.Phase.FAILED -> {
                     TextButton(onClick = { vm.retry() }) { Text("重试") }
@@ -125,14 +142,15 @@ fun InstallDesktopDialog(
                         onDismiss()
                     }) { Text("好的") }
                 }
+                else -> {}  // IDLE: 自动起, 不需要按钮
             }
         },
         dismissButton = {
-            if (state.phase == InstallDesktopViewModel.Phase.IDLE ||
-                state.phase == InstallDesktopViewModel.Phase.FAILED
-            ) {
+            if (state.phase == InstallDesktopViewModel.Phase.RUNNING) {
+                // 运行中不显示"跳过"
+            } else {
                 TextButton(onClick = {
-                    if (state.phase == InstallDesktopViewModel.Phase.FAILED) vm.dismissAsHandled()
+                    vm.dismissAsHandled()
                     onDismiss()
                 }) { Text("跳过") }
             }

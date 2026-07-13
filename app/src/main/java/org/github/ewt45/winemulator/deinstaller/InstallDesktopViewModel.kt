@@ -10,6 +10,13 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.io.File
 
+/**
+ * 弹窗用 ViewModel.
+ *
+ * 设计要点:不在 dialog 里用 viewModel() (会随 Composable 重组销毁/重建),
+ * 调用方 (PrepareScreen / HomeScreen) 自己持有一个 [InstallDesktopController],
+ * 通过 [controller] 暴露的 state / start() / retry() 等驱动 dialog.
+ */
 class InstallDesktopViewModel(app: Application) : AndroidViewModel(app) {
 
     enum class Phase { IDLE, RUNNING, SUCCESS, FAILED }
@@ -33,7 +40,6 @@ class InstallDesktopViewModel(app: Application) : AndroidViewModel(app) {
                 phase = Phase.IDLE,
             )
         }
-        start()
     }
 
     fun setChoice(c: DesktopChoice) {

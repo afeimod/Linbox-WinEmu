@@ -31,6 +31,10 @@ import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import org.github.ewt45.winemulator.Consts
+import org.github.ewt45.winemulator.deinstaller.InstallDesktopDialog
+import org.github.ewt45.winemulator.deinstaller.rememberInstallDesktopController
+import java.io.File
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.FloatingActionButtonDefaults
@@ -302,6 +306,16 @@ fun ContainerCard(
 ) {
     var menuOpen by remember { mutableStateOf(false) }
     var showUserPicker by remember { mutableStateOf(false) }
+    // [deinstaller] 装桌面弹窗 state
+    var showDesktopInstall by remember { mutableStateOf(false) }
+    val desktopController = rememberInstallDesktopController()
+    // [deinstaller] 检测是否已装桌面: 有 startxfce4 或 startplasma-x11 二进制就算已装
+    val rootfsDir = remember(container.name) { File(Consts.rootfsAllDir, container.name) }
+    val hasDesktop = remember(container.name) {
+        File(rootfsDir, "usr/bin/startxfce4").exists() ||
+        File(rootfsDir, "usr/bin/startplasma-x11").exists() ||
+        File(rootfsDir, "usr/bin/startkde").exists()
+    }
     // 用户自定义图标加载为 Bitmap（若有）
     val customBitmap = remember(container.iconFile?.absolutePath) {
         container.iconFile?.takeIf { it.exists() }?.let { f ->
@@ -438,9 +452,31 @@ fun ContainerCard(
                             onAction(2)
                         },
                     )
+                    // [deinstaller] 装/重装桌面 (有桌面就置灰提示)
+                    DropdownMenuItem(
+                        text = {
+                            Text(
+                                if (hasDesktop) "已装桌面 (重装)"
+                                else "安装图形桌面"
+                            )
+                        },
+                        onClick = {
+                            menuOpen = false
+                            showDesktopInstall = true
+                        },
+                    )
                 }
             }
         }
+    }
+
+    // [deinstaller] 装桌面弹窗
+    if (showDesktopInstall) {
+        InstallDesktopDialog(
+            rootfs = rootfsDir,
+            vm = desktopController,
+            onDismiss = { showDesktopInstall = false },
+        )
     }
 
     // 切换登录用户弹窗
