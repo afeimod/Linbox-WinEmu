@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -52,6 +53,8 @@ import org.github.ewt45.winemulator.prootdistro.ProotDistroArch
 import org.github.ewt45.winemulator.prootdistro.ProotDistroCatalog
 import org.github.ewt45.winemulator.prootdistro.ProotDistroEntry
 import org.github.ewt45.winemulator.prootdistro.ProotDistroInstaller
+import org.github.ewt45.winemulator.deinstaller.InstallDesktopDialog
+import org.github.ewt45.winemulator.deinstaller.rememberInstallDesktopController
 import org.github.ewt45.winemulator.ui.components.ConfirmDialog
 import org.github.ewt45.winemulator.ui.components.ProgressDisplay
 import org.github.ewt45.winemulator.ui.components.ProgressStage
@@ -678,6 +681,14 @@ private fun JustExtractedSetup(
     val scope = rememberCoroutineScope()
     val rootfsFile = remember(rootfsName) { File(Consts.rootfsAllDir, rootfsName) }
     val dialogState = rememberConfirmDialogState()
+    // [deinstaller] 装桌面弹窗
+    val desktopController = rememberInstallDesktopController()
+    var showDesktopInstall by remember(rootfsName) { mutableStateOf(false) }
+    val hasDesktop = remember(rootfsName) {
+        File(rootfsFile, "usr/bin/startxfce4").exists() ||
+        File(rootfsFile, "usr/bin/startplasma-x11").exists() ||
+        File(rootfsFile, "usr/bin/startkde").exists()
+    }
 
     var alias by remember(rootfsName) { mutableStateOf(Utils.Rootfs.getAlias(rootfsFile)) }
     val userList = remember(rootfsName) { ProotRootfs.getUserInfos(rootfsFile).map { it.name } }
@@ -720,6 +731,10 @@ private fun JustExtractedSetup(
             }
             Row(horizontalArrangement = Arrangement.End, modifier = Modifier.fillMaxWidth()) {
                 TextButton(onClick = onDone) { Text("完成") }
+                // [deinstaller] 装/重装桌面
+                OutlinedButton(onClick = { showDesktopInstall = true }) {
+                    Text(if (hasDesktop) "重装桌面" else "安装图形桌面")
+                }
                 Button(onClick = {
                     scope.launch {
                         // 持久化新 rootfs 的默认登陆用户（强制 root）
@@ -734,6 +749,16 @@ private fun JustExtractedSetup(
                 }) { Text("保存并完成") }
             }
         }
+    }
+
+    // [deinstaller] 装桌面弹窗
+    if (showDesktopInstall) {
+        InstallDesktopDialog(
+            rootfs = rootfsFile,
+            vm = desktopController,
+            onDismiss = { showDesktopInstall = false },
+        )
+    }
     }
     ConfirmDialog(dialogState)
 }
