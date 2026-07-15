@@ -18,32 +18,28 @@ pacman -S --noconfirm --needed \
     base base-devel \
     sudo dbus dbus-x11 \
     glibc \
-    pulseaudio pulseaudio-alsa alsa-lib alsa-utils \
+    pulseaudio \
     libxkbcommon libxkbcommon-x11 \
-    libgl libegl libgles mesa mesa-vulkan-drivers vulkan-icd-loader libdrm libgbm \
-    xorg-xset xorg-xrandr xorg-xprop xorg-xinput \
+    mesa mesa-vulkan-drivers vulkan-icd-loader libdrm libgbm \
     noto-fonts-cjk wqy-zenhei wqy-microhei \
     fcitx5 fcitx5-chinese-addons fcitx5-gtk fcitx5-qt fcitx5-configtool \
-    unzip p7zip vim nano git htop \
-    xdg-utils \
-    networkmanager net-tools dnsutils
+    unzip p7zip nano git \
+    xdg-utils
 
 case "$DE" in
     xfce4)
         echo "[arch_pacman] 安装 XFCE4..."
         pacman -S --noconfirm --needed \
             xfce4 xfce4-goodies \
-            lightdm lightdm-gtk-greeter \
             xfce4-pulseaudio-plugin \
-            thunar thunar-archive-plugin thunar-volman \
-            mousepad ristretto parole
+            mousepad
         ;;
     kde)
         echo "[arch_pacman] 安装 KDE Plasma..."
         pacman -S --noconfirm --needed \
             plasma-meta sddm \
-            dolphin konsole ark gwenview spectacle okular \
-            kate kcalc plasma-nm plasma-pa
+            dolphin \
+            plasma-nm plasma-pa
         ;;
     skip)
         echo "[arch_pacman] 跳过桌面,只装 X11 基础..."
