@@ -198,7 +198,7 @@ class MainEmuActivity : MainActivity() {
         //     (proot --bind=tmpDir:/tmp, /tmp 就是 host tmpDir, 同 FIFO)
         //   - server 收到后, Android 进程 fork /system/bin/sh 跑 imagefs/glibc-run.sh
         //   - 必须 proot 启完之前就启 (启完 proot 用户就可以跑 startexec 了)
-        if (!fifoExecServer.start(lifecycleScope)) {
+        if (!fifoExecServer.start()) {
             Log.w(TAG, "startEmu: fifoExecServer 启动失败, xfce4 内 startexec 会 broken pipe")
         }
 
