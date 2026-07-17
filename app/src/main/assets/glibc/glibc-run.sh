@@ -235,6 +235,61 @@ export PULSE_SERVER="${PULSE_SERVER:-tcp:127.0.0.1:4713}"
 export PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:$IMAGEFS/bin:/system/bin:/system/xbin:${PATH:-}"
 export BOX64_PATH="$IMAGEFS/opt/wine/bin:$IMAGEFS/usr/local/bin:$IMAGEFS/usr/bin:$IMAGEFS/bin"
 
+# ============================================================
+# 13.5) X11 连通性探测 + 关键 env 重新固化 (修复 musl box64 exec wine 时丢 env)
+#
+# 背景:
+#   - proot 桌面可以显示 (xfce4 在 proot 内跑, 直接连 TMPDIR/.X11-unix/X13)
+#   - glibc-run (Android 进程直接 exec box64+wine) 无法显示
+#
+#   glibc-run 在 Android 进程空间被 fifo server 派发,理论上 TMPDIR 和
+#   proot 内一致 (同 inode), 走同一个 X11 socket。
+#
+#   但 box64 是 musl 静态链接, musl 在 execve 派生子进程时,出于安全
+#   会丢弃一些 "进程启动时不应继承" 的变量, 包括:
+#       LD_PRELOAD, LD_LIBRARY_PATH (取决于版本)
+#   派发给 wine (glibc 链接) 后, 关键 env 可能被 musl 清掉,导致
+#   wine 找不到 X11 socket / 找不到 libandroid-sysvshm.so / 找不到 wine libs。
+#
+# 修复: 在 exec box64 之前, 把所有关键 env **显式重新 export 一次**,
+#       让 box64 启动时自带完整环境, exec wine 时透传。
+#
+# 同时: 加 X11 socket 探测, 如果 socket 文件不存在, 直接报错, 免得
+#       wine 启动后默默连 :0 失败。
+# ============================================================
+
+# 重新固化关键 env (即使外面已经 export, 这里再 export 一次确保)
+export TMPDIR="$LINBOX_TMP"
+export XDG_RUNTIME_DIR="$LINBOX_TMP"
+export DISPLAY="${DISPLAY:-:13}"
+unset XAUTHORITY
+unset XDG_SESSION_TYPE  # 避免被误判成 wayland
+
+# X11 socket 探测
+X11_SOCK_DIR="$TMPDIR/.X11-unix"
+X11_SOCK_FILE="$X11_SOCK_DIR/X${DISPLAY#:}"
+echo "glibc-run: X11 socket probe: $X11_SOCK_FILE" >&2
+if [ -S "$X11_SOCK_FILE" ]; then
+    echo "glibc-run: X11 socket OK ($(stat -c '%a %U:%G' "$X11_SOCK_FILE" 2>/dev/null || echo '?') )" >&2
+else
+    echo "glibc-run: WARNING X11 socket 找不到: $X11_SOCK_FILE" >&2
+    echo "glibc-run: 列出 $X11_SOCK_DIR 看看:" >&2
+    ls -la "$X11_SOCK_DIR" 2>&1 >&2 || true
+fi
+
+# 探测 wine lib path 真的存在
+echo "glibc-run: WINEDLLPATH=$WINEDLLPATH" >&2
+[ -d "$WINEDLLPATH" ] || echo "glibc-run: WARNING WINEDLLPATH 目录不存在" >&2
+echo "glibc-run: LD_LIBRARY_PATH=$LD_LIBRARY_PATH" >&2
+echo "glibc-run: BOX64_LD_LIBRARY_PATH=$BOX64_LD_LIBRARY_PATH" >&2
+
+# WINEDEBUG 保留用户原设置 (默认 -all, 不强制开 X11 debug)
+# 如果想看 wine 启动细节, 设环境变量 LINBOX_GLIBC_DEBUG=1 即可
+if [ "${LINBOX_GLIBC_DEBUG:-0}" = "1" ]; then
+    export WINEDEBUG="${WINEDEBUG:-+x11,+loaddll,+module}"
+    echo "glibc-run: LINBOX_GLIBC_DEBUG=1, WINEDEBUG=$WINEDEBUG" >&2
+fi
+
 echo "glibc-run: DISPLAY=$DISPLAY TMPDIR=$TMPDIR PRESET=$PRESET" >&2
 
 # chdir 到 imagefs 根, 让 box64/wine 找 dll/资源时用相对路径能对上

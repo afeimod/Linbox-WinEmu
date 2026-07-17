@@ -76,8 +76,9 @@ class Proot {
 
         /** Android 端 FIFO server 的安装路径 (Android 进程 fork) */
         const val FIFO_EXEC_SERVER_INSTALLED = "/data/data/a.io.github.ewt45.winemulator/cache/tmp/fifo_exec_server.sh"
-        const val STARTEXEC_INSTALLED = "/imagefs/usr/local/bin/startexec.sh"
-        const val GLIBC_RUN_INSTALLED = "/imagefs/usr/local/bin/glibc-run.sh"
+        /** startexec 装到 rootfs (proot 内 /usr/local/bin, 默认在 PATH) */
+        const val STARTEXEC_INSTALLED = "/usr/local/bin/startexec.sh"
+        const val GLIBC_RUN_INSTALLED = "/usr/local/bin/glibc-run.sh"
 
         /** imagefs bind mount 名 */
         const val IMAGEFS_BIND_NAME = "/imagefs"
@@ -119,10 +120,21 @@ class Proot {
                     Log.w(TAG, "imagefs not ready: $err")
                 } else {
                     imagefs = ImageFs.find(ctx)
-                    // startexec 装到 imagefs (proot 内跑, xfce4 terminal 调用)
+                    // startexec 装到 rootfs (proot 内跑, xfce4 terminal 调用)
+                    //   装到 rootfs 而不是 imagefs 的原因: proot 内能看到
+                    //   rootfs 的 /usr/local/bin 作为系统 bin,直接 startexec 就能跑
+                    //   (装到 imagefs 的话 imagefs bind 上来的 /imagefs/usr/local/bin
+                    //    在 proot 内 nobody 看不到 +x, 需要手动 chmod +x)
                     installAsset(ctx, STARTEXEC_ASSET_PATH,
-                        File(imagefs.rootDir, "usr/local/bin/startexec.sh"))
-                    // glibc-run 装到 imagefs (Android 端跑, 被 fifo server 派发)
+                        File(rootfs, "usr/local/bin/startexec.sh"))
+                    // glibc-run 装两份:
+                    //   1) rootfs /usr/local/bin: proot 内 terminal 调用 (跟 startexec 一样)
+                    //   2) imagefs /usr/local/bin: Android 进程 fifo server 派发调用
+                    //      (Android 进程 exec imagefs 内 glibc-run.sh, 它再用 Android
+                    //       绝对路径访问 imagefs 里的 box64+wine, 因为 glibc 编译路径
+                    //       是 /data/data/.../files/imagefs/)
+                    installAsset(ctx, GLIBC_RUN_ASSET_PATH,
+                        File(rootfs, "usr/local/bin/glibc-run.sh"))
                     installAsset(ctx, GLIBC_RUN_ASSET_PATH,
                         File(imagefs.rootDir, "usr/local/bin/glibc-run.sh"))
                     // fifo_exec_server 装到 Android 端 tmp (Android 端跑)
@@ -235,10 +247,12 @@ class Proot {
         sb.appendLine("""if ! locale -a | grep -qi "zh_CN"; then locale-gen zh_CN.utf8; fi""")
         sb.appendLine("""export LANG=zh_CN.utf8""")
         sb.appendLine()
-        sb.appendLine("# b) chmod imagefs 脚本 (startexec / glibc-run)")
-        sb.appendLine("#    imagefs 是 Android 侧文件, proot 内普通用户可能看不到 +x")
-        sb.appendLine("""chmod +x /imagefs/usr/local/bin/startexec.sh /imagefs/usr/local/bin/glibc-run.sh 2>/dev/null || true""")
-        sb.appendLine("""export PATH="/imagefs/usr/local/bin:${'$'}PATH"""")
+        sb.appendLine("# b) chmod rootfs 脚本 (startexec / glibc-run)")
+        sb.appendLine("#    装在 rootfs 的 /usr/local/bin, proot 内能直接 exec (在 PATH 里)")
+        sb.appendLine("""chmod +x /usr/local/bin/startexec.sh /usr/local/bin/glibc-run.sh 2>/dev/null || true""")
+        sb.appendLine("""export PATH="/usr/local/bin:${'$'}PATH"""")
+        sb.appendLine("#    imagefs 内的 glibc-run 也 chmod, 防别人手动启时需要")
+        sb.appendLine("""chmod +x /imagefs/usr/local/bin/glibc-run.sh 2>/dev/null || true""")
         sb.appendLine()
         sb.appendLine("# b.5) fifo_exec_server 状态检查 (Android 端启, proot 内只需读 FIFO)")
         sb.appendLine("""if [ -p /tmp/.exec.fifo ] && [ -e /tmp/.exec-lock ]; then""")
