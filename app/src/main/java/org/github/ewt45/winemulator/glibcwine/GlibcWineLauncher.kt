@@ -570,7 +570,7 @@ class GlibcWineLauncher(private val context: Context) {
             // 通过反射设置 wineProcess (GlibcWineCommandServer 中)
             setWineProcess(proc)
 
-            Log.i(TAG, "wine 进程已启动, pid=${proc.pid()}")
+            Log.i(TAG, "wine 进程已启动")
             LaunchResult(success = true)
         } catch (e: Throwable) {
             Log.e(TAG, "wine 启动失败", e)
@@ -625,7 +625,9 @@ class GlibcWineLauncher(private val context: Context) {
                 "$root${GlibcWineConsts.GLIBC64_DIR_REL}"
             ).joinToString(":")
             val presetEnvVars = Box64PresetManager.getEnvVars(container.box64Preset)
-            envVars.putAll(presetEnvVars.toMap())
+            for (key in presetEnvVars) {
+                envVars[key] = presetEnvVars.get(key)
+            }
         } else {
             when (container.fexPreset) {
                 0 -> envVars["HODLL"] = "libwow64fex.dll"
