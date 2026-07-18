@@ -554,6 +554,11 @@ class GlibcWineLauncher(private val context: Context) {
         // 使用 List 形式避免空格分割 bug (exe 路径可能含空格)
         val wineArgs = GlibcWineUtils.getWineStartCommandList(screenSize, exePath, exeArgs, null)
 
+        // 创建 wine 库目录符号链接
+        // wine 9.x 的 unix 库在 lib/wine/x86_64-unix/, 但 wine 二进制可能找 lib64/wine/
+        // 创建符号链接让 wine 能找到 ntdll.so 等 unix 库
+        ensureWineLibSymlinks(rootDir, wineDir)
+
         // 关键: 用 glibc 动态链接器 (ld-linux-aarch64.so.1) 启动 box64
         // 因为 box64 是按 glibc 编译的, 不能直接用 Android bionic 加载
         // 用 --library-path 代替 LD_LIBRARY_PATH, 避免污染子进程 (如 /system/bin/sh)
@@ -580,8 +585,12 @@ class GlibcWineLauncher(private val context: Context) {
         Log.i(TAG, "glibc LD: $glibcLd")
         Log.i(TAG, "glibc lib path: $glibcLibPath")
         Log.i(TAG, "BOX64_LD_LIBRARY_PATH: ${envVars["BOX64_LD_LIBRARY_PATH"]}")
-        Log.i(TAG, "WINEDLLPATH: ${envVars["WINEDLLPATH"]}")
         Log.i(TAG, "WINEDEBUG: ${envVars["WINEDEBUG"]}")
+        // 验证 ntdll.so 位置
+        val ntdllOld = File("$wineDir/lib64/wine/ntdll.so")
+        val ntdllNew = File("$wineDir/lib/wine/x86_64-unix/ntdll.so")
+        Log.i(TAG, "ntdll.so (lib64/wine): exists=${ntdllOld.exists()}, path=${ntdllOld.path}")
+        Log.i(TAG, "ntdll.so (lib/wine/x86_64-unix): exists=${ntdllNew.exists()}, path=${ntdllNew.path}")
 
         return try {
             val pb = ProcessBuilder(cmd)
@@ -632,6 +641,51 @@ class GlibcWineLauncher(private val context: Context) {
     private fun List<String>.joinStringSafe(): String = joinToString(" ")
 
     /**
+     * 创建 wine 库目录符号链接, 让 wine 能找到 ntdll.so 等 unix 库。
+     *
+     * wine 9.x 的 unix 库在 lib/wine/x86_64-unix/ 和 lib/wine/i386-unix/,
+     * 但 wine 二进制内部可能查找 lib64/wine/ (老路径)。
+     * 创建符号链接: lib64/wine -> ../lib/wine/x86_64-unix
+     *              lib/wine -> . (自身, 不需要)
+     *
+     * 同时也处理 lib32 -> lib 的链接 (32 位库)
+     */
+    private fun ensureWineLibSymlinks(rootDir: File, wineDir: String) {
+        try {
+            // wineDir 是绝对路径如 /data/data/.../opt/x86_64-wine
+            val wineDirFile = File(wineDir)
+
+            // 1. lib64/wine -> ../lib/wine/x86_64-unix (64 位 unix 库)
+            val lib64Wine = File(wineDirFile, "lib64/wine")
+            val libWineX8664Unix = File(wineDirFile, "lib/wine/x86_64-unix")
+            if (!lib64Wine.exists() && libWineX8664Unix.isDirectory) {
+                lib64Wine.parentFile.mkdirs()
+                Utils.Files.symlink(File("../lib/wine/x86_64-unix"), lib64Wine)
+                Log.i(TAG, "创建符号链接: ${lib64Wine.path} -> ../lib/wine/x86_64-unix")
+            }
+
+            // 2. lib32/wine -> ../lib/wine/i386-unix (32 位 unix 库, 如果存在)
+            val lib32Wine = File(wineDirFile, "lib32/wine")
+            val libWineI386Unix = File(wineDirFile, "lib/wine/i386-unix")
+            if (!lib32Wine.exists() && libWineI386Unix.isDirectory) {
+                lib32Wine.parentFile.mkdirs()
+                Utils.Files.symlink(File("../lib/wine/i386-unix"), lib32Wine)
+                Log.i(TAG, "创建符号链接: ${lib32Wine.path} -> ../lib/wine/i386-unix")
+            }
+
+            // 3. 如果 lib64 本身不存在但 lib 存在, 创建 lib64 -> lib
+            val lib64 = File(wineDirFile, "lib64")
+            val lib = File(wineDirFile, "lib")
+            if (!lib64.exists() && lib.isDirectory) {
+                Utils.Files.symlink(File("lib"), lib64)
+                Log.i(TAG, "创建符号链接: ${lib64.path} -> lib")
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "创建 wine 库符号链接失败 (可能已存在): ${e.message}")
+        }
+    }
+
+    /**
      * 构建 wine 直接运行的环境变量 (使用 /data/data/... 绝对路径)。
      *
      * 注意: 不设置 LD_LIBRARY_PATH, 因为它会污染子进程 (如 /system/bin/sh)。
@@ -664,7 +718,8 @@ class GlibcWineLauncher(private val context: Context) {
         envVars["PATH"] = "$wineDir/bin:/usr/bin:/bin:/system/bin:/system/xbin"
         // 不设置 LD_LIBRARY_PATH! 会破坏 /system/bin/sh 等系统程序
         // glibc 库路径通过 ld-linux-aarch64.so.1 --library-path 传递
-        envVars["WINEDLLPATH"] = "$wineDir/lib/wine:$wineDir/lib64/wine"
+        // 不设置 WINEDLLPATH, 让 wine 用编译时默认路径自己找 DLL
+        // (符号链接已由 ensureWineLibSymlinks 创建, wine 能找到 ntdll.so 等 unix 库)
         envVars["FONTCONFIG_PATH"] = "$root${GlibcWineConsts.FONTCONFIG_DIR_REL}"
 
         // ====== box64 环境变量 (仅 x86_64) ======
@@ -675,14 +730,10 @@ class GlibcWineLauncher(private val context: Context) {
             envVars["BOX64_MMAP32"] = "1"
             envVars["BOX64_X11GLX"] = "1"
             // BOX64_LD_LIBRARY_PATH: box64 加载 x86_64 ELF 时查找依赖库的路径
-            // 必须包含: x86_64 glibc 库 + wine 的 lib/lib64 (ntdll.so 依赖 libwine.so.1 等)
+            // 只需要 glibc 库目录, wine 的库由 wine 自己通过 dlopen 加载
             envVars["BOX64_LD_LIBRARY_PATH"] = listOf(
                 "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}",  // x86_64 glibc 库
-                "$root${GlibcWineConsts.GLIBC64_DIR_REL}",         // aarch64 glibc 库
-                "$wineDir/lib",                                     // wine 32 位库
-                "$wineDir/lib64",                                   // wine 64 位库
-                "$wineDir/lib/wine",                                // wine DLL
-                "$root${GlibcWineConsts.CONTENTS_DIR_REL}/lib"      // 其他内容库
+                "$root${GlibcWineConsts.GLIBC64_DIR_REL}"          // aarch64 glibc 库
             ).joinToString(":")
             // box64 预设 (容器为 null 时使用兼容性预设)
             val presetId = container?.box64Preset ?: Box64Preset.COMPATIBILITY
@@ -698,8 +749,7 @@ class GlibcWineLauncher(private val context: Context) {
             }
         }
 
-        // 调试模式: 启用 wine 和 box64 日志, 方便排查问题
-        // 调试完成后可改回 WINEDEBUG=-all
+        // 调试模式: 启用 wine 日志, 方便排查问题
         envVars["WINEDEBUG"] = "+loaddll,+module"
 
         // ====== 容器自定义环境变量 (容器为 null 时用默认) ======
