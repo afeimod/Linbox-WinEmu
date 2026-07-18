@@ -8,7 +8,11 @@
 #
 # 用法:
 #   linbox-wine              # 启动 winefile 文件管理器
-#   linbox-wine /path/exe.exe  # 启动指定程序
+#   linbox-wine taskmgr      # 启动任务管理器 (wine 内置程序)
+#   linbox-wine notepad      # 启动记事本
+#   linbox-wine regedit      # 启动注册表编辑器
+#   linbox-wine winecfg      # 启动 wine 配置
+#   linbox-wine /path/exe.exe  # 启动指定 exe 文件
 #   linbox-wine kill         # 停止 wine
 
 # fifo 路径 (imagefs 通过 --bind 挂载到 /opt/glibc-wine)
@@ -18,28 +22,32 @@ FIFO="/opt/glibc-wine/tmp/wine-cmd"
 if [ ! -p "$FIFO" ]; then
     echo "错误: fifo 不存在 ($FIFO)"
     echo "请确保:"
-    echo "  1. glibc wine 服务已启动"
+    echo "  1. glibc wine 服务已启动 (Android 端 GlibcWineCommandServer)"
     echo "  2. imagefs 已通过 --bind 挂载到 /opt/glibc-wine"
+    echo ""
+    echo "排查:"
+    echo "  ls -la /opt/glibc-wine/tmp/wine-cmd"
+    echo "  adb logcat | grep GlibcWineCmdServer"
     exit 1
 fi
 
-# 发送命令
+# 发送命令到 fifo
+# 使用 printf 避免echo的换行符差异, 确保发送完整一行
 case "$1" in
     kill)
-        echo "kill" > "$FIFO" &
-        wait
+        printf "kill\n" > "$FIFO"
         echo "已发送停止命令"
         ;;
     "")
         # 无参数, 启动 winefile
-        echo "winefile" > "$FIFO" &
-        wait
+        printf "winefile\n" > "$FIFO"
         echo "命令已发送, winefile 将在桌面显示"
         ;;
     *)
         # 有参数, 启动指定程序
-        echo "exe:$@" > "$FIFO" &
-        wait
-        echo "命令已发送, $1 将在桌面显示"
+        # 支持 wine 内置程序 (taskmgr, notepad, regedit 等) 和外部 exe
+        printf "exe:%s\n" "$*" > "$FIFO"
+        echo "命令已发送: $*"
+        echo "wine 窗口将在 Termux-X11 桌面显示"
         ;;
 esac

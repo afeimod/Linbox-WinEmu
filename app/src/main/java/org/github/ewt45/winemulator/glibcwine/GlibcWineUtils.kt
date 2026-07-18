@@ -63,21 +63,68 @@ object GlibcWineUtils {
      *
      * 如果没有指定 exe, 则启动 winefile (Wine 文件管理器)。
      */
+    /**
+     * 构建 wine 启动命令参数列表。
+     *
+     * 支持三种模式:
+     * 1. 内置程序 (taskmgr/notepad/regedit/wineboot/winecfg/explorer/cmd/control):
+     *    直接传程序名, 不加 explorer /desktop 包装
+     * 2. 无 exe: 启动 winefile (文件管理器), 使用 explorer /desktop
+     * 3. 指定 exe 路径: 使用 explorer /desktop 包装, 在虚拟桌面中运行
+     *
+     * @return 命令参数列表 (不含 wine 本身), 可直接用于 ProcessBuilder
+     */
+    fun getWineStartCommandList(
+        screenSize: String,
+        exePath: String? = null,
+        exeArgs: String = "",
+        workingDir: String? = null
+    ): List<String> {
+        // wine 内置程序列表 - 直接运行, 不用 explorer /desktop
+        val builtinPrograms = setOf(
+            "taskmgr", "notepad", "regedit", "wineboot", "winecfg",
+            "explorer", "cmd", "control", "msinfo32", "winetricks",
+            "wineconsole", "reg", "msiexec", "rundll32"
+        )
+
+        // 无参数 → 启动 winefile
+        if (exePath.isNullOrEmpty()) {
+            return listOf("explorer", "/desktop=shell,$screenSize", "winefile.exe")
+        }
+
+        // 内置程序 → 直接运行
+        val lowerExe = exePath.lowercase()
+        if (exePath in builtinPrograms || lowerExe in builtinPrograms) {
+            val result = mutableListOf(exePath)
+            if (exeArgs.isNotEmpty()) {
+                result.addAll(exeArgs.split(" ").filter { it.isNotEmpty() })
+            }
+            return result
+        }
+
+        // 外部 exe → explorer /desktop 包装
+        val result = mutableListOf("explorer", "/desktop=shell,$screenSize")
+        if (!workingDir.isNullOrEmpty()) {
+            result.add("/dir")
+            result.add(workingDir)
+        }
+        result.add(exePath)
+        if (exeArgs.isNotEmpty()) {
+            result.addAll(exeArgs.split(" ").filter { it.isNotEmpty() })
+        }
+        return result
+    }
+
+    /**
+     * 构建 wine 启动命令字符串 (旧接口, 保留兼容)。
+     */
     fun getWineStartCommand(
         screenSize: String,
         exePath: String? = null,
         exeArgs: String = "",
         workingDir: String? = null
     ): String {
-        val desktopParam = "explorer /desktop=shell,$screenSize"
-
-        if (exePath.isNullOrEmpty()) {
-            // 启动 winefile (文件管理器)
-            return "$desktopParam winefile.exe"
-        }
-
-        val dirParam = if (!workingDir.isNullOrEmpty()) "/dir \"$workingDir\" " else ""
-        return "$desktopParam \"$exePath\" $dirParam$exeArgs".trim()
+        return getWineStartCommandList(screenSize, exePath, exeArgs, workingDir).joinToString(" ")
     }
 
     /**

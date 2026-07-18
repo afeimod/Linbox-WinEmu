@@ -5,7 +5,8 @@ import android.system.Os
 import android.util.Log
 import java.io.BufferedReader
 import java.io.File
-import java.io.FileReader
+import java.io.FileInputStream
+import java.io.InputStreamReader
 import kotlin.concurrent.thread
 
 /**
@@ -95,13 +96,18 @@ object GlibcWineCommandServer {
         }
 
         // 后台线程读取 fifo
+        // 使用持久打开方式: 一直保持 fifo 打开, 逐行读取
+        // 这样 proot 容器每次 echo > fifo 都能被读到
         thread(name = "GlibcWineCmdServer", isDaemon = true) {
             Log.i(TAG, "命令服务器开始监听: ${fifo.path}")
             while (running) {
+                var fis: FileInputStream? = null
                 try {
-                    BufferedReader(FileReader(fifo)).use { reader ->
-                        val line = reader.readLine()
-                        if (line != null) {
+                    fis = FileInputStream(fifo)
+                    val reader = BufferedReader(InputStreamReader(fis))
+                    while (running) {
+                        val line = reader.readLine() ?: break // EOF, 写入端关闭
+                        if (line.isNotEmpty()) {
                             Log.i(TAG, "收到命令: $line")
                             handleCommand(context, line.trim())
                         }
@@ -111,6 +117,8 @@ object GlibcWineCommandServer {
                         Log.e(TAG, "读取 fifo 失败, 1秒后重试", e)
                         Thread.sleep(1000)
                     }
+                } finally {
+                    try { fis?.close() } catch (_: Exception) {}
                 }
             }
             Log.i(TAG, "命令服务器已停止")

@@ -529,14 +529,15 @@ class GlibcWineLauncher(private val context: Context) {
         }
         val wineBinPath = "$wineDir/bin/wine"
         val screenSize = container.screenSize.ifEmpty { GlibcWineConsts.DEFAULT_SCREEN_SIZE }
-        val wineStartCmd = GlibcWineUtils.getWineStartCommand(screenSize, exePath, exeArgs, null)
+        // 使用 List 形式避免空格分割 bug (exe 路径可能含空格)
+        val wineArgs = GlibcWineUtils.getWineStartCommandList(screenSize, exePath, exeArgs, null)
 
         val cmd = if (!isArm64EC) {
             val box64Path = "${rootDir.absolutePath}${GlibcWineConsts.BOX64_BIN_REL}"
-            listOf(box64Path, wineBinPath) + wineStartCmd.split(" ").filter { it.isNotEmpty() }
+            listOf(box64Path, wineBinPath) + wineArgs
         } else {
             val ldPath = "${rootDir.absolutePath}${GlibcWineConsts.ARM64EC_LD_REL}"
-            listOf(ldPath, wineBinPath) + wineStartCmd.split(" ").filter { it.isNotEmpty() }
+            listOf(ldPath, wineBinPath) + wineArgs
         }
 
         Log.i(TAG, "启动命令: ${cmd.joinToString(" ")}")
