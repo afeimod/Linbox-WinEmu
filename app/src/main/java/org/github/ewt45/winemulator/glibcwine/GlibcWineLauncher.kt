@@ -502,20 +502,26 @@ class GlibcWineLauncher(private val context: Context) {
     fun launchDirect(exePath: String?, exeArgs: String = ""): LaunchResult {
         Log.i(TAG, "直接模式启动 wine (Android 原生): exe=$exePath")
 
-        val container = containerManager.getActivatedContainer()
-            ?: containerManager.getContainers().firstOrNull()
-            ?: run {
-                Log.e(TAG, "没有可用的 wine 容器")
-                return LaunchResult(success = false, error = "没有可用的 wine 容器")
-            }
-
-        val wineInfo = WineInfo.fromIdentifier(context, container.wineVersion)
         val rootDir = imageFs.rootDir
 
-        // 确保容器已激活
-        containerManager.activateContainer(container)
-        // 创建 dosdevices 盘符映射 (不手动创建 prefix, wine 首次运行时自动初始化)
-        GlibcWineUtils.createDosdevicesSymlinks(container, rootDir)
+        // 获取容器 (可选, 没有就用默认配置)
+        // wine 不依赖容器存在, 首次运行会自动创建 prefix
+        val container = containerManager.getActivatedContainer()
+            ?: containerManager.getContainers().firstOrNull()
+        if (container != null) {
+            // 确保容器已激活, 创建 dosdevices 盘符映射
+            containerManager.activateContainer(container)
+            GlibcWineUtils.createDosdevicesSymlinks(container, rootDir)
+        } else {
+            Log.w(TAG, "没有 wine 容器, 使用默认配置直接启动 (wine 会自动创建 prefix)")
+        }
+
+        // 使用容器的 wine 版本, 或默认 x86_64 wine
+        val wineInfo = if (container != null) {
+            WineInfo.fromIdentifier(context, container.wineVersion)
+        } else {
+            WineInfo.MAIN_WINE_VERSION
+        }
 
         // 构建环境变量 (使用 Android 绝对路径, 不是容器内路径)
         val envVars = buildDirectEnvVars(container, wineInfo)
@@ -528,7 +534,8 @@ class GlibcWineLauncher(private val context: Context) {
             "${rootDir.absolutePath}${GlibcWineConsts.WINE_PATH_REL}"
         }
         val wineBinPath = "$wineDir/bin/wine"
-        val screenSize = container.screenSize.ifEmpty { GlibcWineConsts.DEFAULT_SCREEN_SIZE }
+        val screenSize = container?.screenSize?.ifEmpty { GlibcWineConsts.DEFAULT_SCREEN_SIZE }
+            ?: GlibcWineConsts.DEFAULT_SCREEN_SIZE
         // 使用 List 形式避免空格分割 bug (exe 路径可能含空格)
         val wineArgs = GlibcWineUtils.getWineStartCommandList(screenSize, exePath, exeArgs, null)
 
@@ -542,6 +549,7 @@ class GlibcWineLauncher(private val context: Context) {
 
         Log.i(TAG, "启动命令: ${cmd.joinToString(" ")}")
         Log.i(TAG, "工作目录: ${rootDir.absolutePath}")
+        Log.i(TAG, "WINEPREFIX: ${envVars["WINEPREFIX"]}")
         Log.i(TAG, "LD_LIBRARY_PATH: ${envVars["LD_LIBRARY_PATH"]}")
 
         return try {
@@ -584,8 +592,10 @@ class GlibcWineLauncher(private val context: Context) {
      *
      * 与 [buildWineEnvVars] 的区别: 路径使用 imagefs 在 Android 上的绝对路径,
      * 而不是容器内的 /opt/glibc-wine 路径。
+     *
+     * @param container wine 容器 (可为 null, null 时使用默认配置)
      */
-    private fun buildDirectEnvVars(container: WineContainer, wineInfo: WineInfo): Map<String, String> {
+    private fun buildDirectEnvVars(container: WineContainer?, wineInfo: WineInfo): Map<String, String> {
         val root = imageFs.rootDir.absolutePath
         val envVars = mutableMapOf<String, String>()
 
@@ -597,6 +607,7 @@ class GlibcWineLauncher(private val context: Context) {
         envVars["TMPDIR"] = "$root${GlibcWineConsts.TMP_DIR_REL}"
         envVars["DISPLAY"] = GlibcWineConsts.DISPLAY
         envVars["PULSE_SERVER"] = GlibcWineConsts.PULSE_SERVER
+        // WINEPREFIX 使用默认路径, wine 首次运行时会自动初始化
         envVars["WINEPREFIX"] = "$root${GlibcWineConsts.WINEPREFIX_REL}"
 
         // ====== wine 路径变量 ======
@@ -625,12 +636,15 @@ class GlibcWineLauncher(private val context: Context) {
                 "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}",
                 "$root${GlibcWineConsts.GLIBC64_DIR_REL}"
             ).joinToString(":")
-            val presetEnvVars = Box64PresetManager.getEnvVars(container.box64Preset)
+            // box64 预设 (容器为 null 时使用兼容性预设)
+            val presetId = container?.box64Preset ?: Box64Preset.COMPATIBILITY
+            val presetEnvVars = Box64PresetManager.getEnvVars(presetId)
             for (key in presetEnvVars) {
                 envVars[key] = presetEnvVars.get(key)
             }
         } else {
-            when (container.fexPreset) {
+            // arm64ec 的 fex 预设 (容器为 null 时默认 0)
+            when (container?.fexPreset ?: 0) {
                 0 -> envVars["HODLL"] = "libwow64fex.dll"
                 1 -> envVars["HODLL"] = "wowbox64.dll"
             }
@@ -638,23 +652,24 @@ class GlibcWineLauncher(private val context: Context) {
 
         envVars["WINEDEBUG"] = "-all"
 
-        // ====== 容器自定义环境变量 ======
-        val containerEnvVars = GlibcEnvVars(container.envVars)
+        // ====== 容器自定义环境变量 (容器为 null 时用默认) ======
+        val envVarsStr = container?.envVars ?: GlibcWineConsts.DEFAULT_ENV_VARS
+        val containerEnvVars = GlibcEnvVars(envVarsStr)
         for (key in containerEnvVars) {
             envVars[key] = containerEnvVars.get(key)
         }
 
-        // ====== 图形驱动 ======
-        val graphicsDriver = container.graphicsDriver.lowercase()
+        // ====== 图形驱动 (容器为 null 时用默认 turnip) ======
+        val graphicsDriver = (container?.graphicsDriver ?: GlibcWineConsts.DEFAULT_GRAPHICS_DRIVER).lowercase()
         when {
             graphicsDriver.contains("turnip") -> envVars["GALLIUM_DRIVER"] = "zink"
             graphicsDriver.contains("virgl") -> envVars["GALLIUM_DRIVER"] = "virpipe"
             graphicsDriver.contains("freedreno") -> envVars["MESA_LOADER_DRIVER_OVERRIDE"] = "kgsl"
         }
 
-        if (container.lcAll.isNotEmpty()) envVars["LC_ALL"] = container.lcAll
-        if (container.cursorTheme.isNotEmpty()) envVars["XCURSOR_THEME"] = container.cursorTheme
-        if (container.cursorSize.isNotEmpty()) envVars["XCURSOR_SIZE"] = container.cursorSize
+        container?.lcAll?.takeIf { it.isNotEmpty() }?.let { envVars["LC_ALL"] = it }
+        container?.cursorTheme?.takeIf { it.isNotEmpty() }?.let { envVars["XCURSOR_THEME"] = it }
+        container?.cursorSize?.takeIf { it.isNotEmpty() }?.let { envVars["XCURSOR_SIZE"] = it }
 
         return envVars
     }
