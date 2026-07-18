@@ -30,6 +30,18 @@ class GlibcImageFs private constructor(val rootDir: File) {
         }
     }
 
+    /**
+     * 返回二进制兼容的绝对路径 (/data/data/... 形式)。
+     *
+     * Android 的 context.filesDir 返回 /data/user/0/<pkg>/files/...,
+     * 但 imagefs 中的二进制是按 /data/data/<pkg>/files/... 编译的 (RPATH 硬编码)。
+     * /data/user/0 和 /data/data 指向同一目录, 但不是符号链接关系,
+     * canonicalPath 不会转换, 需要手动替换。
+     */
+    val rootPath: String
+        get() = rootDir.absolutePath.replace("/data/user/0/", "/data/data/")
+            .replace("/data/user/de/", "/data/data/")
+
     /** wine 安装路径 (绝对路径) */
     var winePath: String = "${rootDir.path}${GlibcWineConsts.WINE_PATH_REL}"
         private set

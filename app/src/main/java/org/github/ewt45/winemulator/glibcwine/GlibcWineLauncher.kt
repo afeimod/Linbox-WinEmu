@@ -460,7 +460,7 @@ class GlibcWineLauncher(private val context: Context) {
     suspend fun stopWine(container: WineContainer): LaunchResult = withContext(Dispatchers.IO) {
         val wineInfo = WineInfo.fromIdentifier(context, container.wineVersion)
         val rootDir = imageFs.rootDir
-        val root = try { rootDir.canonicalPath } catch (e: Exception) { rootDir.absolutePath }
+        val root = imageFs.rootPath
         val wineServerPath = if (wineInfo.isDefaultWine() && wineInfo.path != null) {
             "$root${wineInfo.path}/bin/wineserver"
         } else {
@@ -512,11 +512,12 @@ class GlibcWineLauncher(private val context: Context) {
     fun launchDirect(exePath: String?, exeArgs: String = ""): LaunchResult {
         Log.i(TAG, "直接模式启动 wine (Android 原生): exe=$exePath")
 
-        // 使用 canonicalPath 解析符号链接, 得到 /data/data/... 形式
+        // 使用 rootPath 得到 /data/data/... 形式路径
         // 因为 imagefs 中的二进制是按 /data/data/<pkg>/files/imagefs 编译的 (RPATH 硬编码)
         val rootDir = imageFs.rootDir
-        val root = try { rootDir.canonicalPath } catch (e: Exception) { rootDir.absolutePath }
-        Log.i(TAG, "imagefs 根目录 (canonical): $root")
+        val root = imageFs.rootPath
+        Log.i(TAG, "imagefs 根目录 (rootPath): $root")
+        Log.i(TAG, "imagefs 根目录 (rootDir): ${rootDir.absolutePath}")
 
         // 获取容器 (可选, 没有就用默认配置)
         // wine 不依赖容器存在, 首次运行会自动创建 prefix
