@@ -31,6 +31,9 @@ data object RoutePermission
 /** 容器自动执行命令编辑页（带 rootfsName 参数） */
 @Serializable
 data class RouteContainerAutoCmd(val rootfsName: String)
+/** glibc wine 容器管理页 */
+@Serializable
+data object RouteGlibcWine
 
 enum class Destination(
     val title: String,
@@ -76,6 +79,10 @@ enum class Destination(
     Permission(
         "权限",
         RoutePermission,
+    ),
+    GlibcWine(
+        "Wine容器",
+        RouteGlibcWine,
     );
 
     /** 容器自动执行命令编辑页（带参数） */

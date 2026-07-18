@@ -1,0 +1,45 @@
+#!/bin/sh
+# linbox-wine: glibc wine 启动脚本
+# 
+# 工作原理:
+#   wine 不在 proot 容器内运行, 而是直接在 Android 上运行
+#   此脚本通过 fifo 向 Android 端发送启动命令
+#   X11 和音频通过共享的 Termux-X11/PulseAudio 实现
+#
+# 用法:
+#   linbox-wine              # 启动 winefile 文件管理器
+#   linbox-wine /path/exe.exe  # 启动指定程序
+#   linbox-wine kill         # 停止 wine
+
+# fifo 路径 (imagefs 通过 --bind 挂载到 /opt/glibc-wine)
+FIFO="/opt/glibc-wine/tmp/wine-cmd"
+
+# 检查 fifo 是否存在
+if [ ! -p "$FIFO" ]; then
+    echo "错误: fifo 不存在 ($FIFO)"
+    echo "请确保:"
+    echo "  1. glibc wine 服务已启动"
+    echo "  2. imagefs 已通过 --bind 挂载到 /opt/glibc-wine"
+    exit 1
+fi
+
+# 发送命令
+case "$1" in
+    kill)
+        echo "kill" > "$FIFO" &
+        wait
+        echo "已发送停止命令"
+        ;;
+    "")
+        # 无参数, 启动 winefile
+        echo "winefile" > "$FIFO" &
+        wait
+        echo "命令已发送, winefile 将在桌面显示"
+        ;;
+    *)
+        # 有参数, 启动指定程序
+        echo "exe:$@" > "$FIFO" &
+        wait
+        echo "命令已发送, $1 将在桌面显示"
+        ;;
+esac

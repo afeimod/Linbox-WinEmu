@@ -199,6 +199,9 @@ fun MainScreen(
                         onOpenSettings = {
                             navController.navigate(Destination.Settings.route)
                         },
+                        onOpenWine = {
+                            navController.navigate(Destination.GlibcWine.route)
+                        },
                         onContainerAction = { c, action ->
                             when (action) {
                                 0 -> navController.navigate(Destination.ContainerAutoCmd(c.name).route)
@@ -259,6 +262,12 @@ fun MainScreen(
                     ContainerAutoCmdScreen(
                         rootfsName = rootfsName,
                         settingVm = settingVm,
+                        onBack = { navController.popBackStack() },
+                    )
+                }
+
+                composable<RouteGlibcWine> {
+                    org.github.ewt45.winemulator.glibcwine.GlibcWineScreen(
                         onBack = { navController.popBackStack() },
                     )
                 }

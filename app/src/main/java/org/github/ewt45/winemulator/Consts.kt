@@ -66,6 +66,11 @@ object Consts {
     /** apk自身所在路径 */
     lateinit var apkFilePath: String
 
+    /** glibc wine 运行时 (imagefs) 目录. files/imagefs
+     *  包含 wine 二进制、box64、glibc 库等, 与 proot rootfs 完全分离, 不冲突。
+     *  proot 容器通过 --bind 将其挂载到 /opt/glibc-wine, 使 wine 可从容器内访问。 */
+    lateinit var imagefsDir: File
+
     /** 定义在assets中的默认值，此map中的值会优先于代码中的默认值生效。key为datastore的某个key, value为对应value */
     private lateinit var prefInAssets: Map<String, Any>
 
@@ -92,6 +97,12 @@ object Consts {
         val general_shared_ext_path by item("shared_ext_path", setOf("/storage/emulated/0/Download"))
         val proot_bool_options by item("proot_bool_options", setOf( "-L", "--link2symlink", "--sysvipc", "--kill-on-exit", /*"--root-id",*/))
         val proot_startup_cmd by item("proot_startup_cmd", "")
+
+        // ====== glibc wine 设置 ======
+        // 是否启用 glibc wine 运行时 (winlator-glibc 移植)
+        val glibcwine_enabled by item("glibcwine_enabled", true)
+        // 是否在 proot 启动时自动绑定 imagefs 到 /opt/glibc-wine
+        val glibcwine_auto_bind by item("glibcwine_auto_bind", true)
 
         // Input Controls Settings
         val inputcontrols_enabled by item("inputcontrols_enabled", false)
@@ -208,6 +219,9 @@ object Consts {
         pulseBin.setExecutable(true)
 
         apkFilePath = ctx.applicationInfo.sourceDir
+
+        // glibc wine 运行时目录 (imagefs)
+        imagefsDir = File(fileDir, "imagefs")
 
         //优先生效的用户偏好
         val prefInAssetsJson = IOUtils.toString(ctx.assets.open("preferences.json"), StandardCharsets.UTF_8)

@@ -27,6 +27,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.SportsEsports
 import androidx.compose.material.icons.filled.Terminal
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.DropdownMenu
@@ -108,6 +109,7 @@ fun HomeScreen(
     onAddContainer: () -> Unit,
     onShowTerminal: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenWine: () -> Unit = {},
     /** 三个点菜单项被点击：0=设置自动执行命令，1=重启容器，2=关闭容器 */
     onContainerAction: (RootfsContainer, Int) -> Unit = { _, _ -> },
     modifier: Modifier = Modifier,
@@ -121,6 +123,7 @@ fun HomeScreen(
                 onChangeThemeMode = onChangeThemeMode,
                 onShowTerminal = onShowTerminal,
                 onOpenSettings = onOpenSettings,
+                onOpenWine = onOpenWine,
             )
         },
         floatingActionButton = {
@@ -167,6 +170,7 @@ fun HomeTopBar(
     onChangeThemeMode: (Int) -> Unit,
     onShowTerminal: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenWine: () -> Unit = {},
 ) {
     var themeMenuOpen by remember { mutableStateOf(false) }
     TopAppBar(
@@ -209,6 +213,10 @@ fun HomeTopBar(
             // 显示终端
             IconButton(onClick = onShowTerminal) {
                 Icon(Icons.Filled.Terminal, contentDescription = "显示终端")
+            }
+            // glibc Wine 容器
+            IconButton(onClick = onOpenWine) {
+                Icon(Icons.Filled.SportsEsports, contentDescription = "Wine容器")
             }
             // 设置
             IconButton(onClick = onOpenSettings) {
@@ -717,6 +725,7 @@ fun HomeScreenPreview() {
         onAddContainer = {},
         onShowTerminal = {},
         onOpenSettings = {},
+        onOpenWine = {},
         onContainerAction = { _, _ -> },
     )
 }

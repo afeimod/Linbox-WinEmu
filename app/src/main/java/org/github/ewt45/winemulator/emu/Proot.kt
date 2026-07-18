@@ -9,9 +9,14 @@ import org.apache.commons.io.FileUtils
 import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.Consts.Pref.general_shared_ext_path
 import org.github.ewt45.winemulator.Consts.Pref.proot_bool_options
+import org.github.ewt45.winemulator.Consts.Pref.glibcwine_enabled
+import org.github.ewt45.winemulator.Consts.Pref.glibcwine_auto_bind
 import org.github.ewt45.winemulator.Consts.rootfsCurrL2sDir
 import org.github.ewt45.winemulator.Utils.chmod
 import org.github.ewt45.winemulator.emu.ProotHelper.DEFAULT_FAKE_KERNEL_VERSION
+import org.github.ewt45.winemulator.glibcwine.GlibcWineConsts
+import org.github.ewt45.winemulator.glibcwine.GlibcImageFs
+import org.github.ewt45.winemulator.glibcwine.GlibcWineInitializer
 import java.io.File
 import java.nio.charset.StandardCharsets
 
@@ -96,6 +101,25 @@ class Proot {
             File(rootfs, bindPath).runCatching { takeIf { FileUtils.isSymlink(it) }?.delete() }
             "--bind=$bindPath"
         })
+
+        // ====== glibc wine 绑定挂载 ======
+        // 将 imagefs (glibc wine 运行时) 绑定到容器内 /opt/glibc-wine
+        // 这样 proot 容器启动后, 用户可通过 linbox-wine 脚本或直接调用 /opt/glibc-wine/ 下的 wine
+        if (glibcwine_enabled.get() && glibcwine_auto_bind.get()) {
+            val imageFs = GlibcImageFs.find(org.github.ewt45.winemulator.MainEmuApplication.i)
+            if (imageFs.isValid()) {
+                prootCmd.add("--bind=${imageFs.rootDir.absolutePath}:${GlibcWineConsts.CONTAINER_MOUNT_POINT}")
+                // 部署启动脚本到 rootfs (如果尚未部署)
+                try {
+                    GlibcWineInitializer.deployToRootfs(org.github.ewt45.winemulator.MainEmuApplication.i, rootfs.canonicalFile)
+                } catch (e: Exception) {
+                    Log.w(TAG, "部署 wine 启动脚本失败 (非致命): ${e.message}")
+                }
+                Log.i(TAG, "glibc wine 已绑定到 ${GlibcWineConsts.CONTAINER_MOUNT_POINT}")
+            } else {
+                Log.w(TAG, "glibc wine imagefs 无效, 跳过绑定")
+            }
+        }
 
 
         val loginEnvs = EnvMap()
