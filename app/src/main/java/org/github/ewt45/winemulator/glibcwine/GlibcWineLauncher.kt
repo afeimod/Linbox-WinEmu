@@ -572,11 +572,16 @@ class GlibcWineLauncher(private val context: Context) {
             listOf(glibcLd, "--library-path", glibcLibPath, wineBinPath) + wineArgs
         }
 
-        Log.i(TAG, "启动命令: ${cmd.joinToString(" ")}")
+        Log.i(TAG, "启动命令: ${cmd.joinStringSafe()}")
         Log.i(TAG, "工作目录: $root")
         Log.i(TAG, "WINEPREFIX: ${envVars["WINEPREFIX"]}")
+        Log.i(TAG, "DISPLAY: ${envVars["DISPLAY"]}")
+        Log.i(TAG, "PATH: ${envVars["PATH"]}")
         Log.i(TAG, "glibc LD: $glibcLd")
         Log.i(TAG, "glibc lib path: $glibcLibPath")
+        Log.i(TAG, "BOX64_LD_LIBRARY_PATH: ${envVars["BOX64_LD_LIBRARY_PATH"]}")
+        Log.i(TAG, "WINEDLLPATH: ${envVars["WINEDLLPATH"]}")
+        Log.i(TAG, "WINEDEBUG: ${envVars["WINEDEBUG"]}")
 
         return try {
             val pb = ProcessBuilder(cmd)
@@ -592,7 +597,7 @@ class GlibcWineLauncher(private val context: Context) {
             val proc = pb.start()
             GlibcWineCommandServer // 引用以确保类加载
 
-            // 在后台线程读取输出
+            // 在后台线程读取输出 (持续读取直到进程结束)
             Thread {
                 try {
                     proc.inputStream.bufferedReader().useLines { lines ->
@@ -602,6 +607,13 @@ class GlibcWineLauncher(private val context: Context) {
                     }
                 } catch (e: Exception) {
                     Log.e(TAG, "读取 wine 输出失败", e)
+                }
+                // 进程输出结束后, 打印退出码
+                try {
+                    val exitCode = proc.waitFor()
+                    Log.i(TAG, "[wine] 进程结束, 退出码: $exitCode")
+                } catch (e: Exception) {
+                    Log.e(TAG, "[wine] 等待进程结束失败", e)
                 }
             }.start()
 
@@ -615,6 +627,9 @@ class GlibcWineLauncher(private val context: Context) {
             LaunchResult(success = false, error = e.message)
         }
     }
+
+    /** 安全的 joinToString, 避免空格分割问题 */
+    private fun List<String>.joinStringSafe(): String = joinToString(" ")
 
     /**
      * 构建 wine 直接运行的环境变量 (使用 /data/data/... 绝对路径)。
@@ -645,22 +660,29 @@ class GlibcWineLauncher(private val context: Context) {
         } else {
             "$root${GlibcWineConsts.WINE_PATH_REL}"
         }
-        envVars["PATH"] = "$wineDir/bin:/usr/bin:/bin"
+        // PATH 包含 /system/bin, 让 lscpu 等 Android 系统工具可用 (box64 启动时会调用)
+        envVars["PATH"] = "$wineDir/bin:/usr/bin:/bin:/system/bin:/system/xbin"
         // 不设置 LD_LIBRARY_PATH! 会破坏 /system/bin/sh 等系统程序
         // glibc 库路径通过 ld-linux-aarch64.so.1 --library-path 传递
-        envVars["WINEDLLPATH"] = "$wineDir/lib/wine"
+        envVars["WINEDLLPATH"] = "$wineDir/lib/wine:$wineDir/lib64/wine"
         envVars["FONTCONFIG_PATH"] = "$root${GlibcWineConsts.FONTCONFIG_DIR_REL}"
 
         // ====== box64 环境变量 (仅 x86_64) ======
         if (!isArm64EC) {
-            envVars["BOX64_NOBANNER"] = "1"
+            // 调试: 不禁用 banner, 方便排查
+            envVars["BOX64_NOBANNER"] = "0"
             envVars["BOX64_DYNAREC"] = "1"
             envVars["BOX64_MMAP32"] = "1"
             envVars["BOX64_X11GLX"] = "1"
-            // BOX64_LD_LIBRARY_PATH 指向 x86_64 glibc 库 (box64 内部使用, 不影响系统)
+            // BOX64_LD_LIBRARY_PATH: box64 加载 x86_64 ELF 时查找依赖库的路径
+            // 必须包含: x86_64 glibc 库 + wine 的 lib/lib64 (ntdll.so 依赖 libwine.so.1 等)
             envVars["BOX64_LD_LIBRARY_PATH"] = listOf(
-                "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}",
-                "$root${GlibcWineConsts.GLIBC64_DIR_REL}"
+                "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}",  // x86_64 glibc 库
+                "$root${GlibcWineConsts.GLIBC64_DIR_REL}",         // aarch64 glibc 库
+                "$wineDir/lib",                                     // wine 32 位库
+                "$wineDir/lib64",                                   // wine 64 位库
+                "$wineDir/lib/wine",                                // wine DLL
+                "$root${GlibcWineConsts.CONTENTS_DIR_REL}/lib"      // 其他内容库
             ).joinToString(":")
             // box64 预设 (容器为 null 时使用兼容性预设)
             val presetId = container?.box64Preset ?: Box64Preset.COMPATIBILITY
@@ -676,7 +698,9 @@ class GlibcWineLauncher(private val context: Context) {
             }
         }
 
-        envVars["WINEDEBUG"] = "-all"
+        // 调试模式: 启用 wine 和 box64 日志, 方便排查问题
+        // 调试完成后可改回 WINEDEBUG=-all
+        envVars["WINEDEBUG"] = "+loaddll,+module"
 
         // ====== 容器自定义环境变量 (容器为 null 时用默认) ======
         val envVarsStr = container?.envVars ?: GlibcWineConsts.DEFAULT_ENV_VARS
