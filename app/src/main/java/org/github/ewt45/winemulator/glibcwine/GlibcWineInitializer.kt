@@ -105,7 +105,7 @@ object GlibcWineInitializer {
                 // 创建 dosdevices 盘符映射
                 val imageFs = GlibcImageFs.find(context)
                 GlibcWineUtils.createDosdevicesSymlinks(container, imageFs.rootDir)
-                GlibcWineUtils.ensureWinePrefixStructure(container)
+                // 不手动创建 wine prefix, wine 首次运行时自动初始化
                 Log.i(TAG, "默认容器创建成功: ${container.name}")
                 return container
             }

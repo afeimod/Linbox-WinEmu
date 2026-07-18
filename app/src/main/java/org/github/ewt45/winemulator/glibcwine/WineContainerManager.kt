@@ -97,8 +97,10 @@ class WineContainerManager(private val context: Context) {
             val container = WineContainer(id, containerDir)
             container.loadData(data)
 
-            // 创建基本的 .wine 目录结构 (wine 首次启动时会自动初始化完整 prefix)
-            createBasicWinePrefix(containerDir)
+            // 注意: 不手动创建 wine prefix 目录结构。
+            // wine 首次运行 (wineboot) 时会自动初始化完整的 prefix
+            // (注册表、系统 DLL、drive_c、dosdevices 等)。
+            // 这里只创建容器目录本身和保存配置。
 
             container.saveData()
             maxContainerId++
@@ -109,20 +111,6 @@ class WineContainerManager(private val context: Context) {
             Log.e(TAG, "创建容器失败", e)
             return null
         }
-    }
-
-    /**
-     * 创建基本的 wine prefix 目录结构。
-     * wine 首次启动时会自动初始化完整的 prefix (注册表、系统 DLL 等)。
-     */
-    private fun createBasicWinePrefix(containerDir: File) {
-        val wineDir = File(containerDir, ".wine")
-        File(wineDir, "drive_c/windows/system32").mkdirs()
-        File(wineDir, "drive_c/windows/syswow64").mkdirs()
-        File(wineDir, "drive_c/windows/temp").mkdirs()
-        File(wineDir, "drive_c/users").mkdirs()
-        File(wineDir, "dosdevices").mkdirs()
-        Log.i(TAG, "基本 wine prefix 已创建: ${wineDir.path}")
     }
 
     /**

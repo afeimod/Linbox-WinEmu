@@ -240,8 +240,8 @@ class GlibcWineLauncher(private val context: Context) {
         containerManager.activateContainer(container)
 
         // 2. 创建 dosdevices 盘符映射
+        // (不手动创建 wine prefix, wine 首次运行时自动初始化)
         GlibcWineUtils.createDosdevicesSymlinks(container, imageFs.rootDir)
-        GlibcWineUtils.ensureWinePrefixStructure(container)
 
         // 3. 确保 box64 已解压
         // (imagefs 安装时已包含 box64, 无需额外解压)
@@ -514,8 +514,8 @@ class GlibcWineLauncher(private val context: Context) {
 
         // 确保容器已激活
         containerManager.activateContainer(container)
+        // 创建 dosdevices 盘符映射 (不手动创建 prefix, wine 首次运行时自动初始化)
         GlibcWineUtils.createDosdevicesSymlinks(container, rootDir)
-        GlibcWineUtils.ensureWinePrefixStructure(container)
 
         // 构建环境变量 (使用 Android 绝对路径, 不是容器内路径)
         val envVars = buildDirectEnvVars(container, wineInfo)

@@ -23,35 +23,6 @@ object GlibcWineUtils {
      * @param container wine 容器
      * @param imageFsRootDir imagefs 根目录 (Android 路径)
      */
-    fun createDosdevicesSymlinks(container: WineContainer, imageFsRootDir: File) {
-        val dosdevicesDir = File(container.rootDir, ".wine/dosdevices")
-        dosdevicesDir.mkdirs()
-
-        // c: -> ../drive_c
-        val cDrive = File(dosdevicesDir, "c:")
-        if (!cDrive.exists()) {
-            Utils.Files.symlink(File("../drive_c"), cDrive)
-        }
-
-        // z: -> imagefs rootDir
-        val zDrive = File(dosdevicesDir, "z:")
-        if (!zDrive.exists()) {
-            Utils.Files.symlink(imageFsRootDir, zDrive)
-        }
-
-        // 用户定义的盘符
-        for (pair in container.drivesIterator()) {
-            val driveLetter = pair[0]
-            val path = pair[1]
-            if (driveLetter.equals("c", ignoreCase = true) || driveLetter.equals("z", ignoreCase = true)) continue
-            val driveFile = File(dosdevicesDir, "${driveLetter.lowercase()}:")
-            if (!driveFile.exists()) {
-                val targetFile = File(path)
-                Utils.Files.symlink(targetFile, driveFile)
-            }
-        }
-    }
-
     /**
      * 获取 wine 启动命令。
      *
@@ -136,22 +107,44 @@ object GlibcWineUtils {
     }
 
     /**
-     * 检查并创建 wine prefix 所需的基本目录结构。
+     * 创建 dosdevices 盘符符号链接。
+     *
+     * 注意: 此方法只创建 dosdevices 目录和盘符符号链接,
+     * 不创建 wine prefix 的其他目录结构。
+     * wine prefix 由 wine 首次运行 (wineboot) 时自动初始化。
+     *
+     * 调用时机: 在 wine 首次运行前调用, 确保 dosdevices 盘符映射已就绪。
+     * 如果 wine prefix 尚未初始化, dosdevices 会在 wineboot 时被创建,
+     * 此方法提前创建盘符符号链接不会影响 wine 的初始化。
      */
-    fun ensureWinePrefixStructure(container: WineContainer) {
-        val dirs = listOf(
-            ".wine",
-            ".wine/drive_c",
-            ".wine/drive_c/windows",
-            ".wine/drive_c/windows/system32",
-            ".wine/drive_c/windows/syswow64",
-            ".wine/drive_c/windows/temp",
-            ".wine/drive_c/users/${GlibcWineConsts.USER}",
-            ".wine/drive_c/users/${GlibcWineConsts.USER}/Desktop",
-            ".wine/dosdevices"
-        )
-        for (dir in dirs) {
-            File(container.rootDir, dir).mkdirs()
+    fun createDosdevicesSymlinks(container: WineContainer, imageFsRootDir: File) {
+        val dosdevicesDir = File(container.rootDir, ".wine/dosdevices")
+        // 只创建 dosdevices 目录, 不创建其他 prefix 目录
+        // (wine 首次运行时会自动初始化完整 prefix)
+        dosdevicesDir.mkdirs()
+
+        // c: -> ../drive_c
+        val cDrive = File(dosdevicesDir, "c:")
+        if (!cDrive.exists()) {
+            Utils.Files.symlink(File("../drive_c"), cDrive)
+        }
+
+        // z: -> imagefs rootDir
+        val zDrive = File(dosdevicesDir, "z:")
+        if (!zDrive.exists()) {
+            Utils.Files.symlink(imageFsRootDir, zDrive)
+        }
+
+        // 用户定义的盘符
+        for (pair in container.drivesIterator()) {
+            val driveLetter = pair[0]
+            val path = pair[1]
+            if (driveLetter.equals("c", ignoreCase = true) || driveLetter.equals("z", ignoreCase = true)) continue
+            val driveFile = File(dosdevicesDir, "${driveLetter.lowercase()}:")
+            if (!driveFile.exists()) {
+                val targetFile = File(path)
+                Utils.Files.symlink(targetFile, driveFile)
+            }
         }
     }
 }
