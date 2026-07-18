@@ -459,23 +459,33 @@ class GlibcWineLauncher(private val context: Context) {
      */
     suspend fun stopWine(container: WineContainer): LaunchResult = withContext(Dispatchers.IO) {
         val wineInfo = WineInfo.fromIdentifier(context, container.wineVersion)
-        val root = imageFs.rootDir.absolutePath
+        val rootDir = imageFs.rootDir
+        val root = try { rootDir.canonicalPath } catch (e: Exception) { rootDir.absolutePath }
         val wineServerPath = if (wineInfo.isDefaultWine() && wineInfo.path != null) {
             "$root${wineInfo.path}/bin/wineserver"
         } else {
             "$root${GlibcWineConsts.WINE_PATH_REL}/bin/wineserver"
         }
 
+        // 用 glibc 动态链接器启动 wineserver
+        val glibcLd = "$root${GlibcWineConsts.ARM64EC_LD_REL}"
+        val glibcLibPath = listOf(
+            "$root${GlibcWineConsts.GLIBC64_DIR_REL}",
+            "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}"
+        ).joinToString(":")
+
         val command = if (wineInfo.arch.equals("arm64ec", ignoreCase = true)) {
-            listOf("$root${GlibcWineConsts.ARM64EC_LD_REL}", wineServerPath, "-k")
+            listOf(glibcLd, "--library-path", glibcLibPath, wineServerPath, "-k")
         } else {
-            listOf("$root${GlibcWineConsts.BOX64_BIN_REL}", wineServerPath, "-k")
+            val box64Path = "$root${GlibcWineConsts.BOX64_BIN_REL}"
+            listOf(glibcLd, "--library-path", glibcLibPath, box64Path, wineServerPath, "-k")
         }
 
         Log.i(TAG, "停止 wine: ${command.joinToString(" ")}")
         return@withContext try {
-            val pb = ProcessBuilder(command).directory(imageFs.rootDir)
-            pb.environment().putAll(buildDirectEnvVars(container, wineInfo))
+            val pb = ProcessBuilder(command).directory(rootDir)
+            pb.environment().putAll(buildDirectEnvVars(container, wineInfo, root))
+            pb.environment().remove("LD_LIBRARY_PATH")
             val proc = pb.start()
             proc.waitFor()
             LaunchResult(success = true)
@@ -502,7 +512,11 @@ class GlibcWineLauncher(private val context: Context) {
     fun launchDirect(exePath: String?, exeArgs: String = ""): LaunchResult {
         Log.i(TAG, "直接模式启动 wine (Android 原生): exe=$exePath")
 
+        // 使用 canonicalPath 解析符号链接, 得到 /data/data/... 形式
+        // 因为 imagefs 中的二进制是按 /data/data/<pkg>/files/imagefs 编译的 (RPATH 硬编码)
         val rootDir = imageFs.rootDir
+        val root = try { rootDir.canonicalPath } catch (e: Exception) { rootDir.absolutePath }
+        Log.i(TAG, "imagefs 根目录 (canonical): $root")
 
         // 获取容器 (可选, 没有就用默认配置)
         // wine 不依赖容器存在, 首次运行会自动创建 prefix
@@ -523,15 +537,15 @@ class GlibcWineLauncher(private val context: Context) {
             WineInfo.MAIN_WINE_VERSION
         }
 
-        // 构建环境变量 (使用 Android 绝对路径, 不是容器内路径)
-        val envVars = buildDirectEnvVars(container, wineInfo)
+        // 构建环境变量 (使用 /data/data/... 绝对路径)
+        val envVars = buildDirectEnvVars(container, wineInfo, root)
 
         // 构建启动命令
         val isArm64EC = wineInfo.arch.equals("arm64ec", ignoreCase = true)
         val wineDir = if (wineInfo.isDefaultWine() && wineInfo.path != null) {
-            "${rootDir.absolutePath}${wineInfo.path}"
+            "$root${wineInfo.path}"
         } else {
-            "${rootDir.absolutePath}${GlibcWineConsts.WINE_PATH_REL}"
+            "$root${GlibcWineConsts.WINE_PATH_REL}"
         }
         val wineBinPath = "$wineDir/bin/wine"
         val screenSize = container?.screenSize?.ifEmpty { GlibcWineConsts.DEFAULT_SCREEN_SIZE }
@@ -539,24 +553,38 @@ class GlibcWineLauncher(private val context: Context) {
         // 使用 List 形式避免空格分割 bug (exe 路径可能含空格)
         val wineArgs = GlibcWineUtils.getWineStartCommandList(screenSize, exePath, exeArgs, null)
 
+        // 关键: 用 glibc 动态链接器 (ld-linux-aarch64.so.1) 启动 box64
+        // 因为 box64 是按 glibc 编译的, 不能直接用 Android bionic 加载
+        // 用 --library-path 代替 LD_LIBRARY_PATH, 避免污染子进程 (如 /system/bin/sh)
+        val glibcLd = "$root${GlibcWineConsts.ARM64EC_LD_REL}" // /usr/lib/ld-linux-aarch64.so.1
+        val glibcLibPath = listOf(
+            "$root${GlibcWineConsts.GLIBC64_DIR_REL}",
+            "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}"
+        ).joinToString(":")
+
         val cmd = if (!isArm64EC) {
-            val box64Path = "${rootDir.absolutePath}${GlibcWineConsts.BOX64_BIN_REL}"
-            listOf(box64Path, wineBinPath) + wineArgs
+            val box64Path = "$root${GlibcWineConsts.BOX64_BIN_REL}"
+            // ld-linux-aarch64.so.1 --library-path <glibc libs> box64 wine <args>
+            listOf(glibcLd, "--library-path", glibcLibPath, box64Path, wineBinPath) + wineArgs
         } else {
-            val ldPath = "${rootDir.absolutePath}${GlibcWineConsts.ARM64EC_LD_REL}"
-            listOf(ldPath, wineBinPath) + wineArgs
+            // arm64ec: 直接用 glibc ld 启动 wine (不需要 box64)
+            listOf(glibcLd, "--library-path", glibcLibPath, wineBinPath) + wineArgs
         }
 
         Log.i(TAG, "启动命令: ${cmd.joinToString(" ")}")
-        Log.i(TAG, "工作目录: ${rootDir.absolutePath}")
+        Log.i(TAG, "工作目录: $root")
         Log.i(TAG, "WINEPREFIX: ${envVars["WINEPREFIX"]}")
-        Log.i(TAG, "LD_LIBRARY_PATH: ${envVars["LD_LIBRARY_PATH"]}")
+        Log.i(TAG, "glibc LD: $glibcLd")
+        Log.i(TAG, "glibc lib path: $glibcLibPath")
 
         return try {
             val pb = ProcessBuilder(cmd)
                 .directory(rootDir)
                 .redirectErrorStream(true)
             pb.environment().putAll(envVars)
+            // 不设置全局 LD_LIBRARY_PATH (会破坏 /system/bin/sh 等系统程序)
+            // glibc 库路径通过 ld-linux 的 --library-path 参数传递
+            pb.environment().remove("LD_LIBRARY_PATH")
             pb.environment()["PROOT_TMP_DIR"] = ""
             pb.environment()["LD_PRELOAD"] = ""
 
@@ -588,20 +616,20 @@ class GlibcWineLauncher(private val context: Context) {
     }
 
     /**
-     * 构建 wine 直接运行的环境变量 (Android 绝对路径)。
+     * 构建 wine 直接运行的环境变量 (使用 /data/data/... 绝对路径)。
      *
-     * 与 [buildWineEnvVars] 的区别: 路径使用 imagefs 在 Android 上的绝对路径,
-     * 而不是容器内的 /opt/glibc-wine 路径。
+     * 注意: 不设置 LD_LIBRARY_PATH, 因为它会污染子进程 (如 /system/bin/sh)。
+     * glibc 库路径通过 ld-linux-aarch64.so.1 的 --library-path 参数传递。
      *
      * @param container wine 容器 (可为 null, null 时使用默认配置)
+     * @param root imagefs 根目录的 canonical 路径 (/data/data/... 形式)
      */
-    private fun buildDirectEnvVars(container: WineContainer?, wineInfo: WineInfo): Map<String, String> {
-        val root = imageFs.rootDir.absolutePath
+    private fun buildDirectEnvVars(container: WineContainer?, wineInfo: WineInfo, root: String): Map<String, String> {
         val envVars = mutableMapOf<String, String>()
 
         val isArm64EC = wineInfo.arch.equals("arm64ec", ignoreCase = true)
 
-        // ====== 基础路径变量 (Android 绝对路径) ======
+        // ====== 基础路径变量 (使用 /data/data/... 路径) ======
         envVars["HOME"] = "$root${GlibcWineConsts.HOME_PATH_REL}"
         envVars["USER"] = GlibcWineConsts.USER
         envVars["TMPDIR"] = "$root${GlibcWineConsts.TMP_DIR_REL}"
@@ -617,12 +645,8 @@ class GlibcWineLauncher(private val context: Context) {
             "$root${GlibcWineConsts.WINE_PATH_REL}"
         }
         envVars["PATH"] = "$wineDir/bin:/usr/bin:/bin"
-        envVars["LD_LIBRARY_PATH"] = listOf(
-            "$wineDir/lib64",
-            "$wineDir/lib",
-            "$root${GlibcWineConsts.GLIBC64_DIR_REL}",
-            "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}"
-        ).joinToString(":")
+        // 不设置 LD_LIBRARY_PATH! 会破坏 /system/bin/sh 等系统程序
+        // glibc 库路径通过 ld-linux-aarch64.so.1 --library-path 传递
         envVars["WINEDLLPATH"] = "$wineDir/lib/wine"
         envVars["FONTCONFIG_PATH"] = "$root${GlibcWineConsts.FONTCONFIG_DIR_REL}"
 
@@ -632,6 +656,7 @@ class GlibcWineLauncher(private val context: Context) {
             envVars["BOX64_DYNAREC"] = "1"
             envVars["BOX64_MMAP32"] = "1"
             envVars["BOX64_X11GLX"] = "1"
+            // BOX64_LD_LIBRARY_PATH 指向 x86_64 glibc 库 (box64 内部使用, 不影响系统)
             envVars["BOX64_LD_LIBRARY_PATH"] = listOf(
                 "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}",
                 "$root${GlibcWineConsts.GLIBC64_DIR_REL}"
