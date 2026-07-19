@@ -382,19 +382,20 @@ class GlibcWineLauncher(private val context: Context) {
      * - "kill" → 停止 wine
      */
     fun generateLaunchScript(): String {
-        return """#!/bin/sh
-# linbox-wine: 通过 fifo 向 Android 端发送命令, 启动 glibc wine
-FIFO="/opt/glibc-wine/tmp/wine-cmd"
-if [ ! -p "\$FIFO" ]; then
-    echo "错误: fifo 不存在 (\$FIFO)"
-    exit 1
-fi
-case "\$1" in
-    kill) printf "kill\n" > "\$FIFO" ;;
-    "")   printf "winefile\n" > "\$FIFO" ;;
-    *)    printf "exe:\$*\n" > "\$FIFO" ;;
-esac
-"""
+        val sb = StringBuilder()
+        sb.append("#!/bin/sh\n")
+        sb.append("# linbox-wine: 通过 fifo 向 Android 端发送命令, 启动 glibc wine\n")
+        sb.append("FIFO=\"/opt/glibc-wine/tmp/wine-cmd\"\n")
+        sb.append("if [ ! -p \"\$FIFO\" ]; then\n")
+        sb.append("    echo \"错误: fifo 不存在 (\$FIFO)\"\n")
+        sb.append("    exit 1\n")
+        sb.append("fi\n")
+        sb.append("case \"\$1\" in\n")
+        sb.append("    kill) printf \"kill\\n\" > \"\$FIFO\" ;;\n")
+        sb.append("    \"\")   printf \"winefile\\n\" > \"\$FIFO\" ;;\n")
+        sb.append("    *)    printf \"exe:\$*\\n\" > \"\$FIFO\" ;;\n")
+        sb.append("esac\n")
+        return sb.toString()
     }
 
     /**
