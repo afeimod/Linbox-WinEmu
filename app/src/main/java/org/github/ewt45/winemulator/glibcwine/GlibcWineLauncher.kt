@@ -381,41 +381,20 @@ class GlibcWineLauncher(private val context: Context) {
      * - "exe:<路径>" → 启动指定 exe
      * - "kill" → 停止 wine
      */
-    fun generateLaunchScript(container: WineContainer): String {
-        val sb = StringBuilder()
-        sb.append("#!/bin/sh\n")
-        sb.append("# linbox-wine: glibc wine 启动脚本\n")
-        sb.append("# 由 GlibcWineLauncher 自动生成\n")
-        sb.append("#\n")
-        sb.append("# 工作原理:\n")
-        sb.append("#   wine 不在 proot 内运行, 而是直接在 Android 上运行\n")
-        sb.append("#   此脚本通过 fifo 向 Android 端发送启动命令\n")
-        sb.append("#   X11 和音频通过共享的 Termux-X11/PulseAudio 实现\n")
-        sb.append("\n")
-        sb.append("# fifo 路径 (imagefs 通过 --bind 挂载到 /opt/glibc-wine)\n")
-        sb.append("FIFO=\"/opt/glibc-wine/tmp/wine-cmd\"\n")
-        sb.append("\n")
-        sb.append("# 检查 fifo 是否存在\n")
-        sb.append("if [ ! -p \"\$FIFO\" ]; then\n")
-        sb.append("    echo \"错误: fifo 不存在 (\$FIFO)\"\n")
-        sb.append("    echo \"请确保 glibc wine 服务已启动\"\n")
-        sb.append("    exit 1\n")
-        sb.append("fi\n")
-        sb.append("\n")
-        sb.append("# 发送命令\n")
-        sb.append("if [ -z \"\$1\" ]; then\n")
-        sb.append("    # 无参数, 启动 winefile\n")
-        sb.append("    echo \"winefile\" > \"\$FIFO\" &\n")
-        sb.append("else\n")
-        sb.append("    # 有参数, 启动指定程序\n")
-        sb.append("    echo \"exe:\$@\" > \"\$FIFO\" &\n")
-        sb.append("fi\n")
-        sb.append("\n")
-        sb.append("# 等待写入完成\n")
-        sb.append("wait\n")
-        sb.append("echo \"命令已发送, wine 窗口将在桌面显示\"\n")
-
-        return sb.toString()
+    fun generateLaunchScript(): String {
+        return """#!/bin/sh
+# linbox-wine: 通过 fifo 向 Android 端发送命令, 启动 glibc wine
+FIFO="/opt/glibc-wine/tmp/wine-cmd"
+if [ ! -p "\$FIFO" ]; then
+    echo "错误: fifo 不存在 (\$FIFO)"
+    exit 1
+fi
+case "\$1" in
+    kill) printf "kill\n" > "\$FIFO" ;;
+    "")   printf "winefile\n" > "\$FIFO" ;;
+    *)    printf "exe:\$*\n" > "\$FIFO" ;;
+esac
+"""
     }
 
     /**
@@ -437,19 +416,16 @@ class GlibcWineLauncher(private val context: Context) {
      * @param container wine 容器
      * @return 脚本在容器内的路径
      */
-    fun deployLaunchScript(rootfs: File, container: WineContainer): String {
+    fun deployLaunchScript(rootfs: File): String {
         val scriptDir = File(rootfs, "usr/local/bin")
         scriptDir.mkdirs()
         val scriptFile = File(scriptDir, "linbox-wine")
-        scriptFile.writeText(generateLaunchScript(container))
-
-        // 设置可执行权限
+        scriptFile.writeText(generateLaunchScript())
         try {
             android.system.Os.chmod(scriptFile.absolutePath, 493) // 0755
         } catch (e: Exception) {
             Log.w(TAG, "设置脚本权限失败", e)
         }
-
         Log.i(TAG, "启动脚本已部署: ${scriptFile.path}")
         return "/usr/local/bin/linbox-wine"
     }
@@ -517,69 +493,44 @@ class GlibcWineLauncher(private val context: Context) {
      * @return 启动结果
      */
     fun launchDirect(exePath: String?, exeArgs: String = ""): LaunchResult {
-        Log.i(TAG, "直接模式启动 wine: exe=$exePath")
+        Log.i(TAG, "启动 wine: exe=$exePath")
 
-        // 使用 /data/data/... 路径 (二进制 RPATH 硬编码)
-        val rootDir = imageFs.rootDir
         val root = imageFs.rootPath
-        Log.i(TAG, "imagefs: $root")
+        val wineDir = "$root/opt/x86_64-wine"
 
-        // 不做任何额外操作: 不创建盘符, 不创建符号链接, 不创建 prefix 目录
-        // 只运行 box64 wine, 让 wine 自己 wineboot 生成 prefix
-
-        // 默认使用 x86_64 wine
-        val wineInfo = WineInfo.MAIN_WINE_VERSION
-        val wineDir = "$root${wineInfo.path}"  // /opt/x86_64-wine
-        val wineBinPath = "$wineDir/bin/wine"
-
-        // 构建 wine 启动参数
+        // wine 启动参数 (内置程序直接运行, 外部 exe 用 explorer /desktop)
         val wineArgs = GlibcWineUtils.getWineStartCommandList(
             GlibcWineConsts.DEFAULT_SCREEN_SIZE, exePath, exeArgs, null
         )
 
         // 用 glibc 动态链接器启动 box64
-        val glibcLd = "$root${GlibcWineConsts.ARM64EC_LD_REL}"
-        val glibcLibPath = listOf(
-            "$root${GlibcWineConsts.GLIBC64_DIR_REL}",
-            "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}"
-        ).joinToString(":")
-
-        val box64Path = "$root${GlibcWineConsts.BOX64_BIN_REL}"
+        val glibcLd = "$root/usr/lib/ld-linux-aarch64.so.1"
+        val glibcLibPath = "$root/usr/lib:$root/usr/lib/x86_64-linux-gnu"
+        val box64Path = "$root/usr/local/bin/box64"
+        val wineBinPath = "$wineDir/bin/wine"
         val cmd = listOf(glibcLd, "--library-path", glibcLibPath, box64Path, wineBinPath) + wineArgs
 
-        // 最小化环境变量: 只保留 wine 运行必需的
-        val envVars = mutableMapOf<String, String>()
-        envVars["HOME"] = "$root${GlibcWineConsts.HOME_PATH_REL}"
-        envVars["USER"] = GlibcWineConsts.USER
-        envVars["TMPDIR"] = "$root${GlibcWineConsts.TMP_DIR_REL}"
-        envVars["DISPLAY"] = GlibcWineConsts.DISPLAY
-        envVars["WINEPREFIX"] = "$root${GlibcWineConsts.WINEPREFIX_REL}"
-        envVars["PATH"] = "$wineDir/bin:/usr/bin:/bin:/system/bin:/system/xbin"
-        // BOX64_LD_LIBRARY_PATH: 让 box64 能找到 ntdll.so 的依赖库 (libwine.so.1 等)
-        // 必须包含 wine 的 lib 目录
-        envVars["BOX64_LD_LIBRARY_PATH"] = listOf(
-            "$root${GlibcWineConsts.X86_64_GLIBC_DIR_REL}",
-            "$root${GlibcWineConsts.GLIBC64_DIR_REL}",
-            "$wineDir/lib",
-            "$wineDir/lib64"
-        ).joinToString(":")
-        envVars["PULSE_SERVER"] = GlibcWineConsts.PULSE_SERVER
+        // 最小环境变量: 只设置让 box64 wine 能运行的
+        // 不设置 WINEPREFIX — wine 用默认 HOME/.wine, 首次运行自动 wineboot 生成
+        // 不设置 TMPDIR — wine 自己用 /tmp (wineserver socket 在 /tmp/.wine-<uid>)
+        val envVars = mapOf(
+            "HOME" to "$root/home/xuser",
+            "DISPLAY" to GlibcWineConsts.DISPLAY,
+            "PATH" to "$wineDir/bin:/usr/bin:/bin:/system/bin:/system/xbin",
+            "BOX64_LD_LIBRARY_PATH" to "$root/usr/lib/x86_64-linux-gnu:$root/usr/lib:$wineDir/lib:$wineDir/lib64"
+        )
 
         Log.i(TAG, "命令: ${cmd.joinStringSafe()}")
-        Log.i(TAG, "WINEPREFIX: ${envVars["WINEPREFIX"]}")
-        Log.i(TAG, "BOX64_LD_LIBRARY_PATH: ${envVars["BOX64_LD_LIBRARY_PATH"]}")
 
         return try {
             val pb = ProcessBuilder(cmd)
-                .directory(rootDir)
+                .directory(imageFs.rootDir)
                 .redirectErrorStream(true)
             pb.environment().putAll(envVars)
             pb.environment().remove("LD_LIBRARY_PATH")
             pb.environment()["LD_PRELOAD"] = ""
 
             val proc = pb.start()
-
-            // 后台读取输出
             Thread {
                 try {
                     proc.inputStream.bufferedReader().useLines { lines ->
@@ -589,15 +540,12 @@ class GlibcWineLauncher(private val context: Context) {
                     Log.e(TAG, "读取输出失败", e)
                 }
                 try {
-                    val exitCode = proc.waitFor()
-                    Log.i(TAG, "[wine] 进程结束, 退出码: $exitCode")
-                } catch (e: Exception) {
-                    Log.e(TAG, "[wine] 等待结束失败", e)
-                }
+                    Log.i(TAG, "[wine] 退出码: ${proc.waitFor()}")
+                } catch (e: Exception) {}
             }.start()
 
             setWineProcess(proc)
-            Log.i(TAG, "wine 进程已启动")
+            Log.i(TAG, "wine 已启动")
             LaunchResult(success = true)
         } catch (e: Throwable) {
             Log.e(TAG, "wine 启动失败", e)

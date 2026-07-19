@@ -2,8 +2,6 @@ package org.github.ewt45.winemulator.glibcwine
 
 import android.content.Context
 import android.util.Log
-import org.github.ewt45.winemulator.Utils
-import org.json.JSONObject
 import java.io.File
 
 /**
@@ -52,10 +50,10 @@ object GlibcWineInitializer {
     ) {
         Log.i(TAG, "开始初始化 glibc wine 运行时")
 
-        // 0. 启动命令服务器 (监听 fifo, 供 proot 容器内调用)
+        // 1. 启动命令服务器 (监听 fifo, 供 proot 容器内调用)
         GlibcWineCommandServer.start(context)
 
-        // 1. 安装 imagefs
+        // 2. 安装 imagefs
         GlibcImageFsInstaller.installIfNeeded(context, onProgress) { installed ->
             if (!installed) {
                 Log.w(TAG, "imagefs 未安装, glibc wine 功能不可用")
@@ -63,60 +61,15 @@ object GlibcWineInitializer {
                 return@installIfNeeded
             }
 
-            // 2. 创建默认容器 (如果没有)
-            ensureDefaultContainer(context)
-
-            // 3. 验证运行时
+            // 3. 验证运行时 (只检查 box64 和 wine 二进制是否存在)
             val valid = validateRuntime(context)
             if (valid) {
                 Log.i(TAG, "glibc wine 运行时初始化完成")
             } else {
-                Log.w(TAG, "glibc wine 运行时验证失败, 部分功能可能不可用")
+                Log.w(TAG, "glibc wine 运行时验证失败")
             }
             onComplete?.invoke(valid)
         }
-    }
-
-    /**
-     * 确保至少有一个默认 wine 容器。
-     */
-    fun ensureDefaultContainer(context: Context): WineContainer? {
-        val manager = WineContainerManager(context)
-        var containers = manager.getContainers()
-
-        if (containers.isEmpty()) {
-            Log.i(TAG, "创建默认 wine 容器")
-            val data = JSONObject()
-            data.put("name", "默认容器")
-            data.put("screenSize", GlibcWineConsts.DEFAULT_SCREEN_SIZE)
-            data.put("graphicsDriver", GlibcWineConsts.DEFAULT_GRAPHICS_DRIVER)
-            data.put("audioDriver", GlibcWineConsts.DEFAULT_AUDIO_DRIVER)
-            data.put("dxwrapper", GlibcWineConsts.DEFAULT_DXWRAPPER)
-            data.put("wincomponents", GlibcWineConsts.DEFAULT_WINCOMPONENTS)
-            data.put("envVars", GlibcWineConsts.DEFAULT_ENV_VARS)
-            data.put("box64Preset", Box64Preset.COMPATIBILITY)
-            data.put("box64Version", GlibcWineConsts.DefaultVersion.BOX64)
-            data.put("wineVersion", WineInfo.MAIN_WINE_VERSION.identifier())
-
-            val container = manager.createContainer(data)
-            if (container != null) {
-                // 激活默认容器
-                manager.activateContainer(container)
-                // 创建 dosdevices 盘符映射
-                val imageFs = GlibcImageFs.find(context)
-                GlibcWineUtils.createDosdevicesSymlinks(container, imageFs.rootDir)
-                // 不手动创建 wine prefix, wine 首次运行时自动初始化
-                Log.i(TAG, "默认容器创建成功: ${container.name}")
-                return container
-            }
-        } else {
-            // 确保有一个容器被激活
-            if (manager.getActivatedContainer() == null) {
-                manager.activateContainer(containers.first())
-            }
-            return containers.first()
-        }
-        return null
     }
 
     /**
@@ -178,15 +131,9 @@ object GlibcWineInitializer {
     fun deployToRootfs(context: Context, rootfs: File): Boolean {
         return try {
             val launcher = GlibcWineLauncher(context)
-            val container = ensureDefaultContainer(context)
-            if (container != null) {
-                launcher.deployLaunchScript(rootfs, container)
-                Log.i(TAG, "wine 启动脚本已部署到 rootfs: ${rootfs.name}")
-                true
-            } else {
-                Log.w(TAG, "无法部署: 没有 wine 容器")
-                false
-            }
+            launcher.deployLaunchScript(rootfs)
+            Log.i(TAG, "wine 启动脚本已部署到 rootfs")
+            true
         } catch (e: Exception) {
             Log.e(TAG, "部署启动脚本失败", e)
             false
