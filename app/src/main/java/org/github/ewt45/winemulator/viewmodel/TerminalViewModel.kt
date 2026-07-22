@@ -20,7 +20,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import org.github.ewt45.winemulator.Consts
 import org.github.ewt45.winemulator.Utils.getPid
+import org.github.ewt45.winemulator.emu.Launcher
+import org.github.ewt45.winemulator.emu.NativeGlibc
 import org.github.ewt45.winemulator.emu.Proot
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -28,7 +31,7 @@ import java.io.OutputStreamWriter
 
 class TerminalViewModel : ViewModel() {
     private val TAG = "TerminalViewModel"
-    private val terminal: Proot = Proot()
+    private var terminal: Launcher = Proot()
     private var process: Process? = null
 
     /** 输入 */
@@ -113,13 +116,26 @@ class TerminalViewModel : ViewModel() {
     /**
      * 启动终端
      */
-    suspend fun startTerminal() {
+    suspend fun startTerminal(forceNativeGlibc: Boolean = false) {
         if (process != null) return
-        isConnected = true
 
-        process = withContext(Dispatchers.IO) {
-            terminal.attach().start()
+        // 根据偏好选择启动器: 0 = PRoot, 1 = 原生 glibc
+        // forceNativeGlibc=true 时强制使用原生 glibc（用于独立测试）
+        terminal = if (forceNativeGlibc || Consts.Pref.execution_mode.get() == 1) NativeGlibc(forceNativeGlibc) else Proot()
+
+        process = try {
+            withContext(Dispatchers.IO) {
+                terminal.attach().start()
+            }
+        } catch (e: Exception) {
+            process = null
+            processWriter = null
+            isConnected = false
+            Log.e(TAG, "启动终端失败", e)
+            updateOutput("启动失败: ${e.message ?: e.javaClass.simpleName}")
+            return
         }
+        isConnected = true
 
         //绑定输入输出
         processWriter = OutputStreamWriter(process!!.outputStream)
@@ -226,13 +242,15 @@ class TerminalViewModel : ViewModel() {
                 updateOutput("错误: ${e.message}")
             }
             process?.waitFor()
+            val exitCode = process?.exitValue()
+            updateOutput("进程已退出，退出码=${exitCode ?: "未知"}")
             isConnected = false
             closeResources()
         }
 
-        if (Proot.lastTimeCmd.isNotBlank()) {
-            updateOutput("使用以下参数启动proot：")
-            updateOutput(Proot.lastTimeCmd)
+        if (terminal.lastTimeCmd.isNotBlank()) {
+            updateOutput("启动命令:")
+            updateOutput(terminal.lastTimeCmd)
             updateOutput("")
         }
         return

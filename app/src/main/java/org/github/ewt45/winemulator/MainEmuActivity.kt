@@ -197,6 +197,7 @@ class MainEmuActivity : MainActivity() {
     override fun onDestroy() {
         super.onDestroy()
         terminalViewModel.stopTerminal()
+        org.github.ewt45.winemulator.emu.NativeWineCfgTest.stop()
         stopService(startX11Intent)
         // FIXME 目前release构建 finish 无法结束 service 进程 导致下次启动 xserver启动失败。需要手动强制结束进程
         android.os.Process.killProcess(getX11ServicePid())
@@ -216,6 +217,7 @@ class MainEmuActivity : MainActivity() {
     suspend fun stopContainer() = withContext(Dispatchers.Default) {
         Log.d(TAG, "stopContainer: 关闭当前容器")
         terminalViewModel.stopTerminal()
+        org.github.ewt45.winemulator.emu.NativeWineCfgTest.stop()
         runCatching { stopService(startX11Intent) }
         runCatching { android.os.Process.killProcess(getX11ServicePid()) }
         // 稍等一下避免端口/资源未释放
@@ -285,6 +287,75 @@ class MainEmuActivity : MainActivity() {
         mainViewModel.showBlockDialog("xserver启动中") {
             waitForXStarted()
         }
+    }
+
+    /**
+     * 从 UI 按钮触发。必须用 Activity lifecycleScope，不能用 Compose rememberCoroutineScope，
+     * 否则跳转 X11 后 composition 销毁会取消协程，winecfg 根本不会启动。
+     */
+    fun startNativeWineCfgTestAsync(navigateToX11: () -> Unit) {
+        lifecycleScope.launch {
+            startNativeWineCfgTest(navigateToX11)
+        }
+    }
+
+    /**
+     * 独立测试：原生 glibc rootfs + box64 + winecfg，显示到 Termux-X11 (:13)。
+     * 不经过 PRoot，不启动交互终端。
+     */
+    suspend fun startNativeWineCfgTest(navigateToX11: () -> Unit) {
+        val result = mainViewModel.showBlockDialog("原生 winecfg 测试准备中…") {
+            withContext(Dispatchers.Default) {
+                terminalViewModel.stopTerminal()
+                org.github.ewt45.winemulator.emu.NativeWineCfgTest.stop()
+
+                // 先停旧 X11，避免 TMPDIR/rootfs 切换后 socket 状态不一致
+                runCatching { stopService(startX11Intent) }
+                val oldPid = getX11ServicePid()
+                if (oldPid > 0) runCatching { android.os.Process.killProcess(oldPid) }
+                delay(400)
+
+                val runtime = org.github.ewt45.winemulator.emu.NativeWineCfgTest.prepare(this@MainEmuActivity) { msg ->
+                    Log.d(TAG, "NativeWineCfg: $msg")
+                }
+
+                if (!Consts.rootfsCurrXkbDir.exists()) {
+                    throw RuntimeException("rootfs 缺少 xkb (${Consts.rootfsCurrXkbDir.absolutePath})，X11 无法启动")
+                }
+                startX11Intent = createStartX11Intent()
+                startService(startX11Intent)
+                // 独立测试时多等一会，杀进程重启后连接更慢
+                val startTime = System.currentTimeMillis()
+                while (System.currentTimeMillis() - startTime < 10000) {
+                    if (isConnected()) break
+                    delay(200)
+                }
+                if (!isConnected()) {
+                    throw RuntimeException("X11 在 10 秒内未连接成功，无法显示 winecfg")
+                }
+
+                // 先启动 winecfg，再跳转 X11；跳转不能取消 lifecycleScope
+                org.github.ewt45.winemulator.emu.NativeWineCfgTest.start(runtime) { msg ->
+                    Log.d(TAG, "NativeWineCfg: $msg")
+                }
+                Log.d(TAG, "NativeWineCfg 命令=${org.github.ewt45.winemulator.emu.NativeWineCfgTest.lastCmd}")
+                Log.d(TAG, "NativeWineCfg wine=${runtime.wine.absolutePath}")
+                runtime
+            }
+        }
+        if (result.isFailure) {
+            val err = result.exceptionOrNull()
+            Log.e(TAG, "startNativeWineCfgTest 失败", err)
+            val logs = org.github.ewt45.winemulator.emu.NativeWineCfgTest.lastLogSnippet
+            mainViewModel.showConfirmDialog(
+                "原生 winecfg 测试失败:\n${err?.message ?: err?.javaClass?.simpleName}\n\n" +
+                    (if (logs.isNotBlank()) "附加日志:\n$logs\n\n" else "") +
+                    (err?.stackTraceToString()?.take(1200) ?: "")
+            )
+            return
+        }
+        // 进程已确认在跑后再进 X11 页
+        navigateToX11()
     }
 
     override fun buildNotification(): Notification {

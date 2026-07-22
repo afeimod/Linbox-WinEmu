@@ -35,9 +35,32 @@ import org.github.ewt45.winemulator.viewmodel.SettingViewModel
 fun ProotSettings(settingVM: SettingViewModel) {
     val proot by settingVM.prootState.collectAsState()
 
+    CollapsePanel("执行环境") {
+        ExecutionModeSelector(proot.executionMode, settingVM::onChangeExecutionMode)
+    }
+
     CollapsePanel("PRoot参数") {
         ProotNoValueOptions(proot.boolOptions, settingVM::onChangeProotBoolOptions)
         ProotStartupCmd(proot.startupCmd, settingVM::onChangeProotStartupCmd)
+    }
+}
+
+/**
+ * 执行模式选择器: PRoot (0) 或 原生 glibc (1)
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun ExecutionModeSelector(
+    currentMode: Int,
+    onChange: (Int) -> Unit
+) {
+    FlowRow(modifier = Modifier, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+        ChipOption(currentMode == 0, "PRoot") { _, checked ->
+            if (checked) onChange(0)
+        }
+        ChipOption(currentMode == 1, "原生Glibc") { _, checked ->
+            if (checked) onChange(1)
+        }
     }
 }
 

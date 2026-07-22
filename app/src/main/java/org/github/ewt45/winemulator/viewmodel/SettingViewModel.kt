@@ -34,6 +34,7 @@ import org.github.ewt45.winemulator.Consts.Pref.inputcontrols_haptics
 import org.github.ewt45.winemulator.Consts.Pref.inputcontrols_hardware_kbd_scancodes_workaround
 import org.github.ewt45.winemulator.Consts.Pref.inputcontrols_opacity
 import org.github.ewt45.winemulator.Consts.Pref.inputcontrols_profile_id
+import org.github.ewt45.winemulator.Consts.Pref.execution_mode
 import org.github.ewt45.winemulator.Consts.Pref.proot_bool_options
 import org.github.ewt45.winemulator.Consts.Pref.proot_startup_cmd
 import org.github.ewt45.winemulator.Consts.Pref.general_theme_mode
@@ -135,6 +136,7 @@ class SettingViewModel : ViewModel() {
     // proot设置
     val prootFlow = dataStore.data.map { pref ->
         PrefProot(
+            execution_mode.run { pref[key] ?: default },
             proot_bool_options.run { pref[key] ?: default },
             proot_startup_cmd.run { pref[key] ?: default },
         )
@@ -228,6 +230,8 @@ class SettingViewModel : ViewModel() {
             Utils.Files.writeToUri(ctx, uri, json).exceptionOrNull()?.let { throw it }
         }
     }
+
+    fun onChangeExecutionMode(mode: Int) = editDateStoreAsync(execution_mode.key, mode)
 
     suspend fun onChangeProotBoolOptions(option: String, checked: Boolean) = withContext(IO) {
         val newValue = if (checked) prootState.value.boolOptions + option
@@ -483,12 +487,15 @@ data class RootfsContainer(
 )
 
 data class PrefProot(
+    /** 执行模式: 0 = PRoot, 1 = 原生 glibc */
+    val executionMode: Int,
     /** 只会出现一次且没有附加参数的选项。有全名就尽量使用全名 */
     val boolOptions: Set<String>,
     val startupCmd: String,
 )
 
 private val PrefProot_DEFAULT = PrefProot(
+    execution_mode.default,
     proot_bool_options.default,
     proot_startup_cmd.default,
 )

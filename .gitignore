@@ -17,3 +17,9 @@ local.properties
 /.ignore
 /app/debug
 /app/release
+
+# 原生 glibc/Wine 测试用大体积资产，不入仓（本地自备）
+/app/src/main/assets/rootfs.tzst
+/app/src/main/assets/native-box64.tar.xz
+/app/src/main/assets/native-wine.tar.xz
+/app/src/main/assets/native-wine-prefix.tzst

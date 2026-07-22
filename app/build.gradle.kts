@@ -32,6 +32,9 @@ android {
             )
         }
     }
+    aaptOptions {
+        noCompress("gz", "xz", "zst", "tzst")
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11

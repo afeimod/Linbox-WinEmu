@@ -18,15 +18,13 @@ import java.nio.charset.StandardCharsets
 /**
  * 连接linux的终端。输入命令或获取输出
  */
-class Proot {
+class Proot : Launcher {
     private val TAG = "Proot"
 
-    companion object {
-        /**上次执行proot时的完整命令, 仅用于显示，可能无法真正用于执行 */
-        var lastTimeCmd = ""
-    }
+    /**上次执行proot时的完整命令, 仅用于显示，可能无法真正用于执行 */
+    override var lastTimeCmd = ""
 
-    suspend fun attach(): ProcessBuilder = withContext(Dispatchers.IO) {
+    override suspend fun attach(): ProcessBuilder = withContext(Dispatchers.IO) {
         val rootfs = Consts.rootfsCurrDir
         val tmpdir = Consts.tmpDir
         val lang = Consts.Pref.general_rootfs_lang.get()

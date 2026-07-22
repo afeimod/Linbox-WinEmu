@@ -27,11 +27,13 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.github.ewt45.winemulator.Consts
+import org.github.ewt45.winemulator.Utils
 import org.github.ewt45.winemulator.MainEmuActivity
 import org.github.ewt45.winemulator.Utils.getX11ServicePid
 import org.github.ewt45.winemulator.emu.X11Service
 import org.github.ewt45.winemulator.ui.components.CollapsePanel
 import org.github.ewt45.winemulator.ui.components.ComposeSpinner
+import org.github.ewt45.winemulator.ui.components.TaskReporter
 import org.github.ewt45.winemulator.ui.Destination
 import org.github.ewt45.winemulator.ui.components.rememberNotImplDialog
 import org.github.ewt45.winemulator.viewmodel.TerminalViewModel
@@ -45,6 +47,7 @@ fun DebugSettings(terminalVM: TerminalViewModel, navigateTo: (Destination) -> Un
 
     var showFilterSymlink by filterSymlinkDialog()
     var showCompareDir by compareRootfsDirDialog()
+    val scope = rememberCoroutineScope()
 
     DebugSettingsImpl(
         sendSigStop = {
@@ -59,6 +62,51 @@ fun DebugSettings(terminalVM: TerminalViewModel, navigateTo: (Destination) -> Un
         findSymlinkToTermux = { showFilterSymlink = true },
         startX11Service = { MainEmuActivity.instance.startService(Intent(MainEmuActivity.instance, X11Service::class.java)) },
         compareRootfsDir = { showCompareDir = true },
+        startNativeGlibcTest = {
+            scope.launch {
+                try {
+                    android.util.Log.d("NativeGlibcTest", "按钮点击，开始启动原生glibc")
+                    // 诊断：列出assets里的所有文件
+                    val assetFiles = ctx.assets.list("") ?: arrayOf()
+                    android.util.Log.d("NativeGlibcTest", "assets根目录文件: ${assetFiles.joinToString(", ")}")
+                    // 逐个尝试打开rootfs文件
+                    val tryNames = listOf("rootfs.tar.gz", "rootfs.tar.xz", "rootfs.tar.zst", "rootfs.tzst")
+                    for (name in tryNames) {
+                        try {
+                            val size = ctx.assets.open(name).use { it.available() }
+                            android.util.Log.d("NativeGlibcTest", "找到 $name, size=$size")
+                        } catch (e: Exception) {
+                            android.util.Log.d("NativeGlibcTest", "未找到 $name: ${e.message}")
+                        }
+                    }
+                    terminalVM.stopTerminal()
+                    var rootfs = Utils.Rootfs.getSelectedRootfs()
+                    android.util.Log.d("NativeGlibcTest", "getSelectedRootfs = ${rootfs}")
+                    if (rootfs == null) {
+                        android.util.Log.d("NativeGlibcTest", "rootfs为null，从assets解压...")
+                        rootfs = Utils.Rootfs.installRootfsFromAssets(ctx, TaskReporter.Dummy)
+                        android.util.Log.d("NativeGlibcTest", "installRootfsFromAssets结果 = ${rootfs}")
+                        if (rootfs == null) {
+                            android.util.Log.e("NativeGlibcTest", "assets中未找到rootfs压缩包")
+                            return@launch
+                        }
+                    }
+                    Utils.Rootfs.makeCurrent(rootfs)
+                    android.util.Log.d("NativeGlibcTest", "makeCurrent完成，准备startTerminal")
+                    terminalVM.startTerminal(forceNativeGlibc = true)
+                    android.util.Log.d("NativeGlibcTest", "startTerminal已调用")
+                } catch (e: Exception) {
+                    android.util.Log.e("NativeGlibcTest", "启动失败", e)
+                }
+            }
+        },
+        startNativeWineCfgTest = {
+            // 不要用 Compose rememberCoroutineScope：跳转 X11 会取消它，导致 winecfg 还没启动就中断
+            android.util.Log.d("NativeWineCfgTest", "按钮点击，开始原生 winecfg 测试")
+            MainEmuActivity.instance.startNativeWineCfgTestAsync {
+                navigateTo(Destination.X11)
+            }
+        },
     )
 }
 
@@ -70,6 +118,8 @@ fun DebugSettingsImpl(
     findSymlinkToTermux: () -> Unit = {},
     startX11Service: () -> Unit = {},
     compareRootfsDir: () -> Unit = {},
+    startNativeGlibcTest: () -> Unit = {},
+    startNativeWineCfgTest: () -> Unit = {},
 ) {
 
     var showNotImpl by rememberNotImplDialog()
@@ -82,6 +132,8 @@ fun DebugSettingsImpl(
         Button(onClick = sendSigCont) { Text("向终端和x11发送CONT信号") }
         Button(onClick = gotoSelectRootfs) { Text("进入选择rootfs界面") }
         Button(onClick = compareRootfsDir) { Text("对比文件夹内文件") }
+        Button(onClick = startNativeGlibcTest) { Text("测试原生Glibc（独立启动）") }
+        Button(onClick = startNativeWineCfgTest) { Text("测试原生WineCfg（box64+X11）") }
     }
 }
 
@@ -91,9 +143,10 @@ private fun compareRootfsDirDialog(): MutableState<Boolean> {
     var infoText by remember { mutableStateOf("") }
     var finished by remember { mutableStateOf(true) }
 
-    val rootfsList = Consts.rootfsAllDir.list()!!.toList()
+    val rootfsList = Consts.rootfsAllDir.list()?.toList() ?: emptyList()
+    if (rootfsList.isEmpty()) return remember { mutableStateOf(false) }
     var rootfs1 by remember { mutableStateOf(rootfsList[0]) }
-    var rootfs2 by remember { mutableStateOf(rootfsList[1]) }
+    var rootfs2 by remember { mutableStateOf(rootfsList.getOrElse(1) { rootfsList[0] }) }
     if (visibility.value) {
         val scope = rememberCoroutineScope()
         finished = true
